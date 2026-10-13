@@ -10,6 +10,7 @@
 #include "Fx/FxRack.h"
 #include "ProfileManager.h"
 #include "SignalChainLayout.h"
+#include "SpectraAmp.h"
 #include "SpectraEngine.h"
 
 namespace RTNeural {
@@ -237,6 +238,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     bool publishAmpModel(std::unique_ptr<RTNeural::Model<float>> model,
                          const juce::File& sourceFile,
                          const AmpModelMetadata& metadata);
+    bool installAmpPayload(const void* data, size_t size, const juce::File& sourceFile);
 
     //==============================================================================
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -265,6 +267,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::unique_ptr<RTNeural::Model<float>> _neuralAmp;
     std::vector<std::unique_ptr<RTNeural::Model<float>>> _ampCopies;
     juce::MemoryBlock _ampModelBytes;
+    SpectraAmp _spectraAmp;
+    std::vector<float> _spectraWet;
 
     juce::CriticalSection _ampModelLock;
     bool _ampLoaded = false;  // Initialized to false until the JSON is loaded

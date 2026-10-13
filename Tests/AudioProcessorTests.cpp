@@ -77,6 +77,10 @@ class AudioProcessorUnitTests : public juce::UnitTest {
             testAmpModelResidualAndBypass();
         });
 
+        runCase("audio processor spectra neural amp", [this] {
+            testSpectraNeuralAmp();
+        });
+
         runCase("audio processor effect chain", [this] {
             testEffectChain();
         });
@@ -794,6 +798,70 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(std::abs(attenuatedRms - dryRms * 0.5f) < dryRms * 0.12f,
                "out_gain should scale the model output in decibels.");
         attenuated.releaseResources();
+    }
+
+    float renderSineRms(ProfilerAudioProcessor& processor, double sampleRate, int blockSize, int blockCount) {
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        for (int block = 0; block < blockCount; ++block) {
+            fillSineBuffer(buffer, sampleRate, 1000.0f, 0.25f);
+            processor.processBlock(buffer, midi);
+            expect(allSamplesFinite(buffer), "Spectra amp sine should stay finite.");
+        }
+        return getMaximumRmsLevel(buffer);
+    }
+
+    void testSpectraNeuralAmp() {
+        constexpr double matchedRate = 48000.0;
+        constexpr double hostRate = 44100.0;
+        constexpr int blockSize = 256;
+        const char* halfModel =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.5],"sample_rate":48000})";
+        const char* brokenModel =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[],"sample_rate":48000})";
+        const char* lstmModel =
+            R"({"version":"0.5.4","architecture":"LSTM","config":{"input_size":1,"hidden_size":3,"num_layers":1},"weights":[-0.21677088737487793,-0.6683622002601624,-0.2560940980911255,-0.3588429093360901,0.17952610552310944,0.19445613026618958,-0.01662646047770977,0.5353694558143616,-0.2536540627479553,-0.5132213234901428,-0.020476307719945908,0.08592455089092255,-0.6891753673553467,0.3627359867095947,0.008421811275184155,0.3113192617893219,0.14251480996608734,0.07989779114723206,-0.18211324512958527,0.7118963003158569,0.41084015369415283,-0.6571938395500183,-0.13214066624641418,-0.2698603868484497,0.49387243390083313,-0.3491725027561188,0.6353667974472046,-0.5005152225494385,0.2052856683731079,-0.4301638901233673,-0.15770092606544495,-0.7181791067123413,0.056290093809366226,-0.49049463868141174,0.6623441576957703,0.09029324352741241,0.34005245566368103,0.16416560113430023,0.15520110726356506,-0.4155678153038025,-0.36928507685661316,0.3211132884025574,-0.6769840121269226,-0.1575538069009781,0.05268515646457672,-0.4191459119319916,0.599330484867096,0.21518059074878693,-4.246325492858887,-3.315647840499878,-4.328850746154785,4.496089458465576,5.015639305114746,3.6492037773132324,0.14431169629096985,-0.6633821725845337,0.11673200130462646,-0.1418764889240265,-0.4897872805595398,-0.8689419031143188,-0.06714004278182983,-0.4450395107269287,-0.02142983116209507,-0.15136894583702087,-2.775207996368408,-0.08681213855743408,0.05702732503414154,0.670292317867279,0.31442636251449585,0.30793967843055725],"sample_rate":48000})";
+
+        ProfilerAudioProcessor broken;
+        expect(!loadAmpJson(broken, brokenModel), "A neural model with empty weights should be rejected.");
+
+        ProfilerAudioProcessor dry;
+        silenceOtherStages(dry);
+        prepareProcessor(dry, matchedRate, blockSize);
+        const auto dryLatency = dry.getLatencySamples();
+        const auto dryRms = renderSineRms(dry, matchedRate, blockSize, 16);
+        dry.releaseResources();
+        expect(dryRms > 0.05f, "Dry path at the model rate should pass the test tone.");
+
+        ProfilerAudioProcessor matched;
+        silenceOtherStages(matched);
+        expect(loadAmpJson(matched, halfModel), "Half-gain linear model should load.");
+        prepareProcessor(matched, matchedRate, blockSize);
+        expect(matched.getLatencySamples() == dryLatency,
+               "A model running at the host rate should not add latency.");
+        const auto matchedRms = renderSineRms(matched, matchedRate, blockSize, 16);
+        expect(std::abs(matchedRms - dryRms * 0.5f) < dryRms * 0.12f,
+               "A weight of 0.5 should halve the dry level.");
+
+        setParameterValue(matched, "isAmpEnabled", 0.0f);
+        const auto bypassedRms = renderSineRms(matched, matchedRate, blockSize, 32);
+        expect(std::abs(bypassedRms - dryRms) < dryRms * 0.15f,
+               "Disabling the amp should restore the dry signal after the crossfade.");
+        matched.releaseResources();
+
+        ProfilerAudioProcessor resampled;
+        ProfilerAudioProcessor dryHost;
+        silenceOtherStages(resampled);
+        silenceOtherStages(dryHost);
+        expect(loadAmpJson(resampled, lstmModel), "LSTM fixture should load.");
+        prepareProcessor(resampled, hostRate, blockSize);
+        prepareProcessor(dryHost, hostRate, blockSize);
+        expect(resampled.getLatencySamples() == dryHost.getLatencySamples() + 1,
+               "A 48 kHz model on a 44.1 kHz host should report one sample of adapter latency.");
+        const auto resampledRms = renderSineRms(resampled, hostRate, blockSize, 8);
+        expect(resampledRms > 0.0f, "Resampled model should produce a signal.");
+        resampled.releaseResources();
+        dryHost.releaseResources();
     }
 };
 

@@ -22,6 +22,7 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/UiSettings.cpp
     ../Source/Src/MarketplaceClient.cpp
     ../Source/Src/SpectraEngine.cpp
+    ../Source/Src/SpectraAmp.cpp
 )
 
 target_include_directories(ProfilerTests PRIVATE
@@ -64,6 +65,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 apply_compiler_options(ProfilerTests)
+profiler_link_nam_engine(ProfilerTests)
 profiler_attach_spectra_dsp(ProfilerTests)
 
 if(PROFILER_ENABLE_COVERAGE)
@@ -175,6 +177,7 @@ add_profiler_audio_processor_test(PrepareBlockSizes "audio processor handles pre
 add_profiler_audio_processor_test(ReleaseAndReprepare "audio processor release and reprepare")
 add_profiler_audio_processor_test(RejectMissingAssetFiles "audio processor rejects missing asset files")
 add_profiler_audio_processor_test(AmpModelResidualAndBypass "audio processor amp model residual and bypass")
+add_profiler_audio_processor_test(SpectraNeuralAmp "audio processor spectra neural amp")
 add_profiler_audio_processor_test(EffectChain "audio processor effect chain")
 
 function(add_profiler_profile_processor_integration_test test_name case_name)
