@@ -585,7 +585,7 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         constexpr double sampleRate = 44100.0;
         constexpr int blockSize = 256;
         for (int stageValue = static_cast<int>(SignalChain::Stage::PitchHarmonizer);
-             stageValue <= static_cast<int>(SignalChain::Stage::Tuner);
+             stageValue <= static_cast<int>(SignalChain::Stage::PitchDrop);
              ++stageValue) {
             const auto stage = static_cast<SignalChain::Stage>(stageValue);
             ProfilerAudioProcessor processor;
@@ -741,6 +741,126 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         wet.releaseResources();
         dry.releaseResources();
         expect(worst < 0.002f, "Bypassed plate should match the dry chain after the crossfade.");
+
+        expect(Fx::moduleFor(SignalChain::Stage::DelayTapeExtreme) == nullptr, "Tape Sat should leave the catalog.");
+        expect(Fx::moduleFor(SignalChain::Stage::PitchDrop) != nullptr, "Drop pitch shifter should be in the catalog.");
+        SignalChain::Layout retired;
+        clearMovableSlots(retired);
+        retired.slots[0] = SignalChain::Stage::DelayTapeExtreme;
+        expect(SignalChain::Layout::fromPacked(retired.packed()).atSlot(SignalChain::chainSlotForMovableIndex(0)) ==
+                   SignalChain::Stage::Empty,
+               "A saved Tape Sat block should be removed on load.");
+
+        ProfilerAudioProcessor spring;
+        SignalChain::Layout springLayout;
+        clearMovableSlots(springLayout);
+        springLayout.place(SignalChain::Stage::ReverbSpring, 1);
+        spring.setChainLayout(springLayout);
+        setParameterValue(spring, "isGateEnabled", 0.0f);
+        setParameterValue(spring, "master", 50.0f);
+        setParameterValue(spring, "springMix", 100.0f);
+        setParameterValue(spring, "springBoing", 100.0f);
+        setParameterValue(spring, "springDamp", 0.0f);
+        setParameterValue(spring, "springDecay", 2.0f);
+        prepareProcessor(spring, sampleRate, blockSize);
+        float springPeak = 0.0f;
+        for (int block = 0; block < 24; ++block) {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int sample = 0; sample < blockSize; ++sample) {
+                const auto value = 0.2f * std::sin(2.0f * juce::MathConstants<float>::pi * 220.0f *
+                                                   static_cast<float>(block * blockSize + sample) /
+                                                   static_cast<float>(sampleRate));
+                buffer.setSample(0, sample, value);
+                buffer.setSample(1, sample, value);
+            }
+            juce::MidiBuffer springMidi;
+            spring.processBlock(buffer, springMidi);
+            springPeak = std::max(springPeak, buffer.getMagnitude(0, 0, blockSize));
+        }
+        spring.releaseResources();
+        expect(springPeak < 1.5f, "Spring reverb should not scream over the input.");
+
+        auto renderChainRms = [&](ProfilerAudioProcessor& processor) {
+            double energy = 0.0;
+            constexpr int blocks = 16;
+            for (int block = 0; block < blocks; ++block) {
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                for (int sample = 0; sample < blockSize; ++sample) {
+                    const auto value = 0.1f * std::sin(2.0f * juce::MathConstants<float>::pi * 220.0f *
+                                                       static_cast<float>(block * blockSize + sample) /
+                                                       static_cast<float>(sampleRate));
+                    buffer.setSample(0, sample, value);
+                    buffer.setSample(1, sample, value);
+                }
+                juce::MidiBuffer chainMidi;
+                processor.processBlock(buffer, chainMidi);
+                if (block >= 8) {
+                    energy += static_cast<double>(buffer.getRMSLevel(0, 0, blockSize));
+                }
+            }
+            return static_cast<float>(energy / 8.0);
+        };
+
+        const char* doubledModel =
+            R"({"in_shape":[null,null,1],"in_skip":0,"layers":[{"type":"dense","activation":"","shape":[null,null,1],"weights":[[[2.0]],[0.0]]}]})";
+        ProfilerAudioProcessor amps;
+        expect(loadAmpJson(amps, doubledModel), "Doubling amp model should load.");
+        SignalChain::Layout ampLayout;
+        clearMovableSlots(ampLayout);
+        const auto firstAmp = SignalChain::chainSlotForMovableIndex(0);
+        const auto secondAmp = SignalChain::chainSlotForMovableIndex(1);
+        ampLayout.place(SignalChain::Stage::Amp, firstAmp);
+        ampLayout.place(SignalChain::Stage::Amp, secondAmp);
+        amps.setChainLayout(ampLayout);
+        silenceOtherStages(amps);
+        setParameterValue(amps, "isAmpEnabled", 1.0f);
+        setParameterValue(amps, "master", 50.0f);
+        setParameterValue(amps, "gain", 0.0f);
+        prepareProcessor(amps, sampleRate, blockSize);
+        expect(amps.getChainLayout().count(SignalChain::Stage::Amp) == 2, "Two amp blocks should sit on the chain.");
+        const auto bothAmps = renderChainRms(amps);
+        amps.setChainSlotBypassed(firstAmp, true);
+        const auto secondAmpOnly = renderChainRms(amps);
+        amps.setChainSlotBypassed(firstAmp, false);
+        amps.setChainSlotBypassed(secondAmp, true);
+        const auto firstAmpOnly = renderChainRms(amps);
+        amps.setChainSlotBypassed(firstAmp, true);
+        const auto noAmps = renderChainRms(amps);
+        amps.releaseResources();
+        expect(bothAmps > secondAmpOnly * 1.5f, "Two doubling amps should be louder than one.");
+        expect(secondAmpOnly > noAmps * 1.5f, "Bypassing the first amp should leave the second one running.");
+        expect(firstAmpOnly > noAmps * 1.5f, "Bypassing the second amp should leave the first one running.");
+
+        ProfilerAudioProcessor tuned;
+        SignalChain::Layout tuneLayout;
+        clearMovableSlots(tuneLayout);
+        tuneLayout.place(SignalChain::Stage::PitchDrop, 1);
+        tuneLayout.place(SignalChain::Stage::Tuner, 2);
+        tuned.setChainLayout(tuneLayout);
+        setParameterValue(tuned, "isGateEnabled", 0.0f);
+        setParameterValue(tuned, "master", 50.0f);
+        setParameterValue(tuned, "dropSemi", -12.0f);
+        setParameterValue(tuned, "dropMix", 100.0f);
+        setParameterValue(tuned, "dropLatency", 20.0f);
+        setParameterValue(tuned, "tunMode", 0.0f);
+        prepareProcessor(tuned, sampleRate, blockSize);
+        for (int block = 0; block < 48; ++block) {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int sample = 0; sample < blockSize; ++sample) {
+                const auto value = 0.25f * std::sin(2.0f * juce::MathConstants<float>::pi * 220.0f *
+                                                    static_cast<float>(block * blockSize + sample) /
+                                                    static_cast<float>(sampleRate));
+                buffer.setSample(0, sample, value);
+                buffer.setSample(1, sample, value);
+            }
+            juce::MidiBuffer tuneMidi;
+            tuned.processBlock(buffer, tuneMidi);
+        }
+        Fx::TunerSnapshot snapshot;
+        const auto read = tuned.readTuner(snapshot);
+        tuned.releaseResources();
+        expect(read && snapshot.count == 1, "Tuner should lock onto the direct input.");
+        expect(std::abs(snapshot.midi[0] - 57) <= 1, "Tuner should report the input pitch, not the dropped signal.");
     }
 
     void testAmpModelResidualAndBypass() {

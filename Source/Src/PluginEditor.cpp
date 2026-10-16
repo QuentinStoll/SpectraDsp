@@ -208,8 +208,8 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _signalChain.onBlockBypassToggled = [this](SignalChainStrip::BlockId blockId) {
         toggleBlockBypass(blockId);
     };
-    _signalChain.onLayoutChanged = [this](const SignalChain::Layout& layout) {
-        _audioProcessor.setChainLayout(layout);
+    _signalChain.onSlotsSwapped = [this](int fromSlot, int toSlot) {
+        _audioProcessor.swapChainSlots(fromSlot, toSlot);
     };
     _signalChain.onBlockPickerRequested = [this](int slot) {
         openBlockPicker(slot);
@@ -484,7 +484,8 @@ void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId block
     const bool fx = blockId == SignalChainStrip::BlockId::Fx;
     _fxPanel.setVisible(fx);
     if (fx) {
-        _fxPanel.setStage(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot()));
+        _fxPanel.setStage(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot()),
+                          _signalChain.getSelectedChainSlot());
     }
 }
 
@@ -524,21 +525,35 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
     const auto pedalOn = isEnabled("isPedalEnabled");
 
     _signalChain.setBlockLed(SignalChainStrip::BlockId::InputGate, gateOn);
-    _signalChain.setBlockLed(SignalChainStrip::BlockId::AmpProfiler, ampOn);
-    _signalChain.setBlockLed(SignalChainStrip::BlockId::CabinetIr, cabOn);
-    _signalChain.setBlockLed(SignalChainStrip::BlockId::EqPostFx, eqOn);
-    _signalChain.setBlockLed(SignalChainStrip::BlockId::PedalDrive, pedalOn);
     _signalChain.setBlockLed(SignalChainStrip::BlockId::MasterVolume, true);
 
     const auto layout = _audioProcessor.getChainLayout();
     for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
         const auto slot = SignalChain::chainSlotForMovableIndex(index);
         const auto stage = layout.atSlot(slot);
-        if (const auto* module = Fx::moduleFor(stage)) {
-            const auto* value = _audioProcessor._apvts.getRawParameterValue(module->bypassId());
-            _signalChain.setSlotLed(slot, value == nullptr || value->load() > 0.5f);
+        if (stage == SignalChain::Stage::Empty) {
+            continue;
         }
+        bool typeOn = true;
+        switch (stage) {
+            case SignalChain::Stage::Amp:
+                typeOn = ampOn;
+                break;
+            case SignalChain::Stage::Cab:
+                typeOn = cabOn;
+                break;
+            case SignalChain::Stage::Eq:
+                typeOn = eqOn;
+                break;
+            case SignalChain::Stage::Pedal:
+                typeOn = pedalOn;
+                break;
+            default:
+                break;
+        }
+        _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
     }
+    _fxPanel.refreshBypass();
 }
 
 void ProfilerAudioProcessorEditor::toggleBlockBypass(SignalChainStrip::BlockId blockId) {
@@ -559,29 +574,12 @@ void ProfilerAudioProcessorEditor::toggleBlockBypass(SignalChainStrip::BlockId b
             _inputGatePanel.refreshBypassState();
             break;
         case SignalChainStrip::BlockId::AmpProfiler:
-            if (_audioProcessor.isAmpFileLoaded()) {
-                toggle("isAmpEnabled");
-                _ampPanel.refreshAssets();
-            }
-            break;
         case SignalChainStrip::BlockId::CabinetIr:
-            if (_audioProcessor.isIRLoaded()) {
-                toggle("isCabEnabled");
-                _cabinetPanel.refreshAssets();
-            }
-            break;
         case SignalChainStrip::BlockId::EqPostFx:
-            toggle("isEqEnabled");
-            _eqPanel.refreshBypassState();
-            break;
         case SignalChainStrip::BlockId::PedalDrive:
-            toggle("isPedalEnabled");
-            _pedalPanel.refreshBypassState();
-            break;
         case SignalChainStrip::BlockId::Fx:
-            if (const auto* module = Fx::moduleFor(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot()))) {
-                toggle(module->bypassId());
-            }
+            _audioProcessor.toggleChainSlotBypass(_signalChain.getSelectedChainSlot());
+            _fxPanel.refreshBypass();
             break;
         case SignalChainStrip::BlockId::MasterVolume:
             break;

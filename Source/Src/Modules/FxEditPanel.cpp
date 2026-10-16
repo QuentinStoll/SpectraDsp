@@ -31,6 +31,13 @@ FxEditPanel::FxEditPanel(ProfilerAudioProcessor& processor)
     _poly.setColour(juce::Label::textColourId, ProfilerStyle::Colors::textMuted);
     addAndMakeVisible(_title);
     addAndMakeVisible(_algorithm);
+    _bypass.setClickingTogglesState(true);
+    _bypass.onClick = [this]() {
+        if (!SignalChain::isMovableSlot(_chainSlot)) {
+            return;
+        }
+        _processor.setChainSlotBypassed(_chainSlot, !_bypass.getToggleState());
+    };
     addChildComponent(_bypass);
     addChildComponent(_note);
     addChildComponent(_cents);
@@ -45,8 +52,18 @@ void FxEditPanel::visibilityChanged() {
     }
 }
 
-void FxEditPanel::setStage(SignalChain::Stage stage) {
-    if (stage == _stage && _bypassAttachment != nullptr) {
+void FxEditPanel::refreshBypass() {
+    if (!isVisible() || Fx::moduleFor(_stage) == nullptr) {
+        return;
+    }
+    const bool enabled = !SignalChain::isMovableSlot(_chainSlot) || !_processor.isChainSlotBypassed(_chainSlot);
+    _bypass.setToggleState(enabled, juce::dontSendNotification);
+}
+
+void FxEditPanel::setStage(SignalChain::Stage stage, int chainSlot) {
+    _chainSlot = chainSlot;
+    if (stage == _stage && _bypass.isVisible() && Fx::moduleFor(stage) != nullptr) {
+        refreshBypass();
         return;
     }
     _stage = stage;
@@ -63,7 +80,6 @@ void FxEditPanel::rebuild() {
     _choices.clear();
     _flags.clear();
     _order.clear();
-    _bypassAttachment.reset();
 
     const auto* module = Fx::moduleFor(_stage);
     if (module == nullptr) {
@@ -79,8 +95,7 @@ void FxEditPanel::rebuild() {
     _title.setText(juce::String(module->name).toUpperCase(), juce::dontSendNotification);
     _algorithm.setText(module->algorithm, juce::dontSendNotification);
     _bypass.setVisible(true);
-    _bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        _processor._apvts, module->bypassId(), _bypass);
+    refreshBypass();
     const bool tuner = _stage == SignalChain::Stage::Tuner;
     _note.setVisible(tuner);
     _cents.setVisible(tuner);

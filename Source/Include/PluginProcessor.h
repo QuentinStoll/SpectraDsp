@@ -103,6 +103,10 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void resetChainLayout();
     void placeChainStage(SignalChain::Stage stage, int slot);
     void clearChainSlot(int slot);
+    void swapChainSlots(int fromSlot, int toSlot);
+    bool isChainSlotBypassed(int chainSlot) const noexcept;
+    void setChainSlotBypassed(int chainSlot, bool bypassed);
+    void toggleChainSlotBypass(int chainSlot);
 
    private:
     enum ChainPositions {
@@ -175,6 +179,9 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     juce::SmoothedValue<float> _cabLowCutSmoothed;
     bool _eqCoeffsDirty{true};
     std::atomic<std::uint64_t> _chainLayoutPacked{SignalChain::defaultPacked};
+    std::atomic<std::uint16_t> _slotBypassMask{0};
+    std::vector<float> _directInputLeft;
+    std::vector<float> _directInputRight;
     Fx::FxRack _fx;
     int _reportedLatency = 0;
 
@@ -210,13 +217,15 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void processAmpStage(juce::AudioBuffer<float>& buffer,
                          juce::dsp::ProcessContextReplacing<float>& context,
                          int numSamples,
-                         int instance);
-    void processCabStage(juce::dsp::ProcessContextReplacing<float>& context, int instance);
-    void processEqStage(juce::dsp::ProcessContextReplacing<float>& context, int instance);
+                         int instance,
+                         bool slotEnabled);
+    void processCabStage(juce::dsp::ProcessContextReplacing<float>& context, int instance, bool slotEnabled);
+    void processEqStage(juce::dsp::ProcessContextReplacing<float>& context, int instance, bool slotEnabled);
     void processPedalStage(juce::AudioBuffer<float>& buffer,
                            juce::dsp::ProcessContextReplacing<float>& context,
                            int numSamples,
-                           int instance);
+                           int instance,
+                           bool slotEnabled);
     void syncAmpCopies(bool force = false);
     void setEqBypassed(bool bypassed);
     void loadIrIntoConvolvers(const void* data, size_t size);
@@ -271,7 +280,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     int _ampInputSkip = 0;
     float _ampInputGain = 1.0f;
     float _ampOutputGain = 1.0f;
-    juce::SmoothedValue<float> _ampWetMix;
+    std::array<juce::SmoothedValue<float>, kChainCopies> _ampWetMix{};
 
     // Keep the oversampler if needed, but be careful with the model's training sample rate!
     juce::dsp::Oversampling<float> oversampler{2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true};

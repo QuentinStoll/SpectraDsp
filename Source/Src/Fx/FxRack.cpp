@@ -72,8 +72,8 @@ struct FxRack::Impl {
     FxDsp::TapeDelay tape;
     FxDsp::PingPongDelay ping;
     FxDsp::DarkDelay dark;
-    FxDsp::TapeExtremeDelay tapeExtreme;
     FxDsp::ReverseDelay reverse;
+    FxDsp::DropPitch drop;
     FxDsp::EnsembleChorus ensemble;
     FxDsp::LeadChorus lead;
     FxDsp::Phaser4 phaser4;
@@ -89,7 +89,7 @@ struct FxRack::Impl {
     FxDsp::NoiseGate gate;
     FxDsp::Tuner tuner;
     Seqlock tunerLock;
-    std::array<float, 40> wetMix{};
+    std::array<float, 32 * FxDsp::kVoices> wetMix{};
     std::vector<float> dryLeft;
     std::vector<float> dryRight;
     std::vector<float> scratch;
@@ -98,8 +98,7 @@ struct FxRack::Impl {
     int capacity = 0;
     float bypassCoef = 0.1f;
 
-    void blend(SignalChain::Stage stage, float* left, float* right, int numSamples, bool enabledNow) {
-        const auto slot = (size_t)stage;
+    void blend(size_t slot, float* left, float* right, int numSamples, bool enabledNow) {
         float mix = slot < wetMix.size() ? wetMix[slot] : (enabledNow ? 1.0f : 0.0f);
         const float target = enabledNow ? 1.0f : 0.0f;
         for (int sample = 0; sample < numSamples; ++sample) {
@@ -135,8 +134,8 @@ void FxRack::prepare(double sampleRate, int maxBlock) {
     _impl->tape.prepare(_impl->sampleRate, maxBlock);
     _impl->ping.prepare(_impl->sampleRate, maxBlock);
     _impl->dark.prepare(_impl->sampleRate, maxBlock);
-    _impl->tapeExtreme.prepare(_impl->sampleRate, maxBlock);
     _impl->reverse.prepare(_impl->sampleRate, maxBlock);
+    _impl->drop.prepare(_impl->sampleRate, maxBlock);
     _impl->ensemble.prepare(_impl->sampleRate, maxBlock);
     _impl->lead.prepare(_impl->sampleRate, maxBlock);
     _impl->phaser4.prepare(_impl->sampleRate, maxBlock);
@@ -171,6 +170,8 @@ int FxRack::latencySamplesFor(SignalChain::Stage stage) const {
     switch (stage) {
         case SignalChain::Stage::PitchHarmonizer:
             return _impl->harmonizer.latencySamples(_impl->get("harmLatency", 4.0f));
+        case SignalChain::Stage::PitchDrop:
+            return _impl->drop.latencySamples(_impl->get("dropLatency", 20.0f));
         case SignalChain::Stage::NoiseGate:
             return _impl->gate.latencySamples(_impl->get("ngtLook", 8.0f));
         default:
@@ -195,7 +196,6 @@ double FxRack::tailSecondsFor(SignalChain::Stage stage) const {
             return 8.0;
         case SignalChain::Stage::DelayTape:
         case SignalChain::Stage::DelayPingPong:
-        case SignalChain::Stage::DelayTapeExtreme:
             return 1.5;
         case SignalChain::Stage::DelayDark:
             return 4.0;
@@ -210,7 +210,14 @@ bool FxRack::readTuner(TunerSnapshot& snapshot) const {
     return _impl->tunerLock.read(snapshot);
 }
 
-void FxRack::process(SignalChain::Stage stage, int instance, float* left, float* right, int numSamples) {
+void FxRack::process(SignalChain::Stage stage,
+                     int instance,
+                     float* left,
+                     float* right,
+                     int numSamples,
+                     bool enabled,
+                     const float* monitorLeft,
+                     const float* monitorRight) {
     if (left == nullptr || numSamples <= 0 || moduleFor(stage) == nullptr) {
         return;
     }
@@ -227,8 +234,9 @@ void FxRack::process(SignalChain::Stage stage, int instance, float* left, float*
         if (mono) {
             std::copy(sliceL, sliceL + count, sliceR);
         }
-        const bool active = _impl->enabled(moduleFor(stage)->bypassId());
-        const float mix = _impl->wetMix[(size_t)stage];
+        const bool active = enabled && _impl->enabled(moduleFor(stage)->bypassId());
+        const auto mixIndex = (size_t)stage * (size_t)FxDsp::kVoices + (size_t)instance;
+        const float mix = mixIndex < _impl->wetMix.size() ? _impl->wetMix[mixIndex] : (active ? 1.0f : 0.0f);
         if (!active && mix <= 0.0008f) {
             if (mono) {
                 std::copy(sliceR, sliceR + count, sliceL);
@@ -245,6 +253,10 @@ void FxRack::process(SignalChain::Stage stage, int instance, float* left, float*
                 fx.harmonizer.process(instance, sliceL, sliceR, count,
                                       {(int)fx.get("harmMode", 1.0f), fx.get("harmInterval", 0.0f), fx.get("harmMix", 50.0f),
                                        fx.get("harmLatency", 4.0f), fx.enabled("harmFormant")});
+                break;
+            case SignalChain::Stage::PitchDrop:
+                fx.drop.process(instance, sliceL, sliceR, count,
+                                {fx.get("dropSemi", -2.0f), fx.get("dropMix", 100.0f), fx.get("dropLatency", 20.0f)});
                 break;
             case SignalChain::Stage::PitchOctaver:
                 fx.octaver.process(instance, sliceL, sliceR, count,
@@ -291,11 +303,6 @@ void FxRack::process(SignalChain::Stage stage, int instance, float* left, float*
                 fx.dark.process(instance, sliceL, sliceR, count,
                                 {fx.get("darkTime", 480.0f), fx.get("darkFb", 72.0f), fx.get("darkAmount", 65.0f),
                                  fx.get("darkMix", 30.0f), fx.get("darkTone", 35.0f)});
-                break;
-            case SignalChain::Stage::DelayTapeExtreme:
-                fx.tapeExtreme.process(instance, sliceL, sliceR, count,
-                                       {fx.get("tapxTime", 280.0f), fx.get("tapxFb", 48.0f), fx.get("tapxSat", 70.0f),
-                                        fx.get("tapxWow", 55.0f), fx.get("tapxSpeed", 12.0f), fx.get("tapxMix", 32.0f)});
                 break;
             case SignalChain::Stage::DelayReverse:
                 fx.reverse.process(instance, sliceL, sliceR, count,
@@ -389,14 +396,18 @@ void FxRack::process(SignalChain::Stage stage, int instance, float* left, float*
                 break;
             case SignalChain::Stage::Tuner: {
                 TunerSnapshot snapshot;
-                fx.tuner.process(instance, sliceL, sliceR, count, {(int)fx.get("tunMode", 0.0f), true}, snapshot);
+                const float* tuneLeft = monitorLeft != nullptr ? monitorLeft + offset : sliceL;
+                const float* tuneRight = monitorRight != nullptr ? monitorRight + offset : sliceR;
+                fx.tuner.process(instance, tuneLeft, tuneRight, count, {(int)fx.get("tunMode", 0.0f), true}, snapshot);
                 fx.tunerLock.publish(snapshot);
                 break;
             }
             default:
                 break;
         }
-        fx.blend(stage, sliceL, sliceR, count, active);
+        if (stage != SignalChain::Stage::Tuner) {
+            fx.blend(mixIndex, sliceL, sliceR, count, active);
+        }
         if (mono) {
             for (int sample = 0; sample < count; ++sample) {
                 sliceL[sample] = 0.5f * (sliceL[sample] + sliceR[sample]);

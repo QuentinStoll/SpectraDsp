@@ -831,7 +831,9 @@ void SignalChainStrip::commitDrop(int fromSlot, int toSlot) {
     } else if (toSlot == _selectedChainSlot) {
         _selectedChainSlot = fromSlot;
     }
-    if (onLayoutChanged) {
+    if (onSlotsSwapped) {
+        onSlotsSwapped(fromSlot, toSlot);
+    } else if (onLayoutChanged) {
         onLayoutChanged(_layout);
     }
 }

@@ -97,6 +97,7 @@ class SignalChainStrip : public juce::Component {
     std::function<void(BlockId)> onBlockSelected;
     std::function<void(BlockId)> onBlockBypassToggled;
     std::function<void(const SignalChain::Layout&)> onLayoutChanged;
+    std::function<void(int fromSlot, int toSlot)> onSlotsSwapped;
     std::function<void(int slot)> onBlockPickerRequested;
 
    private:

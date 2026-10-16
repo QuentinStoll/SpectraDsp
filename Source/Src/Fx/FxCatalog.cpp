@@ -33,6 +33,12 @@ constexpr ParamSpec kHarm[] = {
     flt("harmLatency", "Latency", 2.0f, 40.0f, 0.1f, 4.0f, "ms"),
     flag("harmFormant", "Formant", true)};
 
+constexpr ParamSpec kDrop[] = {
+    on("dropOn"),
+    flt("dropSemi", "Semitones", -12.0f, 0.0f, 1.0f, -2.0f, "st"),
+    flt("dropMix", "Mix", 0.0f, 100.0f, 0.1f, 100.0f, "%"),
+    flt("dropLatency", "Latency", 8.0f, 40.0f, 0.1f, 20.0f, "ms")};
+
 constexpr ParamSpec kOct[] = {
     on("octOn"),
     choice("octMode", "Mode", "Sub 1|Sub 2|Sub 1+2", 2.0f),
@@ -109,15 +115,6 @@ constexpr ParamSpec kDark[] = {
     flt("darkAmount", "Darkness", 0.0f, 100.0f, 0.1f, 65.0f, "%"),
     flt("darkMix", "Mix", 0.0f, 100.0f, 0.1f, 30.0f, "%"),
     flt("darkTone", "Tone", 0.0f, 100.0f, 0.1f, 35.0f, "%")};
-
-constexpr ParamSpec kTapx[] = {
-    on("tapxOn"),
-    flt("tapxTime", "Time", 100.0f, 600.0f, 0.1f, 280.0f, "ms"),
-    flt("tapxFb", "Feedback", 0.0f, 90.0f, 0.1f, 48.0f, "%"),
-    flt("tapxSat", "Saturation", 0.0f, 100.0f, 0.1f, 70.0f, "%"),
-    flt("tapxWow", "Wow", 0.0f, 100.0f, 0.1f, 55.0f, "%"),
-    flt("tapxSpeed", "Tape Speed", -50.0f, 50.0f, 0.1f, 12.0f, "ct"),
-    flt("tapxMix", "Mix", 0.0f, 100.0f, 0.1f, 32.0f, "%")};
 
 constexpr ParamSpec kRevd[] = {
     on("revdOn"),
@@ -257,6 +254,8 @@ constexpr ModuleSpec kModules[] = {
     {SignalChain::Stage::PitchHarmonizer, "Harmonizer", "HARM",
      "TD-PSOLA dual-window pitch shifter with spectral-tilt formant lock", kHarm,
      (int)(sizeof(kHarm) / sizeof(kHarm[0]))},
+    {SignalChain::Stage::PitchDrop, "Drop", "DROP",
+     "Polyphonic transpose down, dry signal replaced", kDrop, (int)(sizeof(kDrop) / sizeof(kDrop[0]))},
     {SignalChain::Stage::PitchOctaver, "Octaver", "OCT",
      "Fundamental-locked octave divider with onset trigger", kOct, (int)(sizeof(kOct) / sizeof(kOct[0]))},
     {SignalChain::Stage::ReverbPlate, "Plate", "PLATE",
@@ -277,8 +276,6 @@ constexpr ModuleSpec kModules[] = {
      "Clean tempo-synced stereo ping-pong delay", kPing, (int)(sizeof(kPing) / sizeof(kPing[0]))},
     {SignalChain::Stage::DelayDark, "Dark Delay", "DARK",
      "Long delay with progressive lowpass darkening", kDark, (int)(sizeof(kDark) / sizeof(kDark[0]))},
-    {SignalChain::Stage::DelayTapeExtreme, "Tape Sat", "TSAT",
-     "Driven tape delay with varispeed pitch drift", kTapx, (int)(sizeof(kTapx) / sizeof(kTapx[0]))},
     {SignalChain::Stage::DelayReverse, "Reverse", "REV",
      "Reverse buffer delay and infinite feedback freeze", kRevd, (int)(sizeof(kRevd) / sizeof(kRevd[0]))},
     {SignalChain::Stage::ChorusEnsemble, "Ensemble", "ENS",

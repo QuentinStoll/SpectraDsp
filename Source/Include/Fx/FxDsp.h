@@ -242,7 +242,9 @@ struct AllpassDelay {
             return x;
         }
         const float delayed = buffer[(size_t)index];
-        const float y = -x + delayed;
+        // Unity-gain Schroeder allpass. A direct coefficient of -1 (instead of -gain)
+        // stacks to a loud high-frequency scream when several stages are cascaded.
+        const float y = delayed - gain * x;
         buffer[(size_t)index] = x + delayed * gain;
         if (++index >= size) {
             index = 0;
@@ -323,6 +325,39 @@ class Harmonizer {
     };
 
     float readAt(const DelayLine& line, float position) const;
+    double sampleRate = 48000.0;
+    std::array<Voice, kVoices> voices;
+};
+
+struct DropSettings {
+    float semitones = -2.0f;
+    float mix = 100.0f;
+    float latencyMs = 20.0f;
+};
+
+// Polyphonic transpose down, in the role of a DigiTech Drop: the shifted
+// signal replaces the dry guitar. The shifter is the dual-window granular
+// reader already used by the harmonizer.
+class DropPitch {
+   public:
+    void prepare(double sampleRate, int maxBlock);
+    void reset();
+    void process(int voice, float* left, float* right, int numSamples, const DropSettings& settings);
+    int latencySamples(float latencyMs) const;
+
+   private:
+    struct Voice {
+        DelayLine left;
+        DelayLine right;
+        DelayLine dryLeft;
+        DelayLine dryRight;
+        DelayLine padLeft;
+        DelayLine padRight;
+        float readA = 0.0f;
+        float readB = 0.0f;
+        bool primed = false;
+    };
+
     double sampleRate = 48000.0;
     std::array<Voice, kVoices> voices;
 };
@@ -479,6 +514,7 @@ class SpringReverb {
         DelayLine taps;
         Biquad boing[2];
         OnePole damp;
+        OnePole tone;
         DcBlock dc;
         float lastBoing = -1.0f;
     };
@@ -935,7 +971,7 @@ class Tuner {
    public:
     void prepare(double sampleRate, int maxBlock);
     void reset();
-    void process(int voice, float* left, float* right, int numSamples, const TunerSettings& settings, Fx::TunerSnapshot& snapshot);
+    void process(int voice, const float* left, const float* right, int numSamples, const TunerSettings& settings, Fx::TunerSnapshot& snapshot);
 
    private:
     struct Voice {

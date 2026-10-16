@@ -19,7 +19,8 @@ class FxEditPanel : public juce::Component,
     explicit FxEditPanel(ProfilerAudioProcessor& processor);
     ~FxEditPanel() override = default;
 
-    void setStage(SignalChain::Stage stage);
+    void setStage(SignalChain::Stage stage, int chainSlot);
+    void refreshBypass();
     void paint(juce::Graphics& g) override;
     void resized() override;
     void visibilityChanged() override;
@@ -41,10 +42,10 @@ class FxEditPanel : public juce::Component,
 
     ProfilerAudioProcessor& _processor;
     SignalChain::Stage _stage = SignalChain::Stage::Empty;
+    int _chainSlot = -1;
     juce::Label _title;
     juce::Label _algorithm;
     CustomToggleButton _bypass{"On"};
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _bypassAttachment;
     std::vector<KnobControl> _knobs;
     std::vector<ChoiceControl> _choices;
     std::vector<BoolControl> _flags;

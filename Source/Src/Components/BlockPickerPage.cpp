@@ -33,6 +33,7 @@ const TileSpec kPedal[] = {
     {"Overdrive", CustomLookAndFeel::RigIcon::Pedal, ProfilerStyle::Colors::rigPedal, SignalChain::Stage::Pedal}};
 const TileSpec kPitch[] = {
     {"Harmonizer", CustomLookAndFeel::RigIcon::Pitch, ProfilerStyle::Colors::rigPitch, SignalChain::Stage::PitchHarmonizer},
+    {"Drop", CustomLookAndFeel::RigIcon::Pitch, ProfilerStyle::Colors::rigPitch, SignalChain::Stage::PitchDrop},
     {"Octaver", CustomLookAndFeel::RigIcon::Pitch, ProfilerStyle::Colors::rigPitch, SignalChain::Stage::PitchOctaver}};
 const TileSpec kReverb[] = {
     {"Plate", CustomLookAndFeel::RigIcon::Reverb, ProfilerStyle::Colors::rigReverb, SignalChain::Stage::ReverbPlate},
@@ -44,7 +45,6 @@ const TileSpec kDelay[] = {
     {"Tape", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, SignalChain::Stage::DelayTape},
     {"Ping-Pong", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, SignalChain::Stage::DelayPingPong},
     {"Dark", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, SignalChain::Stage::DelayDark},
-    {"Tape Sat", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, SignalChain::Stage::DelayTapeExtreme},
     {"Reverse", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, SignalChain::Stage::DelayReverse}};
 const TileSpec kMod[] = {
     {"Ensemble", CustomLookAndFeel::RigIcon::Mod, ProfilerStyle::Colors::rigChorus, SignalChain::Stage::ChorusEnsemble},
@@ -66,9 +66,9 @@ const CategorySpec kCategories[] = {
     {"Cab", CustomLookAndFeel::RigIcon::Cabinet, ProfilerStyle::Colors::rigCab, kCab, 1},
     {"EQ", CustomLookAndFeel::RigIcon::EqFaders, ProfilerStyle::Colors::rigEq, kEq, 4},
     {"Pedals", CustomLookAndFeel::RigIcon::Pedal, ProfilerStyle::Colors::rigPedal, kPedal, 1},
-    {"Pitch", CustomLookAndFeel::RigIcon::Pitch, ProfilerStyle::Colors::rigPitch, kPitch, 2},
+    {"Pitch", CustomLookAndFeel::RigIcon::Pitch, ProfilerStyle::Colors::rigPitch, kPitch, 3},
     {"Reverb", CustomLookAndFeel::RigIcon::Reverb, ProfilerStyle::Colors::rigReverb, kReverb, 5},
-    {"Delay", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, kDelay, 5},
+    {"Delay", CustomLookAndFeel::RigIcon::Delay, ProfilerStyle::Colors::rigDelay, kDelay, 4},
     {"Modulation", CustomLookAndFeel::RigIcon::Mod, ProfilerStyle::Colors::rigChorus, kMod, 6},
     {"Dynamics", CustomLookAndFeel::RigIcon::Dynamics, ProfilerStyle::Colors::rigDynamics, kDynamics, 4},
     {"Tools", CustomLookAndFeel::RigIcon::Tuner, ProfilerStyle::Colors::rigTuner, kTools, 1}};

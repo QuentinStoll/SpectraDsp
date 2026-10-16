@@ -314,6 +314,70 @@ void Harmonizer::process(int voiceIndex, float* left, float* right, int numSampl
     }
 }
 
+void DropPitch::prepare(double newSampleRate, int) {
+    sampleRate = juce::jmax(8000.0, newSampleRate);
+    const int length = (int)millisToSamples(120.0f, sampleRate) + 8;
+    for (auto& voice : voices) {
+        voice.left.prepare(length);
+        voice.right.prepare(length);
+        voice.dryLeft.prepare(length);
+        voice.dryRight.prepare(length);
+        voice.padLeft.prepare(length);
+        voice.padRight.prepare(length);
+    }
+    reset();
+}
+
+void DropPitch::reset() {
+    for (auto& voice : voices) {
+        voice.left.clear();
+        voice.right.clear();
+        voice.dryLeft.clear();
+        voice.dryRight.clear();
+        voice.padLeft.clear();
+        voice.padRight.clear();
+        voice.primed = false;
+    }
+}
+
+int DropPitch::latencySamples(float latencyMs) const {
+    if (sampleRate <= 0.0) {
+        return 0;
+    }
+    return (int)std::round(juce::jlimit(8.0f, 40.0f, latencyMs) * 0.001f * (float)sampleRate);
+}
+
+void DropPitch::process(int voiceIndex, float* left, float* right, int numSamples, const DropSettings& settings) {
+    const int index = checkedVoice(voiceIndex);
+    if (index < 0 || left == nullptr || right == nullptr || numSamples <= 0) {
+        return;
+    }
+    auto& voice = voices[(size_t)index];
+    const float semitones = juce::jlimit(-12.0f, 0.0f, settings.semitones);
+    const float ratio = std::pow(2.0f, semitones / 12.0f);
+    const int fixed = juce::jmax(1, latencySamples(settings.latencyMs));
+    const float grain = (float)fixed;
+    float dryGain = 1.0f;
+    float wetGain = 0.0f;
+    equalPower(settings.mix, dryGain, wetGain);
+
+    for (int sample = 0; sample < numSamples; ++sample) {
+        const float inLeft = left[sample];
+        const float inRight = right[sample];
+        float pitchedLeft = 0.0f;
+        float pitchedRight = 0.0f;
+        renderPitch(voice.left, voice.right, inLeft, inRight, voice.readA, voice.readB, voice.primed, ratio, grain,
+                    pitchedLeft, pitchedRight);
+        const float pad = juce::jmax(1.0f, (float)fixed - grain * 0.5f);
+        voice.padLeft.push(pitchedLeft);
+        voice.padRight.push(pitchedRight);
+        voice.dryLeft.push(inLeft);
+        voice.dryRight.push(inRight);
+        left[sample] = safeSample(voice.dryLeft.read((float)fixed) * dryGain + voice.padLeft.read(pad) * wetGain);
+        right[sample] = safeSample(voice.dryRight.read((float)fixed) * dryGain + voice.padRight.read(pad) * wetGain);
+    }
+}
+
 void Octaver::prepare(double newSampleRate, int) {
     sampleRate = juce::jmax(8000.0, newSampleRate);
     for (auto& voice : voices) {
@@ -740,6 +804,7 @@ void SpringReverb::reset() {
         voice.boing[0].clear();
         voice.boing[1].clear();
         voice.damp.clear();
+        voice.tone.clear();
         voice.dc.clear();
         voice.lastBoing = -1.0f;
     }
@@ -757,13 +822,14 @@ void SpringReverb::process(int voiceIndex, float* left, float* right, int numSam
         voice.boing[0].setBandpass(sampleRate, 95.0f, q);
         voice.boing[1].setBandpass(sampleRate, 155.0f, q * 0.8f);
         for (auto& stage : voice.dispersion) {
-            stage.gain = juce::jlimit(0.35f, 0.9f, 0.48f + boing * 0.38f);
+            stage.gain = juce::jlimit(0.2f, 0.7f, 0.28f + boing * 0.32f);
         }
         voice.lastBoing = boing;
     }
-    const float damp = juce::jmap(settings.damping, 0.0f, 100.0f, 0.1f, 0.86f);
+    const float damp = juce::jmap(settings.damping, 0.0f, 100.0f, 0.15f, 0.9f);
+    voice.tone.setLowpass(juce::jmap(settings.damping, 0.0f, 100.0f, 3800.0f, 1200.0f), sampleRate);
     const float taps[] = {19.0f, 27.0f, 36.0f, 48.0f};
-    const float tapGain[] = {0.62f, 0.38f, 0.22f, 0.12f};
+    const float tapGain[] = {0.42f, 0.26f, 0.15f, 0.08f};
     const float feedback = feedbackForDecay(millisToSamples(48.0f, sampleRate), settings.decay, sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
@@ -783,9 +849,9 @@ void SpringReverb::process(int voiceIndex, float* left, float* right, int numSam
         }
         const float damped = echo * (1.0f - damp) + voice.damp.state * damp;
         voice.damp.state = damped;
-        const float ring = (voice.boing[0].process(mono) + voice.boing[1].process(mono)) * (0.15f + boing * 0.55f);
-        voice.taps.push(voice.dc.process(dispersed + ring * 0.35f + damped * feedback));
-        const float wet = dispersed * 0.35f + echo + ring;
+        const float ring = (voice.boing[0].process(mono) + voice.boing[1].process(mono)) * (0.04f + boing * 0.12f);
+        voice.taps.push(voice.dc.process(dispersed * 0.45f + damped * feedback));
+        const float wet = voice.tone.process(dispersed * 0.4f + echo + ring);
         left[sample] = safeSample(inLeft * dryGain + wet * wetGain);
         right[sample] = safeSample(inRight * dryGain + wet * wetGain);
     }
@@ -1943,7 +2009,7 @@ void Tuner::analysePoly(Voice& voice, Fx::TunerSnapshot& snapshot) {
     snapshot.strobe = voice.strobe;
 }
 
-void Tuner::process(int voiceIndex, float* left, float* right, int numSamples, const TunerSettings& settings, Fx::TunerSnapshot& snapshot) {
+void Tuner::process(int voiceIndex, const float* left, const float* right, int numSamples, const TunerSettings& settings, Fx::TunerSnapshot& snapshot) {
     const int index = checkedVoice(voiceIndex);
     if (index < 0 || left == nullptr || right == nullptr || !settings.enabled) {
         return;
