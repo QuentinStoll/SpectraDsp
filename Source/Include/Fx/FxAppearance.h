@@ -23,6 +23,7 @@ inline Appearance appearanceFor(SignalChain::Stage stage) noexcept {
         case SignalChain::Stage::Pedal:
             return {ProfilerStyle::Colors::rigPedal, CustomLookAndFeel::RigIcon::Pedal, "DRIVE"};
         case SignalChain::Stage::PitchHarmonizer:
+        case SignalChain::Stage::PitchDrop:
         case SignalChain::Stage::PitchOctaver:
             return {ProfilerStyle::Colors::rigPitch, CustomLookAndFeel::RigIcon::Pitch, captionFor(stage)};
         case SignalChain::Stage::ReverbPlate:

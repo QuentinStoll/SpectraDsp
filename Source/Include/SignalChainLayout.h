@@ -99,19 +99,21 @@ enum class Stage : int {
     EqTone = 27,
     EqDynamic = 28,
     NoiseGate = 29,
-    Tuner = 30
+    Tuner = 30,
+    PitchDrop = 31
 };
 
 constexpr int effectStageCount = static_cast<int>(Stage::Tuner);
 
 inline constexpr bool isKnownStage(Stage stage) noexcept {
     const auto value = static_cast<int>(stage);
-    return value >= static_cast<int>(Stage::Empty) && value <= static_cast<int>(Stage::Tuner);
+    return value >= static_cast<int>(Stage::Empty) && value <= static_cast<int>(Stage::PitchDrop);
 }
 
 inline constexpr bool isEffectStage(Stage stage) noexcept {
     const auto value = static_cast<int>(stage);
-    return value >= static_cast<int>(Stage::Amp) && value <= static_cast<int>(Stage::Tuner);
+    return value >= static_cast<int>(Stage::Amp) && value <= static_cast<int>(Stage::PitchDrop) &&
+           value != static_cast<int>(Stage::DelayTapeExtreme);
 }
 
 struct Layout {
@@ -208,6 +210,14 @@ struct Layout {
         return true;
     }
 
+    constexpr void retireRemovedStages() noexcept {
+        for (auto& stage : slots) {
+            if (stage == Stage::DelayTapeExtreme) {
+                stage = Stage::Empty;
+            }
+        }
+    }
+
     std::array<Stage, movableSlotCount> processingOrder() const noexcept {
         std::array<Stage, movableSlotCount> order{};
         int count = 0;
@@ -265,6 +275,7 @@ struct Layout {
             layout.slots[static_cast<size_t>(index)] =
                 static_cast<Stage>((packed >> (bitsPerSlot * index)) & 0x1F);
         }
+        layout.retireRemovedStages();
         return layout.isValid() ? layout : Layout{};
     }
 };
