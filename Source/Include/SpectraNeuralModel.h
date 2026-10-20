@@ -22,6 +22,10 @@ class SpectraNeuralModel {
     std::unique_ptr<SpectraNeuralModel> clone() const;
     double expectedSampleRate() const;
     bool supportsArbitrarySampleRate() const;
+    bool hasInputLevel();
+    bool hasOutputLevel();
+    double inputLevelDbu();
+    double outputLevelDbu();
     void reset(double sampleRate, int maxBlock);
     void process(float* input, float* output, int frames);
 

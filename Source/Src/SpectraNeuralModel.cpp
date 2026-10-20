@@ -32,6 +32,8 @@ SpectraNeuralModel::LoadStatus SpectraNeuralModel::load(const std::string& json,
 
     try {
         nam::DspLoadOptions options;
+        // Skip the constructor prewarm: Reset below runs it once the host rate and
+        // block size are known, still off the audio thread.
         options.prewarm = false;
         auto model = nam::get_dsp(parsed, options);
         if (model == nullptr) {
@@ -71,8 +73,25 @@ bool SpectraNeuralModel::supportsArbitrarySampleRate() const {
     return _impl != nullptr && _impl->arbitraryRate;
 }
 
+bool SpectraNeuralModel::hasInputLevel() {
+    return _impl != nullptr && _impl->model != nullptr && _impl->model->HasInputLevel();
+}
+
+bool SpectraNeuralModel::hasOutputLevel() {
+    return _impl != nullptr && _impl->model != nullptr && _impl->model->HasOutputLevel();
+}
+
+double SpectraNeuralModel::inputLevelDbu() {
+    return hasInputLevel() ? _impl->model->GetInputLevel() : 0.0;
+}
+
+double SpectraNeuralModel::outputLevelDbu() {
+    return hasOutputLevel() ? _impl->model->GetOutputLevel() : 0.0;
+}
+
 void SpectraNeuralModel::reset(double sampleRate, int maxBlock) {
     if (_impl != nullptr && _impl->model != nullptr) {
+        _impl->model->SetPrewarmOnReset(true);
         _impl->model->Reset(sampleRate, maxBlock);
     }
 }

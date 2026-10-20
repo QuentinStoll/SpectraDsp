@@ -2,10 +2,12 @@
 
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 #include "Fx/FxCatalog.h"
 #include "PluginProcessor.h"
 #include "SignalChainLayout.h"
+#include "SpectraRateAdapter.h"
 #include "TestRunner.h"
 
 namespace profiler_tests {
@@ -976,12 +978,152 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(loadAmpJson(resampled, lstmModel), "LSTM fixture should load.");
         prepareProcessor(resampled, hostRate, blockSize);
         prepareProcessor(dryHost, hostRate, blockSize);
-        expect(resampled.getLatencySamples() == dryHost.getLatencySamples() + 1,
-               "A 48 kHz model on a 44.1 kHz host should report one sample of adapter latency.");
+        SpectraRateAdapter rateProbe;
+        rateProbe.prepare(hostRate, matchedRate, blockSize);
+        expect(resampled.getLatencySamples() == dryHost.getLatencySamples() + rateProbe.latencySamples(),
+               "A 48 kHz model on a 44.1 kHz host should report the sinc adapter latency.");
         const auto resampledRms = renderSineRms(resampled, hostRate, blockSize, 8);
         expect(resampledRms > 0.0f, "Resampled model should produce a signal.");
         resampled.releaseResources();
         dryHost.releaseResources();
+
+        const char* boostedOutput =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000,"metadata":{"input_level_dbu":12.0,"output_level_dbu":18.0}})";
+        const char* hotterInput =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000,"metadata":{"input_level_dbu":6.0}})";
+        const float sixDb = std::pow(10.0f, 6.0f / 20.0f);
+
+        ProfilerAudioProcessor outputLevel;
+        silenceOtherStages(outputLevel);
+        expect(loadAmpJson(outputLevel, boostedOutput), "A model with output level metadata should load.");
+        prepareProcessor(outputLevel, matchedRate, blockSize);
+        const auto boostedRms = renderSineRms(outputLevel, matchedRate, blockSize, 16);
+        expect(std::abs(boostedRms - dryRms * sixDb) < dryRms * 0.08f,
+               "An output level 6 dB above the 12 dBu reference should raise the sine by 6 dB.");
+        float earlyRms = 0.0f;
+        float lateRms = 0.0f;
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            for (int block = 0; block < 16; ++block) {
+                fillSineBuffer(buffer, matchedRate, 1000.0f, 0.25f);
+                outputLevel.processBlock(buffer, midi);
+                if (block == 8) {
+                    earlyRms = getMaximumRmsLevel(buffer);
+                }
+                if (block == 15) {
+                    lateRms = getMaximumRmsLevel(buffer);
+                }
+            }
+        }
+        expect(std::abs(earlyRms - lateRms) < juce::jmax(1.0e-4f, lateRms * 0.02f),
+               "A warmed linear model should hold its level from block to block.");
+        outputLevel.releaseResources();
+
+        ProfilerAudioProcessor inputLevel;
+        silenceOtherStages(inputLevel);
+        expect(loadAmpJson(inputLevel, hotterInput), "A model with input level metadata should load.");
+        prepareProcessor(inputLevel, matchedRate, blockSize);
+        const auto hotterRms = renderSineRms(inputLevel, matchedRate, blockSize, 16);
+        expect(std::abs(hotterRms - dryRms * sixDb) < dryRms * 0.08f,
+               "An input level 6 dB below the 12 dBu reference should raise the sine by 6 dB.");
+        inputLevel.releaseResources();
+
+        ProfilerAudioProcessor prewarmed;
+        silenceOtherStages(prewarmed);
+        expect(loadAmpJson(prewarmed, lstmModel), "LSTM fixture should load for the prewarm check.");
+        prepareProcessor(prewarmed, matchedRate, blockSize);
+        float firstSilence = 0.0f;
+        float settledSilence = 0.0f;
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            buffer.clear();
+            prewarmed.processBlock(buffer, midi);
+            firstSilence = buffer.getMagnitude(0, 0, blockSize);
+            for (int block = 0; block < 188; ++block) {
+                buffer.clear();
+                prewarmed.processBlock(buffer, midi);
+            }
+            settledSilence = buffer.getMagnitude(0, 0, blockSize);
+        }
+        expect(std::abs(firstSilence - settledSilence) <= juce::jmax(1.0e-3f, 0.05f * juce::jmax(firstSilence, settledSilence)),
+               "The first silent block should already match the LSTM state after another second. first " +
+                   juce::String(firstSilence, 5) + " settled " + juce::String(settledSilence, 5));
+        prewarmed.releaseResources();
+
+        expectRateAdapterPassesBand(rateProbe);
+        expectRateAdapterRejectsAlias();
+    }
+
+    void expectRateAdapterPassesBand(SpectraRateAdapter& adapter) {
+        constexpr double hostRate = 44100.0;
+        constexpr int blockSize = 256;
+        constexpr int blocks = 160;
+        const int lag = adapter.latencySamples();
+        std::vector<float> input(static_cast<std::size_t>(blockSize * blocks), 0.0f);
+        std::vector<float> output(input.size(), 0.0f);
+        const auto identity = [](const float* in, float* out, int frames) {
+            std::memcpy(out, in, sizeof(float) * static_cast<std::size_t>(frames));
+        };
+        for (int block = 0; block < blocks; ++block) {
+            for (int sample = 0; sample < blockSize; ++sample) {
+                const int index = block * blockSize + sample;
+                const auto phase = juce::MathConstants<double>::twoPi * 1000.0 * index / hostRate;
+                input[static_cast<std::size_t>(index)] = 0.25f * static_cast<float>(std::sin(phase));
+            }
+            adapter.process(input.data() + block * blockSize, output.data() + block * blockSize, blockSize, identity);
+        }
+
+        const auto score = [&](int delay) {
+            double dot = 0.0;
+            double energyIn = 0.0;
+            double energyOut = 0.0;
+            for (int index = delay; index < static_cast<int>(input.size()); ++index) {
+                const float in = input[static_cast<std::size_t>(index - delay)];
+                const float out = output[static_cast<std::size_t>(index)];
+                dot += static_cast<double>(in) * out;
+                energyIn += static_cast<double>(in) * in;
+                energyOut += static_cast<double>(out) * out;
+            }
+            return energyIn > 0.0 && energyOut > 0.0 ? dot / std::sqrt(energyIn * energyOut) : 0.0;
+        };
+        const double aligned = score(lag);
+        expect(aligned > 0.98, "A 1 kHz sine should survive the sinc round trip at the reported latency.");
+        expect(adapter.droppedSamples() == 0, "The sinc adapter should not drop samples over a one-second tone.");
+        expect(adapter.underruns() == 0, "The sinc adapter should not underrun over a one-second tone.");
+    }
+
+    void expectRateAdapterRejectsAlias() {
+        constexpr double hostRate = 96000.0;
+        constexpr int blockSize = 256;
+        constexpr int blocks = 64;
+        SpectraRateAdapter adapter;
+        adapter.prepare(hostRate, 48000.0, blockSize);
+        const auto identity = [](const float* in, float* out, int frames) {
+            std::memcpy(out, in, sizeof(float) * static_cast<std::size_t>(frames));
+        };
+        float peak = 0.0f;
+        std::vector<float> input(static_cast<std::size_t>(blockSize), 0.0f);
+        std::vector<float> output(static_cast<std::size_t>(blockSize), 0.0f);
+        const int skip = adapter.latencySamples() + blockSize;
+        for (int block = 0; block < blocks; ++block) {
+            for (int sample = 0; sample < blockSize; ++sample) {
+                const int index = block * blockSize + sample;
+                const auto phase = juce::MathConstants<double>::twoPi * 30000.0 * index / hostRate;
+                input[static_cast<std::size_t>(sample)] = 0.25f * static_cast<float>(std::sin(phase));
+            }
+            adapter.process(input.data(), output.data(), blockSize, identity);
+            if (block * blockSize < skip) {
+                continue;
+            }
+            for (float sample : output) {
+                peak = std::max(peak, std::abs(sample));
+            }
+        }
+        expect(peak < 0.05f,
+               "A 30 kHz sine heading into a 48 kHz model should be rejected. peak " + juce::String(peak, 5));
+        expect(adapter.droppedSamples() == 0, "Alias check should not drop samples.");
     }
 };
 

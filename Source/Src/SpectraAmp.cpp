@@ -11,10 +11,12 @@
 #include <vector>
 
 #include "SpectraNeuralModel.h"
+#include "SpectraRateAdapter.h"
 
 namespace {
 constexpr std::size_t kMaxModelBytes = 32u * 1024u * 1024u;
-constexpr int kResampleLatencySamples = 1;
+// NAM's default "Input Calibration Level": a 0 dBFS peak sine is 12 dBu RMS.
+constexpr double kReferenceDbu = 12.0;
 
 bool needsExternalResample(double modelRate, double hostRate, bool arbitraryRate) {
     if (arbitraryRate || !(modelRate > 0.0) || !(hostRate > 0.0)) {
@@ -23,46 +25,26 @@ bool needsExternalResample(double modelRate, double hostRate, bool arbitraryRate
     return std::abs(modelRate - hostRate) > 1.0;
 }
 
-void resampleLinear(const float* input,
-                    int inputCount,
-                    float* output,
-                    int outputCount,
-                    float& previous,
-                    double& cursor) {
-    if (input == nullptr || output == nullptr || inputCount <= 0 || outputCount <= 0) {
-        return;
+float calibrationGain(bool present, double levelDbu, bool output) {
+    if (!present || !std::isfinite(levelDbu)) {
+        return 1.0f;
     }
-
-    const double step = static_cast<double>(inputCount) / static_cast<double>(outputCount);
-    for (int i = 0; i < outputCount; ++i) {
-        const double position = cursor + static_cast<double>(i) * step;
-        const int index = static_cast<int>(std::floor(position));
-        const float fraction = static_cast<float>(position - static_cast<double>(index));
-        const float left = index <= 0 ? previous : input[std::clamp(index - 1, 0, inputCount - 1)];
-        const int rightIndex = std::clamp(index, 0, inputCount - 1);
-        const float right = input[rightIndex];
-        output[i] = left + (right - left) * fraction;
+    const double decibels = output ? levelDbu - kReferenceDbu : kReferenceDbu - levelDbu;
+    const float gain = std::pow(10.0f, static_cast<float>(decibels / 20.0));
+    if (!std::isfinite(gain) || gain <= 0.0f) {
+        return 1.0f;
     }
-
-    cursor += static_cast<double>(outputCount) * step - static_cast<double>(inputCount);
-    if (!std::isfinite(cursor) || std::abs(cursor) > 1.0) {
-        cursor = 0.0;
-    }
-    previous = input[inputCount - 1];
+    return std::clamp(gain, 1.0e-2f, 1.0e2f);
 }
 }  // namespace
 
 struct SpectraAmp::Instance {
     std::unique_ptr<SpectraNeuralModel> model;
+    SpectraRateAdapter adapter;
     std::vector<float> hostIn;
-    std::vector<float> hostOut;
-    std::vector<float> modelIn;
-    std::vector<float> modelOut;
-    float previousIn = 0.0f;
-    float previousOut = 0.0f;
-    double cursorIn = 0.0;
-    double cursorOut = 0.0;
-    float delaySample = 0.0f;
+    std::vector<float> modelScratch;
+    float inputGain = 1.0f;
+    float outputGain = 1.0f;
     bool ready = false;
 };
 
@@ -234,7 +216,7 @@ void SpectraAmp::configure(Engine& engine) const {
     engine.hostRate = _hostRate;
     engine.maxHostBlock = std::max(1, _maxBlock);
     engine.resample = needsExternalResample(engine.modelRate, _hostRate, engine.arbitraryRate);
-    engine.latency = engine.resample ? kResampleLatencySamples : 0;
+    engine.latency = 0;
 
     const double ratio = engine.resample ? engine.modelRate / _hostRate : 1.0;
     engine.modelBlock = engine.resample
@@ -247,23 +229,22 @@ void SpectraAmp::configure(Engine& engine) const {
     }
 
     const double resetRate = engine.resample ? engine.modelRate : _hostRate;
-    const int resetBlock = engine.resample ? engine.modelBlock : engine.maxHostBlock;
     for (auto& instance : engine.instances) {
         if (instance.model == nullptr) {
             instance.ready = false;
             continue;
         }
         instance.ready = false;
-        instance.model->reset(resetRate, resetBlock);
+        instance.inputGain = calibrationGain(instance.model->hasInputLevel(), instance.model->inputLevelDbu(), false);
+        instance.outputGain = calibrationGain(instance.model->hasOutputLevel(), instance.model->outputLevelDbu(), true);
+        if (engine.resample) {
+            instance.adapter.prepare(engine.hostRate, engine.modelRate, engine.maxHostBlock);
+            engine.modelBlock = std::max(engine.modelBlock, instance.adapter.maxCallbackFrames());
+            engine.latency = instance.adapter.latencySamples();
+        }
+        instance.model->reset(resetRate, engine.modelBlock);
         instance.hostIn.assign(static_cast<std::size_t>(engine.maxHostBlock), 0.0f);
-        instance.hostOut.assign(static_cast<std::size_t>(engine.maxHostBlock), 0.0f);
-        instance.modelIn.assign(static_cast<std::size_t>(engine.modelBlock), 0.0f);
-        instance.modelOut.assign(static_cast<std::size_t>(engine.modelBlock), 0.0f);
-        instance.previousIn = 0.0f;
-        instance.previousOut = 0.0f;
-        instance.cursorIn = 0.0;
-        instance.cursorOut = 0.0;
-        instance.delaySample = 0.0f;
+        instance.modelScratch.assign(static_cast<std::size_t>(engine.modelBlock), 0.0f);
         instance.ready = true;
     }
 }
@@ -321,20 +302,26 @@ bool SpectraAmp::renderEngine(Engine& engine, int instance, const float* input, 
         try {
             if (!engine.resample) {
                 std::memcpy(slot.hostIn.data(), in, sizeof(float) * static_cast<std::size_t>(count));
-                slot.model->process(slot.hostIn.data(), out, count);
-            } else {
-                const int modelFrames = std::clamp(
-                    static_cast<int>(std::lround(static_cast<double>(count) * engine.modelRate / engine.hostRate)),
-                    1,
-                    engine.modelBlock);
-                resampleLinear(in, count, slot.modelIn.data(), modelFrames, slot.previousIn, slot.cursorIn);
-                slot.model->process(slot.modelIn.data(), slot.modelOut.data(), modelFrames);
-                resampleLinear(slot.modelOut.data(), modelFrames, slot.hostOut.data(), count, slot.previousOut, slot.cursorOut);
-                out[0] = slot.delaySample;
-                if (count > 1) {
-                    std::memcpy(out + 1, slot.hostOut.data(), sizeof(float) * static_cast<std::size_t>(count - 1));
+                for (int frame = 0; frame < count; ++frame) {
+                    slot.hostIn[static_cast<std::size_t>(frame)] *= slot.inputGain;
                 }
-                slot.delaySample = slot.hostOut[static_cast<std::size_t>(count - 1)];
+                slot.model->process(slot.hostIn.data(), out, count);
+                for (int frame = 0; frame < count; ++frame) {
+                    out[frame] *= slot.outputGain;
+                }
+            } else {
+                const float inputGain = slot.inputGain;
+                const float outputGain = slot.outputGain;
+                slot.adapter.process(in, out, count, [&](const float* modelIn, float* modelOut, int frames) {
+                    const int used = std::min(frames, static_cast<int>(slot.modelScratch.size()));
+                    for (int frame = 0; frame < used; ++frame) {
+                        slot.modelScratch[static_cast<std::size_t>(frame)] = modelIn[frame] * inputGain;
+                    }
+                    slot.model->process(slot.modelScratch.data(), modelOut, used);
+                    for (int frame = 0; frame < used; ++frame) {
+                        modelOut[frame] *= outputGain;
+                    }
+                });
             }
         } catch (const std::exception&) {
             return false;
