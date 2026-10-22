@@ -229,7 +229,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
                            bool slotEnabled);
     void syncAmpCopies(bool force = false);
     void setEqBypassed(bool bypassed);
-    void loadIrIntoConvolvers(const void* data, size_t size);
+    bool loadIrIntoConvolvers(const void* data, size_t size);
     void updatePedalToneCoefficients();
     void updateReportedLatency();
     struct AmpModelMetadata {

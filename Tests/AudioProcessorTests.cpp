@@ -83,6 +83,10 @@ class AudioProcessorUnitTests : public juce::UnitTest {
             testSpectraNeuralAmp();
         });
 
+        runCase("audio processor cabinet ir reaches the signal", [this] {
+            testCabinetIrReachesSignal();
+        });
+
         runCase("audio processor effect chain", [this] {
             testEffectChain();
         });
@@ -965,6 +969,17 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(std::abs(matchedRms - dryRms * 0.5f) < dryRms * 0.12f,
                "A weight of 0.5 should halve the dry level.");
 
+        const char* smallContainer =
+            R"({"version":"0.5.4","architecture":"SlimmableContainer","config":{"submodels":[{"max_value":0.5,"model":{"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.25],"sample_rate":48000}},{"max_value":1.0,"model":{"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.5],"sample_rate":48000}}]},"weights":[],"sample_rate":48000})";
+        ProfilerAudioProcessor slim;
+        silenceOtherStages(slim);
+        expect(loadAmpJson(slim, smallContainer), "A slimmable container should load.");
+        prepareProcessor(slim, matchedRate, blockSize);
+        const auto slimRms = renderSineRms(slim, matchedRate, blockSize, 16);
+        expect(std::abs(slimRms - dryRms * 0.25f) < dryRms * 0.12f,
+               "A slimmable model should start on its smallest network, matching NAM's Slim default of 0.");
+        slim.releaseResources();
+
         setParameterValue(matched, "isAmpEnabled", 0.0f);
         const auto bypassedRms = renderSineRms(matched, matchedRate, blockSize, 32);
         expect(std::abs(bypassedRms - dryRms) < dryRms * 0.15f,
@@ -1092,6 +1107,97 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(aligned > 0.98, "A 1 kHz sine should survive the sinc round trip at the reported latency.");
         expect(adapter.droppedSamples() == 0, "The sinc adapter should not drop samples over a one-second tone.");
         expect(adapter.underruns() == 0, "The sinc adapter should not underrun over a one-second tone.");
+    }
+
+    juce::MemoryBlock makeDelayedImpulseWav(int delaySamples) {
+        std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::MemoryOutputStream>();
+        auto* rawStream = static_cast<juce::MemoryOutputStream*>(stream.get());
+        juce::WavAudioFormat format;
+        auto writer = format.createWriterFor(stream,
+                                             juce::AudioFormatWriterOptions{}
+                                                 .withSampleRate(48000.0)
+                                                 .withNumChannels(1)
+                                                 .withBitsPerSample(16));
+        if (writer == nullptr) {
+            return {};
+        }
+
+        juce::AudioBuffer<float> samples(1, delaySamples + 32);
+        samples.clear();
+        samples.setSample(0, 0, 0.25f);
+        samples.setSample(0, delaySamples, 1.0f);
+        const auto wrote = writer->writeFromAudioSampleBuffer(samples, 0, samples.getNumSamples());
+        writer->flush();
+        auto block = rawStream->getMemoryBlock();
+        writer.reset();
+        if (!wrote) {
+            return {};
+        }
+        return block;
+    }
+
+    void testCabinetIrReachesSignal() {
+        constexpr double sampleRate = 48000.0;
+        constexpr int blockSize = 256;
+        constexpr int delaySamples = 80;
+        const auto wav = makeDelayedImpulseWav(delaySamples);
+        expect(wav.getSize() > 0, "Delayed impulse wav should be written.");
+
+        ProfilerAudioProcessor processor;
+        setParameterValue(processor, "isEqEnabled", 0.0f);
+        setParameterValue(processor, "isGateEnabled", 0.0f);
+        setParameterValue(processor, "isPedalEnabled", 0.0f);
+        setParameterValue(processor, "isAmpEnabled", 0.0f);
+        setParameterValue(processor, "isCabEnabled", 1.0f);
+        setParameterValue(processor, "gain", 0.0f);
+        setParameterValue(processor, "master", 50.0f);
+        prepareProcessor(processor, sampleRate, blockSize);
+        expect(processor.loadIrFromMemory(wav.getData(), wav.getSize()), "Cabinet IR should load.");
+
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        buffer.clear();
+        processor.processBlock(buffer, midi);
+        juce::Thread::sleep(150);
+        for (int block = 0; block < 40; ++block) {
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+        }
+
+        buffer.clear();
+        buffer.setSample(0, 0, 0.8f);
+        buffer.setSample(1, 0, 0.8f);
+        processor.processBlock(buffer, midi);
+
+        int peakIndex = 0;
+        float peak = 0.0f;
+        for (int sample = 0; sample < blockSize; ++sample) {
+            const float value = std::abs(buffer.getSample(0, sample));
+            if (value > peak) {
+                peak = value;
+                peakIndex = sample;
+            }
+        }
+        expect(std::abs(buffer.getSample(0, 0)) < 0.05f,
+               "A loaded cabinet IR should hold most of the impulse back. sample0 "
+                   + juce::String(buffer.getSample(0, 0), 4));
+        expect(peakIndex >= delaySamples - 8 && peakIndex <= delaySamples + 24,
+               "The cabinet impulse should land near the IR delay. peak "
+                   + juce::String(peak, 4) + " at " + juce::String(peakIndex));
+        expect(peak > 0.02f, "The cabinet IR should produce a peak. peak " + juce::String(peak, 4));
+
+        setParameterValue(processor, "isCabEnabled", 0.0f);
+        for (int block = 0; block < 4; ++block) {
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+        }
+        buffer.clear();
+        buffer.setSample(0, 0, 0.8f);
+        buffer.setSample(1, 0, 0.8f);
+        processor.processBlock(buffer, midi);
+        expect(std::abs(buffer.getSample(0, 0) - 0.8f) < 0.08f,
+               "Bypassing the cabinet should pass the impulse straight through.");
+        processor.releaseResources();
     }
 
     void expectRateAdapterRejectsAlias() {

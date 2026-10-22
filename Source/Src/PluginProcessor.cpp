@@ -648,18 +648,46 @@ void ProfilerAudioProcessor::setEqBypassed(bool bypassed) {
     }
 }
 
-void ProfilerAudioProcessor::loadIrIntoConvolvers(const void* data, size_t size) {
+bool ProfilerAudioProcessor::loadIrIntoConvolvers(const void* data, size_t size) {
     if (data == nullptr || size == 0) {
-        return;
+        return false;
     }
 
+    // Convolution reads a raw pointer later, on a background thread. Decode here, while the
+    // caller's buffer is still intact, and hand over a buffer the convolver owns.
+    auto stream = std::make_unique<juce::MemoryInputStream>(data, size, false);
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(std::move(stream)));
+    if (reader == nullptr || reader->numChannels < 1 || reader->lengthInSamples <= 0 || !(reader->sampleRate > 0.0)) {
+        return false;
+    }
+
+    constexpr juce::int64 kMaxIrSamples = 48000 * 30;
+    if (reader->lengthInSamples > kMaxIrSamples) {
+        return false;
+    }
+
+    const int length = static_cast<int>(reader->lengthInSamples);
+    const int channels = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
+    juce::AudioBuffer<float> decoded(channels, length);
+    if (!reader->read(decoded.getArrayOfWritePointers(), channels, 0, length)) {
+        return false;
+    }
+
+    const double rate = reader->sampleRate;
     for (auto& convolver : _cabConvolvers) {
-        convolver.loadImpulseResponse(data,
-                                      size,
+        juce::AudioBuffer<float> impulse(decoded.getNumChannels(), decoded.getNumSamples());
+        for (int channel = 0; channel < decoded.getNumChannels(); ++channel) {
+            impulse.copyFrom(channel, 0, decoded, channel, 0, decoded.getNumSamples());
+        }
+        convolver.loadImpulseResponse(std::move(impulse),
+                                      rate,
                                       juce::dsp::Convolution::Stereo::no,
                                       juce::dsp::Convolution::Trim::yes,
-                                      0);
+                                      juce::dsp::Convolution::Normalise::yes);
     }
+    return true;
 }
 
 void ProfilerAudioProcessor::syncAmpCopies(bool force) {
@@ -1004,7 +1032,13 @@ bool ProfilerAudioProcessor::loadIrFromMemory(const void* data, size_t size) {
     }
 
     _irBytes.replaceAll(data, static_cast<size_t>(size));
-    loadIrIntoConvolvers(data, size);
+    if (!loadIrIntoConvolvers(_irBytes.getData(), _irBytes.getSize())) {
+        _irBytes.reset();
+        _irLoaded = false;
+        _currentIRFile = juce::File{};
+        return false;
+    }
+
     _irLoaded = true;
     _currentIRFile = juce::File{};
     return true;

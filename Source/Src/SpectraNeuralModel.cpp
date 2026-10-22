@@ -1,6 +1,7 @@
 #include "SpectraNeuralModel.h"
 
 #include <NAM/get_dsp.h>
+#include <NAM/slimmable.h>
 
 #include <exception>
 #include <utility>
@@ -38,6 +39,13 @@ SpectraNeuralModel::LoadStatus SpectraNeuralModel::load(const std::string& json,
         auto model = nam::get_dsp(parsed, options);
         if (model == nullptr) {
             return LoadStatus::Invalid;
+        }
+
+        // NAM's Slim control defaults to 0, so a container starts on its smallest
+        // network. The core otherwise keeps the last submodel, which is the heavy
+        // one and misses the realtime block.
+        if (auto* slimmable = dynamic_cast<nam::SlimmableModel*>(model.get())) {
+            slimmable->SetSlimmableSize(0.0);
         }
 
         auto loaded = std::unique_ptr<SpectraNeuralModel>(new SpectraNeuralModel());
