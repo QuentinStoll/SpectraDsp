@@ -10,6 +10,7 @@
 #include "Fx/FxRack.h"
 #include "ProfileManager.h"
 #include "SignalChainLayout.h"
+#include "SpectraAmp.h"
 #include "SpectraEngine.h"
 
 namespace RTNeural {
@@ -73,6 +74,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     bool loadAmpFromMemory(const void* data, size_t size);
     bool loadIrFromMemory(const void* data, size_t size);
     bool loadProtectedAmp(const void* data, size_t size);
+    bool loadSpectraModel(const void* cipher, size_t cipherSize, const uint8_t* key, size_t keySize);
     bool loadProtectedIr(const void* data, size_t size);
     bool isSpectraLoaded() const noexcept;
     bool unlockSpectraSession(const juce::String& accessToken);
@@ -84,6 +86,13 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
                          const std::array<std::uint8_t, 32>& key,
                          const juce::MemoryBlock& sealed,
                          juce::String* errorMessage);
+    bool beginAmpCapture(std::vector<float> send, juce::String* errorMessage);
+    bool isAmpCaptureRunning() const noexcept;
+    float getAmpCaptureProgress() const noexcept;
+    bool ampCaptureFinished() const noexcept;
+    bool takeAmpCapture(std::vector<float>& sent, std::vector<float>& recorded);
+    void stopAmpCapture();
+    bool releaseStoppedAmpCapture();
     void unloadAmpFile();
     bool isIRLoaded() const noexcept;
     bool isAmpFileLoaded() const noexcept;
@@ -203,11 +212,28 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
         double sampleRate = 0.0;
     };
 
+    enum class AmpCaptureState {
+        Idle = 0,
+        Recording = 1,
+        Complete = 2,
+        Stopping = 3,
+        Stopped = 4
+    };
+
+    struct AmpCaptureSession {
+        std::atomic<int> state{static_cast<int>(AmpCaptureState::Idle)};
+        std::atomic<std::uint32_t> index{0};
+        std::vector<float> send;
+        std::vector<float> recorded;
+    };
+
     ProfileManager _profileManager;
     SpectraEngine _spectra;
     IrCapture _irCapture;
+    AmpCaptureSession _ampCapture;
 
     bool renderIrCapture(juce::AudioBuffer<float>& buffer);
+    bool renderAmpCapture(juce::AudioBuffer<float>& buffer);
     juce::String _appliedProfileId;
 
     void updateEqCoefficients();
@@ -228,7 +254,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
                            bool slotEnabled);
     void syncAmpCopies(bool force = false);
     void setEqBypassed(bool bypassed);
-    void loadIrIntoConvolvers(const void* data, size_t size);
+    bool loadIrIntoConvolvers(const void* data, size_t size);
     void updatePedalToneCoefficients();
     void updateReportedLatency();
     struct AmpModelMetadata {
@@ -246,6 +272,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     bool publishAmpModel(std::unique_ptr<RTNeural::Model<float>> model,
                          const juce::File& sourceFile,
                          const AmpModelMetadata& metadata);
+    bool installAmpPayload(const void* data, size_t size, const juce::File& sourceFile);
 
     //==============================================================================
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -274,6 +301,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::unique_ptr<RTNeural::Model<float>> _neuralAmp;
     std::vector<std::unique_ptr<RTNeural::Model<float>>> _ampCopies;
     juce::MemoryBlock _ampModelBytes;
+    SpectraAmp _spectraAmp;
+    std::vector<float> _spectraWet;
 
     juce::CriticalSection _ampModelLock;
     bool _ampLoaded = false;  // Initialized to false until the JSON is loaded

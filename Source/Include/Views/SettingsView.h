@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "Components/CustomComboBox.h"
+#include "Views/AmpCapturePanel.h"
 #include "Views/IrCapturePanel.h"
 
 class ProfilerAudioProcessor;
@@ -17,10 +18,18 @@ class SettingsView : public juce::Component {
     void resized() override;
 
    private:
+    enum class Page {
+        General,
+        CloneIr,
+        CloneAmp
+    };
+
     juce::TextButton _generalTab{"General"};
     juce::TextButton _captureTab{"Clone IR"};
-    bool _showCapture = false;
+    juce::TextButton _ampTab{"Clone amp"};
+    Page _page = Page::General;
     IrCapturePanel _capturePanel;
+    AmpCapturePanel _ampPanel;
 
     juce::Label _titleLabel;
     juce::Label _backgroundLabel;

@@ -73,6 +73,17 @@ SPECTRA_API int spectra_ir_open(const uint8_t* key,
                                 size_t sealed_size,
                                 SpectraBuffer* plain);
 
+SPECTRA_API int spectra_model_seal(const uint8_t* plain,
+                                   size_t plain_size,
+                                   uint8_t* key_out,
+                                   size_t key_out_size,
+                                   SpectraBuffer* sealed);
+SPECTRA_API int spectra_model_open(const uint8_t* key,
+                                   size_t key_size,
+                                   const uint8_t* sealed,
+                                   size_t sealed_size,
+                                   SpectraBuffer* plain);
+
 #ifdef __cplusplus
 }
 #endif

@@ -17,6 +17,7 @@
 
 #include <tracy/Tracy.hpp>
 
+#include "AmpCapture.h"
 #include "Fx/FxCatalog.h"
 #include "Logging.h"
 #include "SettingsPath.h"
@@ -185,6 +186,12 @@ void ProfilerAudioProcessor::changeProgramName(int /*index*/, const juce::String
 
 //==============================================================================
 void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
+    // A device restart breaks the timeline between send and return.
+    stopAmpCapture();
+    if (_ampCapture.state.load(std::memory_order_acquire) == static_cast<int>(AmpCaptureState::Stopping)) {
+        _ampCapture.state.store(static_cast<int>(AmpCaptureState::Stopped), std::memory_order_release);
+    }
+
     juce::dsp::ProcessSpec spec;
     spec.sampleRate = sampleRate;
     spec.maximumBlockSize = (juce::uint32)samplesPerBlock;
@@ -278,6 +285,8 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     _directInputLeft.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
     _directInputRight.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
     _fx.prepare(sampleRate, samplesPerBlock);
+    _spectraWet.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
+    _spectraAmp.prepare(sampleRate, samplesPerBlock);
     updateReportedLatency();
 
     {
@@ -356,7 +365,7 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    if (renderIrCapture(buffer)) {
+    if (renderIrCapture(buffer) || renderAmpCapture(buffer)) {
         return;
     }
 
@@ -527,12 +536,20 @@ bool ProfilerAudioProcessor::readTuner(Fx::TunerSnapshot& snapshot) const {
 void ProfilerAudioProcessor::updateReportedLatency() {
     const auto layout = getChainLayout();
     int latency = 0;
+    int activeAmps = 0;
     for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
         const auto chainSlot = SignalChain::chainSlotForMovableIndex(index);
         if (isChainSlotBypassed(chainSlot)) {
             continue;
         }
-        latency += _fx.latencySamplesFor(layout.atSlot(chainSlot));
+        const auto stage = layout.atSlot(chainSlot);
+        latency += _fx.latencySamplesFor(stage);
+        if (stage == SignalChain::Stage::Amp) {
+            ++activeAmps;
+        }
+    }
+    if (_spectraAmp.isLoaded()) {
+        latency += activeAmps * _spectraAmp.latencySamples();
     }
     if (latency != _reportedLatency) {
         _reportedLatency = latency;
@@ -638,38 +655,66 @@ void ProfilerAudioProcessor::setEqBypassed(bool bypassed) {
     }
 }
 
-void ProfilerAudioProcessor::loadIrIntoConvolvers(const void* data, size_t size) {
+bool ProfilerAudioProcessor::loadIrIntoConvolvers(const void* data, size_t size) {
     if (data == nullptr || size == 0) {
-        return;
+        return false;
     }
 
+    // Convolution reads a raw pointer later, on a background thread. Decode here, while the
+    // caller's buffer is still intact, and hand over a buffer the convolver owns.
+    auto stream = std::make_unique<juce::MemoryInputStream>(data, size, false);
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(std::move(stream)));
+    if (reader == nullptr || reader->numChannels < 1 || reader->lengthInSamples <= 0 || !(reader->sampleRate > 0.0)) {
+        return false;
+    }
+
+    constexpr juce::int64 kMaxIrSamples = 48000 * 30;
+    if (reader->lengthInSamples > kMaxIrSamples) {
+        return false;
+    }
+
+    const int length = static_cast<int>(reader->lengthInSamples);
+    const int channels = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
+    juce::AudioBuffer<float> decoded(channels, length);
+    if (!reader->read(decoded.getArrayOfWritePointers(), channels, 0, length)) {
+        return false;
+    }
+
+    const double rate = reader->sampleRate;
     for (auto& convolver : _cabConvolvers) {
-        convolver.loadImpulseResponse(data,
-                                      size,
+        juce::AudioBuffer<float> impulse(decoded.getNumChannels(), decoded.getNumSamples());
+        for (int channel = 0; channel < decoded.getNumChannels(); ++channel) {
+            impulse.copyFrom(channel, 0, decoded, channel, 0, decoded.getNumSamples());
+        }
+        convolver.loadImpulseResponse(std::move(impulse),
+                                      rate,
                                       juce::dsp::Convolution::Stereo::no,
                                       juce::dsp::Convolution::Trim::yes,
-                                      0);
+                                      juce::dsp::Convolution::Normalise::yes);
     }
+    return true;
 }
 
 void ProfilerAudioProcessor::syncAmpCopies(bool force) {
-    const juce::ScopedLock ampLock(_ampModelLock);
-    const auto extraAmps = juce::jmax(0, getChainLayout().count(SignalChain::Stage::Amp) - 1);
-    if (!force && static_cast<int>(_ampCopies.size()) == extraAmps) {
-        return;
-    }
-
-    _ampCopies.clear();
-    if (extraAmps == 0 || _neuralAmp == nullptr || _ampModelBytes.getSize() == 0) {
-        return;
-    }
-
-    for (int index = 0; index < extraAmps; ++index) {
-        auto copy = parseAmpModel(_ampModelBytes.getData(), _ampModelBytes.getSize(), nullptr);
-        if (copy != nullptr) {
-            _ampCopies.push_back(std::move(copy));
+    {
+        const juce::ScopedLock ampLock(_ampModelLock);
+        const auto extraAmps = juce::jmax(0, getChainLayout().count(SignalChain::Stage::Amp) - 1);
+        if (force || static_cast<int>(_ampCopies.size()) != extraAmps) {
+            _ampCopies.clear();
+            if (extraAmps > 0 && _neuralAmp != nullptr && _ampModelBytes.getSize() > 0) {
+                for (int index = 0; index < extraAmps; ++index) {
+                    auto copy = parseAmpModel(_ampModelBytes.getData(), _ampModelBytes.getSize(), nullptr);
+                    if (copy != nullptr) {
+                        _ampCopies.push_back(std::move(copy));
+                    }
+                }
+            }
         }
     }
+
+    _spectraAmp.setInstanceCount(juce::jmax(1, getChainLayout().count(SignalChain::Stage::Amp)));
 }
 
 void ProfilerAudioProcessor::resetChainLayout() {
@@ -699,6 +744,26 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
     auto& wetMix = _ampWetMix[mixIndex];
     const bool ampEnabled = slotEnabled && getParameterValue(_isAmpEnabledParam, 1.0f) > 0.5f;
     wetMix.setTargetValue(ampEnabled ? 1.0f : 0.0f);
+
+    if (_spectraAmp.isLoaded()) {
+        auto* channel0Data = buffer.getWritePointer(0);
+        if (static_cast<int>(_spectraWet.size()) >= numSamples &&
+            _spectraAmp.render(instance, channel0Data, _spectraWet.data(), numSamples)) {
+            for (int i = 0; i < numSamples; ++i) {
+                const float dry = channel0Data[i];
+                float wet = _spectraWet[static_cast<std::size_t>(i)];
+                if (!std::isfinite(wet)) {
+                    wet = dry;
+                }
+                const float mix = wetMix.getNextValue();
+                channel0Data[i] = dry + (wet - dry) * mix;
+            }
+        } else {
+            wetMix.skip(numSamples);
+        }
+        _dcBlockers[static_cast<std::size_t>(juce::jlimit(0, kChainCopies - 1, instance))].process(context);
+        return;
+    }
 
     {
         const juce::ScopedLock ampLock(_ampModelLock);
@@ -974,7 +1039,13 @@ bool ProfilerAudioProcessor::loadIrFromMemory(const void* data, size_t size) {
     }
 
     _irBytes.replaceAll(data, static_cast<size_t>(size));
-    loadIrIntoConvolvers(data, size);
+    if (!loadIrIntoConvolvers(_irBytes.getData(), _irBytes.getSize())) {
+        _irBytes.reset();
+        _irLoaded = false;
+        _currentIRFile = juce::File{};
+        return false;
+    }
+
     _irLoaded = true;
     _currentIRFile = juce::File{};
     return true;
@@ -1088,20 +1159,55 @@ bool ProfilerAudioProcessor::publishAmpModel(std::unique_ptr<RTNeural::Model<flo
     return true;
 }
 
-bool ProfilerAudioProcessor::loadAmpFromMemory(const void* data, size_t size) {
+bool ProfilerAudioProcessor::installAmpPayload(const void* data, size_t size, const juce::File& sourceFile) {
     if (data == nullptr || size == 0) {
         return false;
     }
 
     _ampModelBytes.replaceAll(data, static_cast<size_t>(size));
+    const auto status = _spectraAmp.load(data, size);
+    if (status == SpectraAmp::LoadStatus::Loaded) {
+        {
+            const juce::ScopedLock ampLock(_ampModelLock);
+            _neuralAmp = nullptr;
+            _ampCopies.clear();
+            _ampLoaded = false;
+            _ampInputSkip = 0;
+            _ampInputGain = 1.0f;
+            _ampOutputGain = 1.0f;
+            _currentAmpFile = sourceFile;
+            _ampFileLoaded = sourceFile.existsAsFile();
+        }
+        syncAmpCopies(true);
+        updateReportedLatency();
+        return true;
+    }
+
+    if (status == SpectraAmp::LoadStatus::Invalid) {
+        _ampModelBytes.reset();
+        return false;
+    }
+
     AmpModelMetadata metadata;
-    const auto loaded = publishAmpModel(parseAmpModel(data, size, &metadata), {}, metadata);
+    auto loadedAmp = parseAmpModel(data, size, &metadata);
+    if (loadedAmp == nullptr) {
+        _ampModelBytes.reset();
+        return false;
+    }
+
+    _spectraAmp.clear();
+    const auto loaded = publishAmpModel(std::move(loadedAmp), sourceFile, metadata);
     if (loaded) {
         syncAmpCopies(true);
+        updateReportedLatency();
     } else {
         _ampModelBytes.reset();
     }
     return loaded;
+}
+
+bool ProfilerAudioProcessor::loadAmpFromMemory(const void* data, size_t size) {
+    return installAmpPayload(data, size, {});
 }
 
 bool ProfilerAudioProcessor::loadAmpFile(const juce::File& file) {
@@ -1114,16 +1220,19 @@ bool ProfilerAudioProcessor::loadAmpFile(const juce::File& file) {
         return false;
     }
 
-    _ampModelBytes = bytes;
-    AmpModelMetadata metadata;
-    auto loadedAmp = parseAmpModel(bytes.getData(), bytes.getSize(), &metadata);
+    const auto loaded = installAmpPayload(bytes.getData(), bytes.getSize(), file);
     bytes.fillWith(0);
-    const auto loaded = publishAmpModel(std::move(loadedAmp), file, metadata);
-    if (loaded) {
-        syncAmpCopies(true);
-    } else {
-        _ampModelBytes.reset();
+    return loaded;
+}
+
+bool ProfilerAudioProcessor::loadSpectraModel(const void* cipher, size_t cipherSize, const uint8_t* key, size_t keySize) {
+    juce::MemoryBlock plain;
+    if (!_spectra.openModel(key, keySize, cipher, cipherSize, plain)) {
+        return false;
     }
+
+    const auto loaded = loadAmpFromMemory(plain.getData(), plain.getSize());
+    plain.fillWith(0);
     return loaded;
 }
 
@@ -1133,16 +1242,8 @@ bool ProfilerAudioProcessor::loadProtectedAmp(const void* data, size_t size) {
         return false;
     }
 
-    _ampModelBytes = plain;
-    AmpModelMetadata metadata;
-    auto loadedAmp = parseAmpModel(plain.getData(), plain.getSize(), &metadata);
+    const auto loaded = installAmpPayload(plain.getData(), plain.getSize(), {});
     plain.fillWith(0);
-    const auto loaded = publishAmpModel(std::move(loadedAmp), {}, metadata);
-    if (loaded) {
-        syncAmpCopies(true);
-    } else {
-        _ampModelBytes.reset();
-    }
     return loaded;
 }
 
@@ -1317,17 +1418,141 @@ bool ProfilerAudioProcessor::renderIrCapture(juce::AudioBuffer<float>& buffer) {
     return true;
 }
 
+bool ProfilerAudioProcessor::beginAmpCapture(std::vector<float> send, juce::String* errorMessage) {
+    const auto fail = [errorMessage](const juce::String& message) {
+        if (errorMessage != nullptr) {
+            *errorMessage = message;
+        }
+        return false;
+    };
+
+    releaseStoppedAmpCapture();
+    if (_ampCapture.state.load(std::memory_order_acquire) != static_cast<int>(AmpCaptureState::Idle) ||
+        _irCapture.state.load(std::memory_order_acquire) == static_cast<int>(IrCaptureState::Recording)) {
+        return fail("A capture is already running.");
+    }
+    if (wrapperType != juce::AudioProcessor::wrapperType_Standalone) {
+        return fail("Amp capture runs in the standalone.");
+    }
+    if (std::abs(getSampleRate() - AmpCapture::kSampleRate) > 0.5) {
+        return fail("Set the audio device to 48 kHz.");
+    }
+    if (send.empty()) {
+        return fail("The reamp signal is empty.");
+    }
+
+    const auto recordFrames = send.size() + static_cast<std::size_t>(AmpCapture::kTailFrames);
+    _ampCapture.send = std::move(send);
+    _ampCapture.recorded.assign(recordFrames, 0.0f);
+    _ampCapture.index.store(0, std::memory_order_relaxed);
+    _ampCapture.state.store(static_cast<int>(AmpCaptureState::Recording), std::memory_order_release);
+    return true;
+}
+
+bool ProfilerAudioProcessor::isAmpCaptureRunning() const noexcept {
+    const auto state = _ampCapture.state.load(std::memory_order_acquire);
+    return state == static_cast<int>(AmpCaptureState::Recording) || state == static_cast<int>(AmpCaptureState::Stopping);
+}
+
+float ProfilerAudioProcessor::getAmpCaptureProgress() const noexcept {
+    const auto frames = _ampCapture.recorded.size();
+    if (frames == 0) {
+        return 0.0f;
+    }
+    return static_cast<float>(_ampCapture.index.load(std::memory_order_acquire)) / static_cast<float>(frames);
+}
+
+bool ProfilerAudioProcessor::ampCaptureFinished() const noexcept {
+    return _ampCapture.state.load(std::memory_order_acquire) == static_cast<int>(AmpCaptureState::Complete);
+}
+
+bool ProfilerAudioProcessor::takeAmpCapture(std::vector<float>& sent, std::vector<float>& recorded) {
+    if (!ampCaptureFinished()) {
+        return false;
+    }
+    sent = std::move(_ampCapture.send);
+    recorded = std::move(_ampCapture.recorded);
+    _ampCapture.send.clear();
+    _ampCapture.recorded.clear();
+    _ampCapture.state.store(static_cast<int>(AmpCaptureState::Idle), std::memory_order_release);
+    return true;
+}
+
+void ProfilerAudioProcessor::stopAmpCapture() {
+    auto expected = static_cast<int>(AmpCaptureState::Recording);
+    _ampCapture.state.compare_exchange_strong(expected, static_cast<int>(AmpCaptureState::Stopping),
+                                              std::memory_order_acq_rel);
+}
+
+bool ProfilerAudioProcessor::releaseStoppedAmpCapture() {
+    if (_ampCapture.state.load(std::memory_order_acquire) != static_cast<int>(AmpCaptureState::Stopped)) {
+        return false;
+    }
+    _ampCapture.send.clear();
+    _ampCapture.recorded.clear();
+    _ampCapture.state.store(static_cast<int>(AmpCaptureState::Idle), std::memory_order_release);
+    return true;
+}
+
+bool ProfilerAudioProcessor::renderAmpCapture(juce::AudioBuffer<float>& buffer) {
+    const auto state = _ampCapture.state.load(std::memory_order_acquire);
+    if (state == static_cast<int>(AmpCaptureState::Stopping)) {
+        _ampCapture.state.store(static_cast<int>(AmpCaptureState::Stopped), std::memory_order_release);
+    }
+    if (state == static_cast<int>(AmpCaptureState::Stopping) || state == static_cast<int>(AmpCaptureState::Stopped)) {
+        buffer.clear();
+        return true;
+    }
+    if (state != static_cast<int>(AmpCaptureState::Recording)) {
+        return false;
+    }
+
+    const auto numChannels = buffer.getNumChannels();
+    const auto numSamples = buffer.getNumSamples();
+    const auto* input = buffer.getReadPointer(0);
+    auto index = _ampCapture.index.load(std::memory_order_relaxed);
+    const auto recordFrames = static_cast<std::uint32_t>(_ampCapture.recorded.size());
+    const auto sendFrames = static_cast<std::uint32_t>(_ampCapture.send.size());
+    const auto inputRms = buffer.getRMSLevel(0, 0, numSamples);
+    for (int sample = 0; sample < numSamples; ++sample) {
+        float output = 0.0f;
+        if (index < recordFrames) {
+            _ampCapture.recorded[index] = input[sample];
+            if (index < sendFrames) {
+                output = _ampCapture.send[index];
+            }
+            ++index;
+        }
+        for (int channel = 0; channel < numChannels; ++channel) {
+            buffer.getWritePointer(channel)[sample] = output;
+        }
+    }
+
+    _ampCapture.index.store(index, std::memory_order_release);
+    if (index >= recordFrames) {
+        _ampCapture.state.store(static_cast<int>(AmpCaptureState::Complete), std::memory_order_release);
+    }
+    _rmsLevelInput.store(juce::Decibels::gainToDecibels(inputRms, -60.0f), std::memory_order_relaxed);
+    _rmsLevelOutput.store(juce::Decibels::gainToDecibels(buffer.getRMSLevel(0, 0, numSamples), -60.0f),
+                          std::memory_order_relaxed);
+    return true;
+}
+
 void ProfilerAudioProcessor::unloadAmpFile() {
-    const juce::ScopedLock ampLock(_ampModelLock);
-    _ampLoaded = false;
-    _ampInputSkip = 0;
-    _ampInputGain = 1.0f;
-    _ampOutputGain = 1.0f;
-    _neuralAmp = nullptr;
-    _ampCopies.clear();
-    _ampModelBytes.reset();
-    _ampFileLoaded = false;
-    _currentAmpFile = juce::File{};
+    {
+        const juce::ScopedLock ampLock(_ampModelLock);
+        _ampLoaded = false;
+        _ampInputSkip = 0;
+        _ampInputGain = 1.0f;
+        _ampOutputGain = 1.0f;
+        _neuralAmp = nullptr;
+        _ampCopies.clear();
+        _ampModelBytes.reset();
+        _ampFileLoaded = false;
+        _currentAmpFile = juce::File{};
+    }
+    _spectraAmp.clear();
+    updateReportedLatency();
 }
 
 bool ProfilerAudioProcessor::isIRLoaded() const noexcept {

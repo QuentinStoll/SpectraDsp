@@ -17,6 +17,26 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
     _accountPanel.onLayoutChanged = [this]() {
         resized();
     };
+    _accountPanel.onPlaySpectra = [this](const juce::MemoryBlock& cipher, const juce::MemoryBlock& key, juce::String* errorMessage) {
+        Marketplace::Session session;
+        if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "Sign in to play this amp.";
+            }
+            return false;
+        }
+        if (!_audioProcessor.unlockSpectraSession(session.accessToken) ||
+            !_audioProcessor.loadSpectraModel(cipher.getData(), cipher.getSize(),
+                                              static_cast<const uint8_t*>(key.getData()), key.getSize())) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "Could not open this amp. Update Spectra and sign in again.";
+            }
+            return false;
+        }
+        _notificationBanner.clearAction();
+        _notificationBanner.showMessage("Amp loaded", NotificationBanner::Type::Success, 5000);
+        return true;
+    };
     _accountPanel.onInstallPack = [this](const juce::File& profileFile,
                                          const juce::File& irFile,
                                          bool hasIntegratedIr,

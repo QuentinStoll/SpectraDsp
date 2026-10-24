@@ -1,11 +1,15 @@
 #include <JuceHeader.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
+#include "AmpCapture.h"
 #include "Fx/FxCatalog.h"
 #include "PluginProcessor.h"
 #include "SignalChainLayout.h"
+#include "SpectraRateAdapter.h"
 #include "TestRunner.h"
 
 namespace profiler_tests {
@@ -75,6 +79,22 @@ class AudioProcessorUnitTests : public juce::UnitTest {
 
         runCase("audio processor amp model residual and bypass", [this] {
             testAmpModelResidualAndBypass();
+        });
+
+        runCase("audio processor spectra neural amp", [this] {
+            testSpectraNeuralAmp();
+        });
+
+        runCase("audio processor nam a2 realtime", [this] {
+            testNamA2Realtime();
+        });
+
+        runCase("audio processor nam clone quality", [this] {
+            testNamCloneQuality();
+        });
+
+        runCase("audio processor cabinet ir reaches the signal", [this] {
+            testCabinetIrReachesSignal();
         });
 
         runCase("audio processor effect chain", [this] {
@@ -914,6 +934,425 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(std::abs(attenuatedRms - dryRms * 0.5f) < dryRms * 0.12f,
                "out_gain should scale the model output in decibels.");
         attenuated.releaseResources();
+    }
+
+    double measureRealtimeRatio(const juce::File& nam, double sampleRate, int blockSize) {
+        if (!nam.existsAsFile()) {
+            logMessage("Missing " + nam.getFullPathName());
+            return -1.0;
+        }
+
+        ProfilerAudioProcessor processor;
+        silenceOtherStages(processor);
+        expect(processor.loadAmpFile(nam), "Should load " + nam.getFileName());
+        prepareProcessor(processor, sampleRate, blockSize);
+
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        for (int warm = 0; warm < 8; ++warm) {
+            fillSineBuffer(buffer, sampleRate, 1000.0f, 0.25f);
+            processor.processBlock(buffer, midi);
+        }
+
+        constexpr int kBlocks = 200;
+        const auto started = std::chrono::steady_clock::now();
+        for (int block = 0; block < kBlocks; ++block) {
+            fillSineBuffer(buffer, sampleRate, 1000.0f, 0.25f);
+            processor.processBlock(buffer, midi);
+            expect(allSamplesFinite(buffer), nam.getFileName() + " should stay finite.");
+        }
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        const auto audioSeconds = static_cast<double>(kBlocks * blockSize) / sampleRate;
+        const auto wallSeconds = std::chrono::duration<double>(elapsed).count();
+        const auto ratio = wallSeconds / audioSeconds;
+        logMessage(nam.getFileName() + " block " + juce::String(blockSize) + " ratio " + juce::String(ratio, 3));
+        processor.releaseResources();
+        return ratio;
+    }
+
+    void testNamA2Realtime() {
+        const juce::File capture(
+            "C:/Users/quent/Documents/Profiler/Captures/Test1 2026-10-22 13-25-47");
+        const auto eight = measureRealtimeRatio(capture.getChildFile("Test1-wavenet-8ch.nam"), 48000.0, 512);
+        const auto three = measureRealtimeRatio(capture.getChildFile("Test1-wavenet-3ch.nam"), 48000.0, 512);
+        const auto orange = measureRealtimeRatio(
+            juce::File("C:/Users/quent/Downloads/Orange Dual Terror (0.5.2)/ORANGE - DUAL TERROR - FAT - G1.nam"),
+            48000.0, 512);
+        if (three >= 0.0) {
+            expect(three < 0.5, "A2-Lite should stay under realtime at 48 kHz / 512, ratio " + juce::String(three, 3));
+        }
+        if (orange >= 0.0) {
+            expect(orange < 0.5, "Orange's slim network should stay under realtime, ratio " + juce::String(orange, 3));
+        }
+        if (eight >= 0.0) {
+            logMessage("A2-Full is " + juce::String(eight, 3) + "x realtime on this CPU; keep Slim on the 3-channel net.");
+        }
+    }
+
+    void testNamCloneQuality() {
+        const juce::File folder(
+            "C:/Users/quent/Documents/Profiler/Captures/Test1 2026-10-22 13-25-47");
+        const auto modelFile = folder.getChildFile("Test1-400ep.nam");
+        if (!modelFile.existsAsFile()) {
+            logMessage("Test1-400ep.nam is not ready yet.");
+            return;
+        }
+
+        std::vector<float> dry;
+        std::vector<float> wet;
+        juce::String error;
+        expect(AmpCapture::loadReamp(folder.getChildFile("input.wav"), dry, &error), error);
+        expect(AmpCapture::loadReamp(folder.getChildFile("output.wav"), wet, &error), error);
+        expectEquals(static_cast<int>(dry.size()), AmpCapture::kStandardFrames);
+        expectEquals(static_cast<int>(wet.size()), AmpCapture::kStandardFrames);
+
+        const auto dryVsWet = AmpCapture::esr(dry.data(), wet.data(), AmpCapture::kValidationFrames);
+        expect(dryVsWet > 0.2, "The capture should differ from the reamp file, ESR " + juce::String(dryVsWet, 4));
+
+        const auto ratio = measureRealtimeRatio(modelFile, AmpCapture::kSampleRate, 512);
+        expect(ratio >= 0.0 && ratio < 0.5, "The cloned 3-channel net should stay under realtime, ratio " +
+                                                juce::String(ratio, 3));
+
+        ProfilerAudioProcessor processor;
+        silenceOtherStages(processor);
+        expect(processor.loadAmpFile(modelFile), "The 400-epoch model should load.");
+        constexpr int blockSize = 512;
+        prepareProcessor(processor, AmpCapture::kSampleRate, blockSize);
+
+        const int warmup = 24'000;
+        std::vector<float> predicted(dry.size(), 0.0f);
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        for (int offset = 0; offset < static_cast<int>(dry.size()); offset += blockSize) {
+            const int count = juce::jmin(blockSize, static_cast<int>(dry.size()) - offset);
+            buffer.clear();
+            buffer.copyFrom(0, 0, dry.data() + offset, count);
+            buffer.copyFrom(1, 0, dry.data() + offset, count);
+            processor.processBlock(buffer, midi);
+            juce::FloatVectorOperations::copy(predicted.data() + offset, buffer.getReadPointer(0), count);
+        }
+        processor.releaseResources();
+
+        const int val = AmpCapture::kValidationFrames;
+        const auto startEsr = AmpCapture::esr(predicted.data() + warmup, wet.data() + warmup, val - warmup);
+        const auto endEsr = AmpCapture::esr(predicted.data() + (dry.size() - val + warmup),
+                                            wet.data() + (wet.size() - val + warmup), val - warmup);
+        const auto vsDry = AmpCapture::esr(predicted.data() + warmup, dry.data() + warmup, val - warmup);
+        logMessage("Clone ESR start " + juce::String(startEsr, 5) + " end " + juce::String(endEsr, 5) +
+                   " vs dry " + juce::String(vsDry, 5));
+        const auto modelEsr = juce::jmin(startEsr, endEsr);
+        juce::String writeError;
+        AmpCapture::writeWav(folder.getChildFile("preview-model.wav"),
+                             std::vector<float>(predicted.begin(), predicted.begin() + val), &writeError);
+        AmpCapture::writeWav(folder.getChildFile("preview-target.wav"),
+                             std::vector<float>(wet.begin(), wet.begin() + val), &writeError);
+        expect(modelEsr < 0.20, "The clone should be closer to the amp than to the dry file, ESR " +
+                                    juce::String(modelEsr, 5));
+        expect(modelEsr < vsDry, "The clone must match the capture better than it matches the reamp file.");
+    }
+
+    float renderSineRms(ProfilerAudioProcessor& processor, double sampleRate, int blockSize, int blockCount) {
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        for (int block = 0; block < blockCount; ++block) {
+            fillSineBuffer(buffer, sampleRate, 1000.0f, 0.25f);
+            processor.processBlock(buffer, midi);
+            expect(allSamplesFinite(buffer), "Spectra amp sine should stay finite.");
+        }
+        return getMaximumRmsLevel(buffer);
+    }
+
+    void testSpectraNeuralAmp() {
+        constexpr double matchedRate = 48000.0;
+        constexpr double hostRate = 44100.0;
+        constexpr int blockSize = 256;
+        const char* halfModel =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.5],"sample_rate":48000})";
+        const char* brokenModel =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[],"sample_rate":48000})";
+        const char* lstmModel =
+            R"({"version":"0.5.4","architecture":"LSTM","config":{"input_size":1,"hidden_size":3,"num_layers":1},"weights":[-0.21677088737487793,-0.6683622002601624,-0.2560940980911255,-0.3588429093360901,0.17952610552310944,0.19445613026618958,-0.01662646047770977,0.5353694558143616,-0.2536540627479553,-0.5132213234901428,-0.020476307719945908,0.08592455089092255,-0.6891753673553467,0.3627359867095947,0.008421811275184155,0.3113192617893219,0.14251480996608734,0.07989779114723206,-0.18211324512958527,0.7118963003158569,0.41084015369415283,-0.6571938395500183,-0.13214066624641418,-0.2698603868484497,0.49387243390083313,-0.3491725027561188,0.6353667974472046,-0.5005152225494385,0.2052856683731079,-0.4301638901233673,-0.15770092606544495,-0.7181791067123413,0.056290093809366226,-0.49049463868141174,0.6623441576957703,0.09029324352741241,0.34005245566368103,0.16416560113430023,0.15520110726356506,-0.4155678153038025,-0.36928507685661316,0.3211132884025574,-0.6769840121269226,-0.1575538069009781,0.05268515646457672,-0.4191459119319916,0.599330484867096,0.21518059074878693,-4.246325492858887,-3.315647840499878,-4.328850746154785,4.496089458465576,5.015639305114746,3.6492037773132324,0.14431169629096985,-0.6633821725845337,0.11673200130462646,-0.1418764889240265,-0.4897872805595398,-0.8689419031143188,-0.06714004278182983,-0.4450395107269287,-0.02142983116209507,-0.15136894583702087,-2.775207996368408,-0.08681213855743408,0.05702732503414154,0.670292317867279,0.31442636251449585,0.30793967843055725],"sample_rate":48000})";
+
+        ProfilerAudioProcessor broken;
+        expect(!loadAmpJson(broken, brokenModel), "A neural model with empty weights should be rejected.");
+
+        ProfilerAudioProcessor dry;
+        silenceOtherStages(dry);
+        prepareProcessor(dry, matchedRate, blockSize);
+        const auto dryLatency = dry.getLatencySamples();
+        const auto dryRms = renderSineRms(dry, matchedRate, blockSize, 16);
+        dry.releaseResources();
+        expect(dryRms > 0.05f, "Dry path at the model rate should pass the test tone.");
+
+        ProfilerAudioProcessor matched;
+        silenceOtherStages(matched);
+        expect(loadAmpJson(matched, halfModel), "Half-gain linear model should load.");
+        prepareProcessor(matched, matchedRate, blockSize);
+        expect(matched.getLatencySamples() == dryLatency,
+               "A model running at the host rate should not add latency.");
+        const auto matchedRms = renderSineRms(matched, matchedRate, blockSize, 16);
+        expect(std::abs(matchedRms - dryRms * 0.5f) < dryRms * 0.12f,
+               "A weight of 0.5 should halve the dry level.");
+
+        const char* smallContainer =
+            R"({"version":"0.5.4","architecture":"SlimmableContainer","config":{"submodels":[{"max_value":0.5,"model":{"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.25],"sample_rate":48000}},{"max_value":1.0,"model":{"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.5],"sample_rate":48000}}]},"weights":[],"sample_rate":48000})";
+        ProfilerAudioProcessor slim;
+        silenceOtherStages(slim);
+        expect(loadAmpJson(slim, smallContainer), "A slimmable container should load.");
+        prepareProcessor(slim, matchedRate, blockSize);
+        const auto slimRms = renderSineRms(slim, matchedRate, blockSize, 16);
+        expect(std::abs(slimRms - dryRms * 0.25f) < dryRms * 0.12f,
+               "A slimmable model should start on its smallest network, matching NAM's Slim default of 0.");
+        slim.releaseResources();
+
+        setParameterValue(matched, "isAmpEnabled", 0.0f);
+        const auto bypassedRms = renderSineRms(matched, matchedRate, blockSize, 32);
+        expect(std::abs(bypassedRms - dryRms) < dryRms * 0.15f,
+               "Disabling the amp should restore the dry signal after the crossfade.");
+        matched.releaseResources();
+
+        ProfilerAudioProcessor resampled;
+        ProfilerAudioProcessor dryHost;
+        silenceOtherStages(resampled);
+        silenceOtherStages(dryHost);
+        expect(loadAmpJson(resampled, lstmModel), "LSTM fixture should load.");
+        prepareProcessor(resampled, hostRate, blockSize);
+        prepareProcessor(dryHost, hostRate, blockSize);
+        SpectraRateAdapter rateProbe;
+        rateProbe.prepare(hostRate, matchedRate, blockSize);
+        expect(resampled.getLatencySamples() == dryHost.getLatencySamples() + rateProbe.latencySamples(),
+               "A 48 kHz model on a 44.1 kHz host should report the sinc adapter latency.");
+        const auto resampledRms = renderSineRms(resampled, hostRate, blockSize, 8);
+        expect(resampledRms > 0.0f, "Resampled model should produce a signal.");
+        resampled.releaseResources();
+        dryHost.releaseResources();
+
+        const char* boostedOutput =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000,"metadata":{"input_level_dbu":12.0,"output_level_dbu":18.0}})";
+        const char* hotterInput =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000,"metadata":{"input_level_dbu":6.0}})";
+        const float sixDb = std::pow(10.0f, 6.0f / 20.0f);
+
+        ProfilerAudioProcessor outputLevel;
+        silenceOtherStages(outputLevel);
+        expect(loadAmpJson(outputLevel, boostedOutput), "A model with output level metadata should load.");
+        prepareProcessor(outputLevel, matchedRate, blockSize);
+        const auto boostedRms = renderSineRms(outputLevel, matchedRate, blockSize, 16);
+        expect(std::abs(boostedRms - dryRms * sixDb) < dryRms * 0.08f,
+               "An output level 6 dB above the 12 dBu reference should raise the sine by 6 dB.");
+        float earlyRms = 0.0f;
+        float lateRms = 0.0f;
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            for (int block = 0; block < 16; ++block) {
+                fillSineBuffer(buffer, matchedRate, 1000.0f, 0.25f);
+                outputLevel.processBlock(buffer, midi);
+                if (block == 8) {
+                    earlyRms = getMaximumRmsLevel(buffer);
+                }
+                if (block == 15) {
+                    lateRms = getMaximumRmsLevel(buffer);
+                }
+            }
+        }
+        expect(std::abs(earlyRms - lateRms) < juce::jmax(1.0e-4f, lateRms * 0.02f),
+               "A warmed linear model should hold its level from block to block.");
+        outputLevel.releaseResources();
+
+        ProfilerAudioProcessor inputLevel;
+        silenceOtherStages(inputLevel);
+        expect(loadAmpJson(inputLevel, hotterInput), "A model with input level metadata should load.");
+        prepareProcessor(inputLevel, matchedRate, blockSize);
+        const auto hotterRms = renderSineRms(inputLevel, matchedRate, blockSize, 16);
+        expect(std::abs(hotterRms - dryRms * sixDb) < dryRms * 0.08f,
+               "An input level 6 dB below the 12 dBu reference should raise the sine by 6 dB.");
+        inputLevel.releaseResources();
+
+        ProfilerAudioProcessor prewarmed;
+        silenceOtherStages(prewarmed);
+        expect(loadAmpJson(prewarmed, lstmModel), "LSTM fixture should load for the prewarm check.");
+        prepareProcessor(prewarmed, matchedRate, blockSize);
+        float firstSilence = 0.0f;
+        float settledSilence = 0.0f;
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            buffer.clear();
+            prewarmed.processBlock(buffer, midi);
+            firstSilence = buffer.getMagnitude(0, 0, blockSize);
+            for (int block = 0; block < 188; ++block) {
+                buffer.clear();
+                prewarmed.processBlock(buffer, midi);
+            }
+            settledSilence = buffer.getMagnitude(0, 0, blockSize);
+        }
+        expect(std::abs(firstSilence - settledSilence) <= juce::jmax(1.0e-3f, 0.05f * juce::jmax(firstSilence, settledSilence)),
+               "The first silent block should already match the LSTM state after another second. first " +
+                   juce::String(firstSilence, 5) + " settled " + juce::String(settledSilence, 5));
+        prewarmed.releaseResources();
+
+        expectRateAdapterPassesBand(rateProbe);
+        expectRateAdapterRejectsAlias();
+    }
+
+    void expectRateAdapterPassesBand(SpectraRateAdapter& adapter) {
+        constexpr double hostRate = 44100.0;
+        constexpr int blockSize = 256;
+        constexpr int blocks = 160;
+        const int lag = adapter.latencySamples();
+        std::vector<float> input(static_cast<std::size_t>(blockSize * blocks), 0.0f);
+        std::vector<float> output(input.size(), 0.0f);
+        const auto identity = [](const float* in, float* out, int frames) {
+            std::memcpy(out, in, sizeof(float) * static_cast<std::size_t>(frames));
+        };
+        for (int block = 0; block < blocks; ++block) {
+            for (int sample = 0; sample < blockSize; ++sample) {
+                const int index = block * blockSize + sample;
+                const auto phase = juce::MathConstants<double>::twoPi * 1000.0 * index / hostRate;
+                input[static_cast<std::size_t>(index)] = 0.25f * static_cast<float>(std::sin(phase));
+            }
+            adapter.process(input.data() + block * blockSize, output.data() + block * blockSize, blockSize, identity);
+        }
+
+        const auto score = [&](int delay) {
+            double dot = 0.0;
+            double energyIn = 0.0;
+            double energyOut = 0.0;
+            for (int index = delay; index < static_cast<int>(input.size()); ++index) {
+                const float in = input[static_cast<std::size_t>(index - delay)];
+                const float out = output[static_cast<std::size_t>(index)];
+                dot += static_cast<double>(in) * out;
+                energyIn += static_cast<double>(in) * in;
+                energyOut += static_cast<double>(out) * out;
+            }
+            return energyIn > 0.0 && energyOut > 0.0 ? dot / std::sqrt(energyIn * energyOut) : 0.0;
+        };
+        const double aligned = score(lag);
+        expect(aligned > 0.98, "A 1 kHz sine should survive the sinc round trip at the reported latency.");
+        expect(adapter.droppedSamples() == 0, "The sinc adapter should not drop samples over a one-second tone.");
+        expect(adapter.underruns() == 0, "The sinc adapter should not underrun over a one-second tone.");
+    }
+
+    juce::MemoryBlock makeDelayedImpulseWav(int delaySamples) {
+        std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::MemoryOutputStream>();
+        auto* rawStream = static_cast<juce::MemoryOutputStream*>(stream.get());
+        juce::WavAudioFormat format;
+        auto writer = format.createWriterFor(stream,
+                                             juce::AudioFormatWriterOptions{}
+                                                 .withSampleRate(48000.0)
+                                                 .withNumChannels(1)
+                                                 .withBitsPerSample(16));
+        if (writer == nullptr) {
+            return {};
+        }
+
+        juce::AudioBuffer<float> samples(1, delaySamples + 32);
+        samples.clear();
+        samples.setSample(0, 0, 0.25f);
+        samples.setSample(0, delaySamples, 1.0f);
+        const auto wrote = writer->writeFromAudioSampleBuffer(samples, 0, samples.getNumSamples());
+        writer->flush();
+        auto block = rawStream->getMemoryBlock();
+        writer.reset();
+        if (!wrote) {
+            return {};
+        }
+        return block;
+    }
+
+    void testCabinetIrReachesSignal() {
+        constexpr double sampleRate = 48000.0;
+        constexpr int blockSize = 256;
+        constexpr int delaySamples = 80;
+        const auto wav = makeDelayedImpulseWav(delaySamples);
+        expect(wav.getSize() > 0, "Delayed impulse wav should be written.");
+
+        ProfilerAudioProcessor processor;
+        setParameterValue(processor, "isEqEnabled", 0.0f);
+        setParameterValue(processor, "isGateEnabled", 0.0f);
+        setParameterValue(processor, "isPedalEnabled", 0.0f);
+        setParameterValue(processor, "isAmpEnabled", 0.0f);
+        setParameterValue(processor, "isCabEnabled", 1.0f);
+        setParameterValue(processor, "gain", 0.0f);
+        setParameterValue(processor, "master", 50.0f);
+        prepareProcessor(processor, sampleRate, blockSize);
+        expect(processor.loadIrFromMemory(wav.getData(), wav.getSize()), "Cabinet IR should load.");
+
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        buffer.clear();
+        processor.processBlock(buffer, midi);
+        juce::Thread::sleep(150);
+        for (int block = 0; block < 40; ++block) {
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+        }
+
+        buffer.clear();
+        buffer.setSample(0, 0, 0.8f);
+        buffer.setSample(1, 0, 0.8f);
+        processor.processBlock(buffer, midi);
+
+        int peakIndex = 0;
+        float peak = 0.0f;
+        for (int sample = 0; sample < blockSize; ++sample) {
+            const float value = std::abs(buffer.getSample(0, sample));
+            if (value > peak) {
+                peak = value;
+                peakIndex = sample;
+            }
+        }
+        expect(std::abs(buffer.getSample(0, 0)) < 0.05f,
+               "A loaded cabinet IR should hold most of the impulse back. sample0 " + juce::String(buffer.getSample(0, 0), 4));
+        expect(peakIndex >= delaySamples - 8 && peakIndex <= delaySamples + 24,
+               "The cabinet impulse should land near the IR delay. peak " + juce::String(peak, 4) + " at " + juce::String(peakIndex));
+        expect(peak > 0.02f, "The cabinet IR should produce a peak. peak " + juce::String(peak, 4));
+
+        setParameterValue(processor, "isCabEnabled", 0.0f);
+        for (int block = 0; block < 4; ++block) {
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+        }
+        buffer.clear();
+        buffer.setSample(0, 0, 0.8f);
+        buffer.setSample(1, 0, 0.8f);
+        processor.processBlock(buffer, midi);
+        expect(std::abs(buffer.getSample(0, 0) - 0.8f) < 0.08f,
+               "Bypassing the cabinet should pass the impulse straight through.");
+        processor.releaseResources();
+    }
+
+    void expectRateAdapterRejectsAlias() {
+        constexpr double hostRate = 96000.0;
+        constexpr int blockSize = 256;
+        constexpr int blocks = 64;
+        SpectraRateAdapter adapter;
+        adapter.prepare(hostRate, 48000.0, blockSize);
+        const auto identity = [](const float* in, float* out, int frames) {
+            std::memcpy(out, in, sizeof(float) * static_cast<std::size_t>(frames));
+        };
+        float peak = 0.0f;
+        std::vector<float> input(static_cast<std::size_t>(blockSize), 0.0f);
+        std::vector<float> output(static_cast<std::size_t>(blockSize), 0.0f);
+        const int skip = adapter.latencySamples() + blockSize;
+        for (int block = 0; block < blocks; ++block) {
+            for (int sample = 0; sample < blockSize; ++sample) {
+                const int index = block * blockSize + sample;
+                const auto phase = juce::MathConstants<double>::twoPi * 30000.0 * index / hostRate;
+                input[static_cast<std::size_t>(sample)] = 0.25f * static_cast<float>(std::sin(phase));
+            }
+            adapter.process(input.data(), output.data(), blockSize, identity);
+            if (block * blockSize < skip) {
+                continue;
+            }
+            for (float sample : output) {
+                peak = std::max(peak, std::abs(sample));
+            }
+        }
+        expect(peak < 0.05f,
+               "A 30 kHz sine heading into a 48 kHz model should be rejected. peak " + juce::String(peak, 5));
+        expect(adapter.droppedSamples() == 0, "Alias check should not drop samples.");
     }
 };
 

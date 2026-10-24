@@ -204,4 +204,80 @@ if(UNIX AND NOT APPLE)
     include_directories(${GTK3_INCLUDE_DIRS} ${WEBKIT2GTK_INCLUDE_DIRS})
 endif()
 
+# Clear-model amp engine. Neural Amp Modeler Core v0.6.0 (MIT) is fetched as source
+# and compiled into spectra_nam. Eigen is the commit pinned by that tag's submodule.
+# The archive does not vendor submodules, so Eigen is fetched beside it.
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+
+set(SPECTRA_NAM_VERSION "0.6.0")
+set(SPECTRA_NAM_EIGEN_COMMIT "bc3b39870ecb690a623a3f49149a358b95c5781d")
+
+FetchContent_Declare(
+    spectra_nam_src
+    URL https://github.com/sdatkinson/NeuralAmpModelerCore/archive/refs/tags/v${SPECTRA_NAM_VERSION}.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_Declare(
+    spectra_nam_eigen
+    URL https://gitlab.com/libeigen/eigen/-/archive/${SPECTRA_NAM_EIGEN_COMMIT}/eigen-${SPECTRA_NAM_EIGEN_COMMIT}.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+FetchContent_GetProperties(spectra_nam_src)
+if(NOT spectra_nam_src_POPULATED)
+    FetchContent_Populate(spectra_nam_src)
+endif()
+FetchContent_GetProperties(spectra_nam_eigen)
+if(NOT spectra_nam_eigen_POPULATED)
+    FetchContent_Populate(spectra_nam_eigen)
+endif()
+
+file(GLOB SPECTRA_NAM_SOURCES CONFIGURE_DEPENDS
+    "${spectra_nam_src_SOURCE_DIR}/NAM/*.cpp"
+    "${spectra_nam_src_SOURCE_DIR}/NAM/*/*.cpp"
+)
+
+add_library(spectra_nam STATIC ${SPECTRA_NAM_SOURCES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/Src/SpectraNeuralModel.cpp"
+)
+target_compile_features(spectra_nam PUBLIC cxx_std_20)
+set_target_properties(spectra_nam PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(spectra_nam PUBLIC
+    "${spectra_nam_src_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/Include"
+)
+target_include_directories(spectra_nam SYSTEM PUBLIC
+    "${spectra_nam_eigen_SOURCE_DIR}"
+    "${spectra_nam_src_SOURCE_DIR}/Dependencies/nlohmann"
+)
+target_compile_definitions(spectra_nam PUBLIC NAM_SAMPLE_FLOAT=1 NAM_ENABLE_A2_FAST=1)
+if(WIN32)
+    target_compile_definitions(spectra_nam PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+if(MSVC)
+    target_compile_options(spectra_nam PRIVATE /W1 /bigobj)
+else()
+    target_compile_options(spectra_nam PRIVATE -w)
+endif()
+
+# Static registration of model architectures lives in this library. Without a
+# whole-archive link, the executable drops those objects and every model fails to load.
+function(profiler_link_nam_engine target)
+    if(MSVC)
+        target_link_libraries(${target} PRIVATE spectra_nam)
+        target_link_options(${target} PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:spectra_nam>")
+    elseif(APPLE)
+        # A comma inside one link item is parsed as $<LINK_ONLY>, so the flag and
+        # the library path are two linker arguments.
+        target_link_libraries(${target} PRIVATE spectra_nam)
+        target_link_options(${target} PRIVATE
+            "LINKER:-force_load"
+            "LINKER:$<TARGET_FILE:spectra_nam>")
+    else()
+        target_link_libraries(${target} PRIVATE "-Wl,--whole-archive" spectra_nam "-Wl,--no-whole-archive")
+    endif()
+endfunction()
+
 

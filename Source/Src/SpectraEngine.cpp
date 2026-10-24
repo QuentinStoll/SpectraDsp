@@ -89,6 +89,7 @@ struct SpectraEngine::Functions {
     int (*irPrepare)(double, float*, size_t, size_t*, size_t*) = nullptr;
     int (*irSeal)(const float*, size_t, double, uint8_t*, size_t, SpectraBuffer*) = nullptr;
     int (*irOpen)(const uint8_t*, size_t, const uint8_t*, size_t, SpectraBuffer*) = nullptr;
+    int (*modelOpen)(const uint8_t*, size_t, const uint8_t*, size_t, SpectraBuffer*) = nullptr;
 };
 
 SpectraEngine::SpectraEngine() = default;
@@ -129,6 +130,8 @@ bool SpectraEngine::open(const juce::File& libraryFile) {
         _library.getFunction("spectra_ir_seal"));
     functions->irOpen = reinterpret_cast<int (*)(const uint8_t*, size_t, const uint8_t*, size_t, SpectraBuffer*)>(
         _library.getFunction("spectra_ir_open"));
+    functions->modelOpen = reinterpret_cast<int (*)(const uint8_t*, size_t, const uint8_t*, size_t, SpectraBuffer*)>(
+        _library.getFunction("spectra_model_open"));
 
     const bool complete = functions->abiVersion != nullptr && functions->sessionUnlock != nullptr &&
                           functions->sessionLock != nullptr && functions->decryptModel != nullptr &&
@@ -273,6 +276,34 @@ bool SpectraEngine::openIr(const uint8_t* key,
     }
 
     if (_functions->irOpen(key, keySize, static_cast<const uint8_t*>(sealed), sealedSize, &buffer) != SPECTRA_OK ||
+        buffer.data == nullptr || buffer.size == 0) {
+        if (_functions->bufferFree != nullptr) {
+            _functions->bufferFree(&buffer);
+        }
+        return false;
+    }
+
+    plain.replaceWith(buffer.data, buffer.size);
+    _functions->bufferFree(&buffer);
+    return plain.getSize() > 0;
+}
+
+bool SpectraEngine::canOpenModel() const noexcept {
+    return isLoaded() && _functions->modelOpen != nullptr;
+}
+
+bool SpectraEngine::openModel(const uint8_t* key,
+                              size_t keySize,
+                              const void* sealed,
+                              size_t sealedSize,
+                              juce::MemoryBlock& plain) {
+    SpectraBuffer buffer{};
+    plain.reset();
+    if (!canOpenModel() || key == nullptr || keySize == 0 || sealed == nullptr || sealedSize == 0) {
+        return false;
+    }
+
+    if (_functions->modelOpen(key, keySize, static_cast<const uint8_t*>(sealed), sealedSize, &buffer) != SPECTRA_OK ||
         buffer.data == nullptr || buffer.size == 0) {
         if (_functions->bufferFree != nullptr) {
             _functions->bufferFree(&buffer);

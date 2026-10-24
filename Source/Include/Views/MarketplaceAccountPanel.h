@@ -19,6 +19,8 @@ class MarketplaceAccountPanel : public juce::Component {
                        bool hasIntegratedIr,
                        juce::String* errorMessage)>
         onInstallPack;
+    std::function<bool(const juce::MemoryBlock& cipher, const juce::MemoryBlock& key, juce::String* errorMessage)>
+        onPlaySpectra;
 
     void start();
     int getPreferredHeight(int width) const;
