@@ -19,9 +19,9 @@ struct MarketplaceAccountPanel::PackRow : public juce::Component {
         _title.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
         addAndMakeVisible(_title);
 
-        const auto sourceLabel = item.kind == "amp" ? "Your amp"
-                                                    : item.source.equalsIgnoreCase("free") ? "Free"
-                                                                                          : "Purchase";
+        const auto sourceLabel = item.kind == "amp"                     ? "Your amp"
+                                 : item.source.equalsIgnoreCase("free") ? "Free"
+                                                                        : "Purchase";
         auto meta = item.authorName;
         if (meta.isNotEmpty()) {
             meta << "  ·  ";

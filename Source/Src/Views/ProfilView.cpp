@@ -27,7 +27,7 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
         }
         if (!_audioProcessor.unlockSpectraSession(session.accessToken) ||
             !_audioProcessor.loadSpectraModel(cipher.getData(), cipher.getSize(),
-                                               static_cast<const uint8_t*>(key.getData()), key.getSize())) {
+                                              static_cast<const uint8_t*>(key.getData()), key.getSize())) {
             if (errorMessage != nullptr) {
                 *errorMessage = "Could not open this amp. Update Spectra and sign in again.";
             }

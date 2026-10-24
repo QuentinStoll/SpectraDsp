@@ -186,13 +186,15 @@ AmpCapturePanel::AmpCapturePanel(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_status);
 
     if (_processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
-        _body.setText("One click checks the round trip twice, records the amp and sends it to training. "
-                      "Sign in on the Library page first. The sealed profile appears there when it is ready.",
-                      juce::dontSendNotification);
+        _body.setText(
+            "One click checks the round trip twice, records the amp and sends it to training. "
+            "Sign in on the Library page first. The sealed profile appears there when it is ready.",
+            juce::dontSendNotification);
     } else {
-        _body.setText("Amp capture plays the reamp signal and records the return. Use the standalone, which owns the "
-                      "audio device.",
-                      juce::dontSendNotification);
+        _body.setText(
+            "Amp capture plays the reamp signal and records the return. Use the standalone, which owns the "
+            "audio device.",
+            juce::dontSendNotification);
     }
     refreshButtons();
 }
@@ -361,7 +363,8 @@ void AmpCapturePanel::finish() {
     const auto previous = _lastRoundTrip;
     const auto reampFile = _reampFile;
     auto stem = _nameEditor.getText().retainCharacters(
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ").trim();
+                                         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ")
+                    .trim();
     const auto folder = capturesFolder().getChildFile(
         (stem.isEmpty() ? juce::String("Amp") : stem) + " " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S"));
 
@@ -373,7 +376,8 @@ void AmpCapturePanel::finish() {
         juce::String saved;
         if (mode == Mode::Full && analysis.detected && !automatic) {
             const auto error = writeCapture(folder, reampFile, *recorded, analysis);
-            text << "\n" << (error.isEmpty() ? "Saved input.wav and output.wav in " + folder.getFullPathName() : error);
+            text << "\n"
+                 << (error.isEmpty() ? "Saved input.wav and output.wav in " + folder.getFullPathName() : error);
             if (error.isEmpty()) {
                 saved = folder.getFullPathName();
             }

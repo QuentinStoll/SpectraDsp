@@ -1304,11 +1304,9 @@ class AudioProcessorUnitTests : public juce::UnitTest {
             }
         }
         expect(std::abs(buffer.getSample(0, 0)) < 0.05f,
-               "A loaded cabinet IR should hold most of the impulse back. sample0 "
-                   + juce::String(buffer.getSample(0, 0), 4));
+               "A loaded cabinet IR should hold most of the impulse back. sample0 " + juce::String(buffer.getSample(0, 0), 4));
         expect(peakIndex >= delaySamples - 8 && peakIndex <= delaySamples + 24,
-               "The cabinet impulse should land near the IR delay. peak "
-                   + juce::String(peak, 4) + " at " + juce::String(peakIndex));
+               "The cabinet impulse should land near the IR delay. peak " + juce::String(peak, 4) + " at " + juce::String(peakIndex));
         expect(peak > 0.02f, "The cabinet IR should produce a peak. peak " + juce::String(peak, 4));
 
         setParameterValue(processor, "isCabEnabled", 0.0f);
