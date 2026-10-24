@@ -50,18 +50,24 @@ void applyBackgroundColourPreset(int presetId) {
 }  // namespace
 
 SettingsView::SettingsView(ProfilerAudioProcessor& processor)
-    : _capturePanel(processor) {
+    : _capturePanel(processor), _ampPanel(processor) {
     _generalTab.onClick = [this]() {
-        _showCapture = false;
+        _page = Page::General;
         resized();
     };
     _captureTab.onClick = [this]() {
-        _showCapture = true;
+        _page = Page::CloneIr;
+        resized();
+    };
+    _ampTab.onClick = [this]() {
+        _page = Page::CloneAmp;
         resized();
     };
     addAndMakeVisible(_generalTab);
     addAndMakeVisible(_captureTab);
+    addAndMakeVisible(_ampTab);
     addChildComponent(_capturePanel);
+    addChildComponent(_ampPanel);
 
     _titleLabel.setText("Settings", juce::dontSendNotification);
     _titleLabel.setJustificationType(juce::Justification::centred);
@@ -132,9 +138,11 @@ void SettingsView::resized() {
     _generalTab.setBounds(tabs.removeFromLeft(120));
     tabs.removeFromLeft(8);
     _captureTab.setBounds(tabs.removeFromLeft(120));
+    tabs.removeFromLeft(8);
+    _ampTab.setBounds(tabs.removeFromLeft(120));
     area.removeFromTop(12);
 
-    const auto showGeneral = !_showCapture;
+    const auto showGeneral = _page == Page::General;
     _titleLabel.setVisible(showGeneral);
     _backgroundLabel.setVisible(showGeneral);
     _backgroundMenu.setVisible(showGeneral);
@@ -142,10 +150,13 @@ void SettingsView::resized() {
     _troubleshootingMenu.setVisible(showGeneral);
     _hardwareInfoLabel.setVisible(showGeneral);
     _hardwareInfoMenu.setVisible(showGeneral);
-    _capturePanel.setVisible(_showCapture);
-    _capturePanel.setBounds(area);
-    if (_showCapture) {
-        _capturePanel.toFront(false);
+    for (auto [panel, page] : {std::pair<juce::Component*, Page>{&_capturePanel, Page::CloneIr},
+                               std::pair<juce::Component*, Page>{&_ampPanel, Page::CloneAmp}}) {
+        panel->setVisible(_page == page);
+        panel->setBounds(area);
+        if (_page == page) {
+            panel->toFront(false);
+        }
     }
 
     _titleLabel.setBounds(area.removeFromTop(50));

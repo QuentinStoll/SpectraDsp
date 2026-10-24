@@ -185,6 +185,7 @@ LibraryItem parseItem(const juce::var& item) {
     libraryItem.fileUrl = jsonString(item, "fileUrl");
     libraryItem.irFileUrl = jsonString(item, "irFileUrl");
     libraryItem.hasIntegratedIr = jsonBool(item, "hasIntegratedIr", false);
+    libraryItem.kind = jsonString(item, "kind");
     return libraryItem;
 }
 }  // namespace
@@ -397,6 +398,125 @@ CaptureResult Client::submitIrCapture(const juce::String& accessToken,
     }
     result.message = "Saved under My creations on profiler.audio, not in purchased packs.";
     return result;
+}
+
+namespace {
+AmpJobResult jobFrom(const HttpResponse& response) {
+    AmpJobResult result;
+    result.status = statusFromCode(response.statusCode, false);
+    if (result.status != Status::Success) {
+        const auto parsed = juce::JSON::parse(bodyAsString(response.body));
+        const auto error = jsonString(parsed, "error");
+        result.message = error.isNotEmpty() ? error : "Could not start the amp clone.";
+        return result;
+    }
+    const auto parsed = juce::JSON::parse(bodyAsString(response.body));
+    result.id = jsonString(parsed, "id");
+    result.inputUploadUrl = jsonString(parsed, "inputUploadUrl");
+    result.outputUploadUrl = jsonString(parsed, "outputUploadUrl");
+    if (result.id.isEmpty() || result.inputUploadUrl.isEmpty() || result.outputUploadUrl.isEmpty()) {
+        result.status = Status::Unexpected;
+        result.message = "The amp clone response was invalid.";
+    }
+    return result;
+}
+
+AmpTrainResult trainFrom(const HttpResponse& response) {
+    AmpTrainResult result;
+    result.status = statusFromCode(response.statusCode, false);
+    const auto parsed = juce::JSON::parse(bodyAsString(response.body));
+    if (result.status != Status::Success) {
+        const auto error = jsonString(parsed, "error");
+        result.message = error.isNotEmpty() ? error : "Could not start training.";
+        return result;
+    }
+    if (jsonString(parsed, "status") != "training") {
+        result.status = Status::Unexpected;
+        result.message = "The training response was invalid.";
+    }
+    return result;
+}
+
+AmpStatusResult statusFrom(const HttpResponse& response, bool keyCall) {
+    AmpStatusResult result;
+    result.status = statusFromCode(response.statusCode, false);
+    const auto parsed = juce::JSON::parse(bodyAsString(response.body));
+    if (result.status != Status::Success) {
+        const auto error = jsonString(parsed, "error");
+        result.message = error.isNotEmpty() ? error : "Could not read the amp clone.";
+        return result;
+    }
+    result.state = jsonString(parsed, "status");
+    result.fileUrl = jsonString(parsed, "fileUrl");
+    result.message = jsonString(parsed, keyCall ? "key" : "message");
+    if (keyCall) {
+        result.message = jsonString(parsed, "key");
+    }
+    return result;
+}
+}  // namespace
+
+AmpJobResult Client::createAmpJob(const juce::String& accessToken, const juce::String& title) const {
+    AmpJobResult result;
+    if (accessToken.isEmpty()) {
+        result.status = Status::Unauthorized;
+        result.message = "Sign in to clone an amp.";
+        return result;
+    }
+    auto payload = std::make_unique<juce::DynamicObject>();
+    payload->setProperty("title", title.trim().substring(0, 80));
+    const auto json = juce::JSON::toString(juce::var(payload.release()), false);
+    return jobFrom(_transport->send("POST", _apiBaseUrl + "/api/v1/plugin/captures/amp", json, accessToken));
+}
+
+AmpTrainResult Client::startAmpTrain(const juce::String& accessToken, const juce::String& captureId) const {
+    AmpTrainResult result;
+    if (accessToken.isEmpty() || captureId.isEmpty()) {
+        result.status = Status::BadRequest;
+        result.message = "The amp clone is missing.";
+        return result;
+    }
+    return trainFrom(_transport->send("POST", _apiBaseUrl + "/api/v1/plugin/captures/amp/" + captureId, {}, accessToken));
+}
+
+AmpStatusResult Client::ampStatus(const juce::String& accessToken, const juce::String& captureId) const {
+    if (accessToken.isEmpty() || captureId.isEmpty()) {
+        AmpStatusResult result;
+        result.status = Status::Unauthorized;
+        result.message = "Sign in to clone an amp.";
+        return result;
+    }
+    return statusFrom(_transport->send("GET", _apiBaseUrl + "/api/v1/plugin/captures/amp/" + captureId, {}, accessToken), false);
+}
+
+AmpStatusResult Client::ampKey(const juce::String& accessToken, const juce::String& captureId) const {
+    if (accessToken.isEmpty() || captureId.isEmpty()) {
+        AmpStatusResult result;
+        result.status = Status::Unauthorized;
+        result.message = "Sign in to play this amp.";
+        return result;
+    }
+    return statusFrom(_transport->send("GET", _apiBaseUrl + "/api/v1/plugin/captures/amp/" + captureId + "/key", {}, accessToken), true);
+}
+
+Status uploadSigned(const juce::String& signedUrl, const void* data, size_t size) {
+    if (signedUrl.isEmpty() || data == nullptr || size == 0) {
+        return Status::BadRequest;
+    }
+
+    juce::MemoryBlock block(data, size);
+    juce::URL requestUrl(signedUrl);
+    requestUrl = requestUrl.withPOSTData(block);
+    int statusCode = 0;
+    const auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
+                             .withConnectionTimeoutMs(180000)
+                             .withExtraHeaders("Content-Type: application/octet-stream\r\nx-upsert: true\r\n")
+                             .withHttpRequestCmd("PUT")
+                             .withStatusCode(&statusCode);
+    if (requestUrl.createInputStream(options) == nullptr && statusCode == 0) {
+        return Status::TransportError;
+    }
+    return statusFromCode(statusCode, false);
 }
 
 bool Client::isSixDigitCode(const juce::String& code) {

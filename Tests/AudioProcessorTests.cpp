@@ -1,9 +1,11 @@
 #include <JuceHeader.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <vector>
 
+#include "AmpCapture.h"
 #include "Fx/FxCatalog.h"
 #include "PluginProcessor.h"
 #include "SignalChainLayout.h"
@@ -81,6 +83,14 @@ class AudioProcessorUnitTests : public juce::UnitTest {
 
         runCase("audio processor spectra neural amp", [this] {
             testSpectraNeuralAmp();
+        });
+
+        runCase("audio processor nam a2 realtime", [this] {
+            testNamA2Realtime();
+        });
+
+        runCase("audio processor nam clone quality", [this] {
+            testNamCloneQuality();
         });
 
         runCase("audio processor cabinet ir reaches the signal", [this] {
@@ -924,6 +934,121 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(std::abs(attenuatedRms - dryRms * 0.5f) < dryRms * 0.12f,
                "out_gain should scale the model output in decibels.");
         attenuated.releaseResources();
+    }
+
+    double measureRealtimeRatio(const juce::File& nam, double sampleRate, int blockSize) {
+        if (!nam.existsAsFile()) {
+            logMessage("Missing " + nam.getFullPathName());
+            return -1.0;
+        }
+
+        ProfilerAudioProcessor processor;
+        silenceOtherStages(processor);
+        expect(processor.loadAmpFile(nam), "Should load " + nam.getFileName());
+        prepareProcessor(processor, sampleRate, blockSize);
+
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        for (int warm = 0; warm < 8; ++warm) {
+            fillSineBuffer(buffer, sampleRate, 1000.0f, 0.25f);
+            processor.processBlock(buffer, midi);
+        }
+
+        constexpr int kBlocks = 200;
+        const auto started = std::chrono::steady_clock::now();
+        for (int block = 0; block < kBlocks; ++block) {
+            fillSineBuffer(buffer, sampleRate, 1000.0f, 0.25f);
+            processor.processBlock(buffer, midi);
+            expect(allSamplesFinite(buffer), nam.getFileName() + " should stay finite.");
+        }
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        const auto audioSeconds = static_cast<double>(kBlocks * blockSize) / sampleRate;
+        const auto wallSeconds = std::chrono::duration<double>(elapsed).count();
+        const auto ratio = wallSeconds / audioSeconds;
+        logMessage(nam.getFileName() + " block " + juce::String(blockSize) + " ratio " + juce::String(ratio, 3));
+        processor.releaseResources();
+        return ratio;
+    }
+
+    void testNamA2Realtime() {
+        const juce::File capture(
+            "C:/Users/quent/Documents/Profiler/Captures/Test1 2026-10-22 13-25-47");
+        const auto eight = measureRealtimeRatio(capture.getChildFile("Test1-wavenet-8ch.nam"), 48000.0, 512);
+        const auto three = measureRealtimeRatio(capture.getChildFile("Test1-wavenet-3ch.nam"), 48000.0, 512);
+        const auto orange = measureRealtimeRatio(
+            juce::File("C:/Users/quent/Downloads/Orange Dual Terror (0.5.2)/ORANGE - DUAL TERROR - FAT - G1.nam"),
+            48000.0, 512);
+        if (three >= 0.0) {
+            expect(three < 0.5, "A2-Lite should stay under realtime at 48 kHz / 512, ratio " + juce::String(three, 3));
+        }
+        if (orange >= 0.0) {
+            expect(orange < 0.5, "Orange's slim network should stay under realtime, ratio " + juce::String(orange, 3));
+        }
+        if (eight >= 0.0) {
+            logMessage("A2-Full is " + juce::String(eight, 3) + "x realtime on this CPU; keep Slim on the 3-channel net.");
+        }
+    }
+
+    void testNamCloneQuality() {
+        const juce::File folder(
+            "C:/Users/quent/Documents/Profiler/Captures/Test1 2026-10-22 13-25-47");
+        const auto modelFile = folder.getChildFile("Test1-400ep.nam");
+        if (!modelFile.existsAsFile()) {
+            logMessage("Test1-400ep.nam is not ready yet.");
+            return;
+        }
+
+        std::vector<float> dry;
+        std::vector<float> wet;
+        juce::String error;
+        expect(AmpCapture::loadReamp(folder.getChildFile("input.wav"), dry, &error), error);
+        expect(AmpCapture::loadReamp(folder.getChildFile("output.wav"), wet, &error), error);
+        expectEquals(static_cast<int>(dry.size()), AmpCapture::kStandardFrames);
+        expectEquals(static_cast<int>(wet.size()), AmpCapture::kStandardFrames);
+
+        const auto dryVsWet = AmpCapture::esr(dry.data(), wet.data(), AmpCapture::kValidationFrames);
+        expect(dryVsWet > 0.2, "The capture should differ from the reamp file, ESR " + juce::String(dryVsWet, 4));
+
+        const auto ratio = measureRealtimeRatio(modelFile, AmpCapture::kSampleRate, 512);
+        expect(ratio >= 0.0 && ratio < 0.5, "The cloned 3-channel net should stay under realtime, ratio " +
+                                                juce::String(ratio, 3));
+
+        ProfilerAudioProcessor processor;
+        silenceOtherStages(processor);
+        expect(processor.loadAmpFile(modelFile), "The 400-epoch model should load.");
+        constexpr int blockSize = 512;
+        prepareProcessor(processor, AmpCapture::kSampleRate, blockSize);
+
+        const int warmup = 24'000;
+        std::vector<float> predicted(dry.size(), 0.0f);
+        juce::AudioBuffer<float> buffer(2, blockSize);
+        juce::MidiBuffer midi;
+        for (int offset = 0; offset < static_cast<int>(dry.size()); offset += blockSize) {
+            const int count = juce::jmin(blockSize, static_cast<int>(dry.size()) - offset);
+            buffer.clear();
+            buffer.copyFrom(0, 0, dry.data() + offset, count);
+            buffer.copyFrom(1, 0, dry.data() + offset, count);
+            processor.processBlock(buffer, midi);
+            juce::FloatVectorOperations::copy(predicted.data() + offset, buffer.getReadPointer(0), count);
+        }
+        processor.releaseResources();
+
+        const int val = AmpCapture::kValidationFrames;
+        const auto startEsr = AmpCapture::esr(predicted.data() + warmup, wet.data() + warmup, val - warmup);
+        const auto endEsr = AmpCapture::esr(predicted.data() + (dry.size() - val + warmup),
+                                            wet.data() + (wet.size() - val + warmup), val - warmup);
+        const auto vsDry = AmpCapture::esr(predicted.data() + warmup, dry.data() + warmup, val - warmup);
+        logMessage("Clone ESR start " + juce::String(startEsr, 5) + " end " + juce::String(endEsr, 5) +
+                   " vs dry " + juce::String(vsDry, 5));
+        const auto modelEsr = juce::jmin(startEsr, endEsr);
+        juce::String writeError;
+        AmpCapture::writeWav(folder.getChildFile("preview-model.wav"),
+                             std::vector<float>(predicted.begin(), predicted.begin() + val), &writeError);
+        AmpCapture::writeWav(folder.getChildFile("preview-target.wav"),
+                             std::vector<float>(wet.begin(), wet.begin() + val), &writeError);
+        expect(modelEsr < 0.20, "The clone should be closer to the amp than to the dry file, ESR " +
+                                    juce::String(modelEsr, 5));
+        expect(modelEsr < vsDry, "The clone must match the capture better than it matches the reamp file.");
     }
 
     float renderSineRms(ProfilerAudioProcessor& processor, double sampleRate, int blockSize, int blockCount) {

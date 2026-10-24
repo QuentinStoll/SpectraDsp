@@ -92,6 +92,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Modules/StudioEditPanels.cpp
     Src/Modules/StudioTopBar.cpp
     Src/Modules/UtilityBarModule.cpp
+    Src/AmpCapture.cpp
     Src/MarketplaceClient.cpp
     Src/SpectraEngine.cpp
     Src/SpectraAmp.cpp
@@ -99,6 +100,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Views/MarketplaceAccountPanel.cpp
     Src/Views/PlayView.cpp
     Src/Views/ProfilView.cpp
+    Src/Views/AmpCapturePanel.cpp
     Src/Views/IrCapturePanel.cpp
     Src/Views/SettingsView.cpp
     Src/ProfileManager.cpp

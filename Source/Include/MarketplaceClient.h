@@ -50,7 +50,34 @@ struct LibraryItem {
     juce::String authorName;
     juce::String fileUrl;
     juce::String irFileUrl;
+    juce::String kind;
     bool hasIntegratedIr = false;
+};
+
+struct AmpJobResult {
+    Status status = Status::Unexpected;
+    juce::String id;
+    juce::String inputUploadUrl;
+    juce::String outputUploadUrl;
+    juce::String message;
+};
+
+struct AmpTrainResult {
+    Status status = Status::Unexpected;
+    juce::String inputUrl;
+    juce::String outputUrl;
+    juce::String uploadUrl;
+    juce::String key;
+    juce::String jobToken;
+    juce::String completeUrl;
+    juce::String message;
+};
+
+struct AmpStatusResult {
+    Status status = Status::Unexpected;
+    juce::String state;
+    juce::String fileUrl;
+    juce::String message;
 };
 
 struct LibraryResult {
@@ -104,6 +131,10 @@ class Client {
                                   const juce::String& title,
                                   const std::array<std::uint8_t, 32>& key,
                                   const juce::MemoryBlock& sealed) const;
+    AmpJobResult createAmpJob(const juce::String& accessToken, const juce::String& title) const;
+    AmpTrainResult startAmpTrain(const juce::String& accessToken, const juce::String& captureId) const;
+    AmpStatusResult ampStatus(const juce::String& accessToken, const juce::String& captureId) const;
+    AmpStatusResult ampKey(const juce::String& accessToken, const juce::String& captureId) const;
 
     static bool isSixDigitCode(const juce::String& code);
 
@@ -114,6 +145,8 @@ class Client {
     juce::String resolveUrl(const juce::String& fileUrl) const;
     static bool sendBearerToken(const juce::String& absoluteUrl);
 };
+
+Status uploadSigned(const juce::String& signedUrl, const void* data, size_t size);
 
 bool saveSession(const juce::File& file, const Session& session);
 bool loadSession(const juce::File& file, Session& session);

@@ -13,13 +13,15 @@ juce::String safeFileStem(const juce::String& value) {
 struct MarketplaceAccountPanel::PackRow : public juce::Component {
     PackRow(const Marketplace::LibraryItem& item, std::function<void()> download)
         : _item(item),
-          _downloadButton("Download", ProfilerStyle::Theme::Orange) {
+          _downloadButton(item.kind == "amp" ? "Play" : "Download", ProfilerStyle::Theme::Orange) {
         _title.setText(item.title.isNotEmpty() ? item.title : "Pack", juce::dontSendNotification);
         _title.setFont(ProfilerStyle::Fonts::medium(15.0f));
         _title.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
         addAndMakeVisible(_title);
 
-        const auto sourceLabel = item.source.equalsIgnoreCase("free") ? "Free" : "Purchase";
+        const auto sourceLabel = item.kind == "amp" ? "Your amp"
+                                                    : item.source.equalsIgnoreCase("free") ? "Free"
+                                                                                          : "Purchase";
         auto meta = item.authorName;
         if (meta.isNotEmpty()) {
             meta << "  ·  ";
@@ -396,7 +398,75 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     const auto packId = _items[static_cast<size_t>(index)].id;
     const auto entitlementId = _items[static_cast<size_t>(index)].entitlementId;
     const auto title = _items[static_cast<size_t>(index)].title;
+    const auto kind = _items[static_cast<size_t>(index)].kind;
     const auto session = _session;
+    if (kind == "amp") {
+        setBusy(true);
+        _statusLabel.setText("Opening " + title + "...", juce::dontSendNotification);
+        juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
+        _jobs.addJob([safeThis, packId, session, title]() {
+            auto directory = getSettingsFolder().getChildFile("Spectra");
+            directory.createDirectory();
+            const auto cipherFile = directory.getChildFile(packId + ".spectra");
+            const auto keyFile = directory.getChildFile(packId + ".key");
+            juce::MemoryBlock cipher;
+            juce::MemoryBlock key;
+            juce::String error;
+            auto working = session;
+            if (cipherFile.existsAsFile() && keyFile.existsAsFile() && cipherFile.loadFileAsData(cipher) && keyFile.loadFileAsData(key) &&
+                key.getSize() == 32) {
+            } else if (safeThis != nullptr) {
+                const auto library = safeThis->_client.loadLibrary(working);
+                const Marketplace::LibraryItem* fresh = nullptr;
+                if (library.status == Marketplace::Status::Success) {
+                    for (const auto& item : library.items) {
+                        if (item.id == packId && item.kind == "amp") {
+                            fresh = &item;
+                            break;
+                        }
+                    }
+                }
+                if (fresh == nullptr || fresh->fileUrl.isEmpty()) {
+                    error = library.status == Marketplace::Status::Success ? "This amp is not ready yet." : library.message;
+                } else {
+                    const auto downloaded = safeThis->_client.download(fresh->fileUrl, working.accessToken);
+                    const auto keyResult = safeThis->_client.ampKey(working.accessToken, packId);
+                    juce::MemoryOutputStream decodedKey;
+                    if (downloaded.status != Marketplace::Status::Success || keyResult.status != Marketplace::Status::Success ||
+                        !juce::Base64::convertFromBase64(decodedKey, keyResult.message) || decodedKey.getDataSize() != 32) {
+                        error = downloaded.message.isNotEmpty() ? downloaded.message : "Could not open this amp.";
+                    } else {
+                        cipher = downloaded.body;
+                        key = decodedKey.getMemoryBlock();
+                        cipherFile.replaceWithData(cipher.getData(), cipher.getSize());
+                        keyFile.replaceWithData(key.getData(), key.getSize());
+                    }
+                }
+            }
+
+            juce::MessageManager::callAsync([safeThis, working, cipher, key, error]() {
+                if (safeThis == nullptr) {
+                    return;
+                }
+                if (working.accessToken.isNotEmpty()) {
+                    safeThis->_session.accessToken = working.accessToken;
+                    safeThis->_session.refreshToken = working.refreshToken;
+                    Marketplace::saveSession(Marketplace::defaultSessionFile(), safeThis->_session);
+                }
+                if (error.isNotEmpty()) {
+                    safeThis->_statusLabel.setText(error, juce::dontSendNotification);
+                    safeThis->setBusy(false);
+                    return;
+                }
+                juce::String playError;
+                const auto played = safeThis->onPlaySpectra != nullptr &&
+                                    safeThis->onPlaySpectra(cipher, key, &playError);
+                safeThis->_statusLabel.setText(played ? "Amp loaded." : playError, juce::dontSendNotification);
+                safeThis->setBusy(false);
+            });
+        });
+        return;
+    }
     setBusy(true);
     _statusLabel.setText("Downloading " + title + "...", juce::dontSendNotification);
 

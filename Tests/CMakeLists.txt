@@ -1,5 +1,6 @@
 set(PROFILER_TEST_SOURCES
     TestRunner.cpp
+    AmpCaptureTests.cpp
     AudioProcessorTests.cpp
     ProfileProcessorIntegrationTests.cpp
     ProfileManagerTests.cpp
@@ -14,6 +15,7 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ${PROFILER_TEST_SOURCES}
     ../Source/Src/Components/NotificationBanner.cpp
     ../Source/Src/Logging.cpp
+    ../Source/Src/AmpCapture.cpp
     ../Source/Src/PluginProcessor.cpp
     ../Source/Src/Fx/FxCatalog.cpp
     ../Source/Src/Fx/FxDsp.cpp
@@ -178,8 +180,20 @@ add_profiler_audio_processor_test(ReleaseAndReprepare "audio processor release a
 add_profiler_audio_processor_test(RejectMissingAssetFiles "audio processor rejects missing asset files")
 add_profiler_audio_processor_test(AmpModelResidualAndBypass "audio processor amp model residual and bypass")
 add_profiler_audio_processor_test(SpectraNeuralAmp "audio processor spectra neural amp")
+add_profiler_audio_processor_test(NamA2Realtime "audio processor nam a2 realtime")
+add_profiler_audio_processor_test(NamCloneQuality "audio processor nam clone quality")
 add_profiler_audio_processor_test(CabinetIrReachesSignal "audio processor cabinet ir reaches the signal")
 add_profiler_audio_processor_test(EffectChain "audio processor effect chain")
+
+function(add_profiler_amp_capture_test test_name case_name)
+    add_test(NAME ProfilerTests.AmpCapture.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_amp_capture_test(FindsLatency "amp capture finds the blip latency")
+add_profiler_amp_capture_test(SilentReturn "amp capture rejects a silent return")
+add_profiler_amp_capture_test(ReplicateAndOutput "amp capture checks the replicate and writes a nam output")
+add_profiler_amp_capture_test(StandaloneLoopback "amp capture records a standalone loopback")
 
 function(add_profiler_profile_processor_integration_test test_name case_name)
     add_test(NAME ProfilerTests.ProfileProcessorIntegration.${test_name}

@@ -252,7 +252,7 @@ target_include_directories(spectra_nam SYSTEM PUBLIC
     "${spectra_nam_eigen_SOURCE_DIR}"
     "${spectra_nam_src_SOURCE_DIR}/Dependencies/nlohmann"
 )
-target_compile_definitions(spectra_nam PUBLIC NAM_SAMPLE_FLOAT=1)
+target_compile_definitions(spectra_nam PUBLIC NAM_SAMPLE_FLOAT=1 NAM_ENABLE_A2_FAST=1)
 if(WIN32)
     target_compile_definitions(spectra_nam PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()

@@ -34,6 +34,12 @@ class SpectraEngine {
                 const void* sealed,
                 size_t sealedSize,
                 juce::MemoryBlock& plain);
+    bool canOpenModel() const noexcept;
+    bool openModel(const uint8_t* key,
+                   size_t keySize,
+                   const void* sealed,
+                   size_t sealedSize,
+                   juce::MemoryBlock& plain);
 
    private:
     struct Functions;
