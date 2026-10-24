@@ -269,8 +269,12 @@ function(profiler_link_nam_engine target)
         target_link_libraries(${target} PRIVATE spectra_nam)
         target_link_options(${target} PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:spectra_nam>")
     elseif(APPLE)
-        target_link_libraries(${target} PRIVATE "-Wl,-force_load,$<TARGET_FILE:spectra_nam>")
-        add_dependencies(${target} spectra_nam)
+        # A comma inside one link item is parsed as $<LINK_ONLY>, so the flag and
+        # the library path are two linker arguments.
+        target_link_libraries(${target} PRIVATE spectra_nam)
+        target_link_options(${target} PRIVATE
+            "LINKER:-force_load"
+            "LINKER:$<TARGET_FILE:spectra_nam>")
     else()
         target_link_libraries(${target} PRIVATE "-Wl,--whole-archive" spectra_nam "-Wl,--no-whole-archive")
     endif()
