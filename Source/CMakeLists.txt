@@ -97,6 +97,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/MarketplaceClient.cpp
     Src/SpectraEngine.cpp
     Src/SpectraAmp.cpp
+    Src/AmpCondition.cpp
     Src/Views/CloneView.cpp
     Src/Views/MarketplaceAccountPanel.cpp
     Src/Views/PlayView.cpp

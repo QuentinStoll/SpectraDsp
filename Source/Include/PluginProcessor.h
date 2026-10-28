@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "AmpCondition.h"
 #include "EqBandLayout.h"
 #include "Fx/FxRack.h"
 #include "Fx/PedalDrive.h"
@@ -76,6 +77,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     bool loadIrFromMemory(const void* data, size_t size);
     bool loadProtectedAmp(const void* data, size_t size);
     bool loadSpectraModel(const void* cipher, size_t cipherSize, const uint8_t* key, size_t keySize);
+    void setAmpCondition(int profile, float amountPercent);
     bool loadProtectedIr(const void* data, size_t size);
     bool isSpectraLoaded() const noexcept;
     bool unlockSpectraSession(const juce::String& accessToken);
@@ -184,6 +186,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::atomic<float>* _pedalToneParam{nullptr};
     std::atomic<float>* _pedalLevelParam{nullptr};
     std::atomic<float>* _pedalModelParam{nullptr};
+    std::atomic<float>* _conditionProfileParam{nullptr};
+    std::atomic<float>* _conditionAmountParam{nullptr};
 
     std::array<juce::SmoothedValue<float>, EqBands::count> _eqGainSmoothed{};
     std::array<juce::SmoothedValue<float>, EqBands::count> _eqFreqSmoothed{};
@@ -198,6 +202,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
 
     std::array<Filter, kChainCopies> _cabLowCuts{};
     std::array<PedalDrive, kChainCopies> _pedalDrives{};
+    std::array<AmpCondition, kChainCopies> _ampConditions{};
+    std::vector<float> _conditionInput;
 
     enum class IrCaptureState {
         Idle = 0,

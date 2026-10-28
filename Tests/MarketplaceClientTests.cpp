@@ -160,7 +160,7 @@ class MarketplaceClientTests : public juce::UnitTest {
         expect(transport->url.isEmpty());
 
         transport->statusCode = 200;
-        transport->responseBody = R"({"user":{"id":"user-1","email":"a@profiler.audio"},"library":[{"entitlementId":"ent-1","acquiredAt":"2026-09-01T00:00:00Z","source":"purchase","id":"pack-1","title":"Clean","authorName":"Ada","fileUrl":"/files/clean.profilerprofile","irFileUrl":"https://cdn.example/ir.wav","hasIntegratedIr":false},{"entitlementId":"ent-2","acquiredAt":"2026-09-02T00:00:00Z","source":"free","id":"pack-2","title":"Lead","authorName":"Bea","fileUrl":"https://profiler.audio/files/lead.profilerprofile","irFileUrl":null,"hasIntegratedIr":true}]})";
+        transport->responseBody = R"({"user":{"id":"user-1","email":"a@profiler.audio"},"library":[{"entitlementId":"ent-1","acquiredAt":"2026-09-01T00:00:00Z","source":"purchase","id":"pack-1","title":"Clean","authorName":"Ada","fileUrl":"/files/clean.profilerprofile","irFileUrl":"https://cdn.example/ir.wav","hasIntegratedIr":false,"conditionProfile":"raw","conditionAmount":70},{"entitlementId":"ent-2","acquiredAt":"2026-09-02T00:00:00Z","source":"free","id":"pack-2","title":"Lead","authorName":"Bea","fileUrl":"https://profiler.audio/files/lead.profilerprofile","irFileUrl":null,"hasIntegratedIr":true}]})";
         auto library = client.fetchLibrary("access-secret");
         expect(library.status == Marketplace::Status::Success);
         expect(transport->method == "GET");
@@ -170,6 +170,10 @@ class MarketplaceClientTests : public juce::UnitTest {
         expectEquals(library.items[0].source, juce::String("purchase"));
         expectEquals(library.items[0].irFileUrl, juce::String("https://cdn.example/ir.wav"));
         expect(!library.items[0].hasIntegratedIr);
+        expectEquals(library.items[0].conditionProfile, juce::String("raw"));
+        expect(library.items[0].conditionAmount == 70.0f);
+        expectEquals(library.items[1].conditionProfile, juce::String("off"));
+        expect(library.items[1].conditionAmount == 0.0f);
         expect(library.items[1].irFileUrl.isEmpty());
         expect(library.items[1].hasIntegratedIr);
         expect(library.items[1].source == "free");

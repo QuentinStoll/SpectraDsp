@@ -100,6 +100,10 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         runCase("audio processor effect chain", [this] {
             testEffectChain();
         });
+
+        runCase("audio processor condition stays on the amp", [this] {
+            testConditionStaysOnTheAmp();
+        });
     }
 
    private:
@@ -539,6 +543,60 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(secondBuffer.getMagnitude(0, secondBuffer.getNumSamples()) > 0.0f,
                "Reprepared processor should still produce signal.");
         processor.releaseResources();
+    }
+
+    void testConditionStaysOnTheAmp() {
+        constexpr double sampleRate = 48000.0;
+        constexpr int blockSize = 256;
+        const char* model =
+            R"({"in_shape":[null,null,1],"in_skip":0,"layers":[{"type":"dense","activation":"","shape":[null,null,1],"weights":[[[1.0]],[0.0]]}]})";
+
+        auto floorRms = [&](int pedalSlot, int ampSlot) {
+            ProfilerAudioProcessor processor;
+            expect(loadAmpJson(processor, model), "Unity amp should load.");
+            SignalChain::Layout layout;
+            clearMovableSlots(layout);
+            if (pedalSlot >= 0) {
+                layout.place(SignalChain::Stage::Pedal, pedalSlot);
+            }
+            layout.place(SignalChain::Stage::Amp, ampSlot);
+            processor.setChainLayout(layout);
+            silenceOtherStages(processor);
+            setParameterValue(processor, "isAmpEnabled", 1.0f);
+            setParameterValue(processor, "isPedalEnabled", pedalSlot >= 0 ? 1.0f : 0.0f);
+            setParameterValue(processor, "pedalModel", 2.0f);
+            setParameterValue(processor, "pedalDrive", 0.0f);
+            setParameterValue(processor, "pedalLevel", -12.0f);
+            setParameterValue(processor, "conditionProfile", 3.0f);
+            setParameterValue(processor, "conditionAmount", 100.0f);
+            prepareProcessor(processor, sampleRate, blockSize);
+
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            double energy = 0.0;
+            constexpr int measured = 24;
+            for (int block = 0; block < 16 + measured; ++block) {
+                buffer.clear();
+                processor.processBlock(buffer, midi);
+                if (block >= 16) {
+                    energy += buffer.getRMSLevel(0, 0, blockSize);
+                }
+            }
+            processor.releaseResources();
+            return static_cast<float>(energy / measured);
+        };
+
+        const auto ampOnly = floorRms(-1, SignalChain::chainSlotForMovableIndex(0));
+        const auto pedalBefore = floorRms(SignalChain::chainSlotForMovableIndex(0), SignalChain::chainSlotForMovableIndex(1));
+        const auto pedalAfter = floorRms(SignalChain::chainSlotForMovableIndex(1), SignalChain::chainSlotForMovableIndex(0));
+
+        expect(ampOnly > 0.001f, "Raw condition should be audible on a silent amp. rms " + juce::String(ampOnly, 5));
+        expect(pedalBefore > ampOnly * 0.7f,
+               "A pedal placed before the amp should not eat the amp floor. before " + juce::String(pedalBefore, 5) +
+                   " amp " + juce::String(ampOnly, 5));
+        expect(pedalAfter < pedalBefore * 0.6f,
+               "A pedal placed after the amp should sit on the conditioned amp. after " + juce::String(pedalAfter, 5) +
+                   " before " + juce::String(pedalBefore, 5));
     }
 
     void testMissingAssetFiles() {

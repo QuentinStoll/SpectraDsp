@@ -8,7 +8,8 @@
 #include "Components/CustomTextEditor.h"
 #include "MarketplaceClient.h"
 
-class MarketplaceAccountPanel : public juce::Component {
+class MarketplaceAccountPanel : public juce::Component,
+                                private juce::Timer {
    public:
     MarketplaceAccountPanel();
     ~MarketplaceAccountPanel() override;
@@ -19,13 +20,18 @@ class MarketplaceAccountPanel : public juce::Component {
                        bool hasIntegratedIr,
                        juce::String* errorMessage)>
         onInstallPack;
-    std::function<bool(const juce::MemoryBlock& cipher, const juce::MemoryBlock& key, juce::String* errorMessage)>
+    std::function<bool(const juce::MemoryBlock& cipher,
+                       const juce::MemoryBlock& key,
+                       int conditionProfile,
+                       float conditionAmount,
+                       juce::String* errorMessage)>
         onPlaySpectra;
 
     void start();
     int getPreferredHeight(int width) const;
 
     void resized() override;
+    void visibilityChanged() override;
 
    private:
     enum class Mode {
@@ -65,6 +71,7 @@ class MarketplaceAccountPanel : public juce::Component {
     void showLibrary();
     void applyLoginResult(const Marketplace::LoginResult& result, bool fromCode);
     void loadLibrary();
+    void timerCallback() override;
     void downloadPack(int index);
     void rebuildRows();
     void notifyLayout();

@@ -56,6 +56,18 @@ juce::String jsonString(const juce::var& object, const juce::Identifier& key) {
     return {};
 }
 
+float jsonFloat(const juce::var& object, const juce::Identifier& key, float fallback) {
+    if (auto* dynamicObject = object.getDynamicObject()) {
+        if (dynamicObject->hasProperty(key)) {
+            const auto value = dynamicObject->getProperty(key);
+            if (value.isDouble() || value.isInt() || value.isInt64()) {
+                return static_cast<float>(static_cast<double>(value));
+            }
+        }
+    }
+    return fallback;
+}
+
 bool jsonBool(const juce::var& object, const juce::Identifier& key, bool fallback) {
     if (auto* dynamicObject = object.getDynamicObject()) {
         if (dynamicObject->hasProperty(key)) {
@@ -186,6 +198,11 @@ LibraryItem parseItem(const juce::var& item) {
     libraryItem.irFileUrl = jsonString(item, "irFileUrl");
     libraryItem.hasIntegratedIr = jsonBool(item, "hasIntegratedIr", false);
     libraryItem.kind = jsonString(item, "kind");
+    const auto conditionProfile = jsonString(item, "conditionProfile");
+    if (conditionProfile.isNotEmpty()) {
+        libraryItem.conditionProfile = conditionProfile;
+    }
+    libraryItem.conditionAmount = juce::jlimit(0.0f, 100.0f, jsonFloat(item, "conditionAmount", 0.0f));
     return libraryItem;
 }
 }  // namespace
@@ -451,6 +468,13 @@ AmpStatusResult statusFrom(const HttpResponse& response, bool keyCall) {
     result.message = jsonString(parsed, keyCall ? "key" : "message");
     if (keyCall) {
         result.message = jsonString(parsed, "key");
+    }
+    if (auto* object = parsed.getDynamicObject()) {
+        if (object->hasProperty("conditionProfile")) {
+            result.hasCondition = true;
+            result.conditionProfile = jsonString(parsed, "conditionProfile");
+            result.conditionAmount = juce::jlimit(0.0f, 100.0f, jsonFloat(parsed, "conditionAmount", 0.0f));
+        }
     }
     return result;
 }

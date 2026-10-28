@@ -10,6 +10,7 @@ set(PROFILER_TEST_SOURCES
     MarketplaceClientTests.cpp
     SpectraEngineTests.cpp
     FxQualityTests.cpp
+    AmpConditionTests.cpp
 )
 
 add_executable(ProfilerTests EXCLUDE_FROM_ALL
@@ -27,6 +28,7 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/MarketplaceClient.cpp
     ../Source/Src/SpectraEngine.cpp
     ../Source/Src/SpectraAmp.cpp
+    ../Source/Src/AmpCondition.cpp
 )
 
 target_include_directories(ProfilerTests PRIVATE

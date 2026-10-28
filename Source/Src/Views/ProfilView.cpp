@@ -17,7 +17,11 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
     _accountPanel.onLayoutChanged = [this]() {
         resized();
     };
-    _accountPanel.onPlaySpectra = [this](const juce::MemoryBlock& cipher, const juce::MemoryBlock& key, juce::String* errorMessage) {
+    _accountPanel.onPlaySpectra = [this](const juce::MemoryBlock& cipher,
+                                        const juce::MemoryBlock& key,
+                                        int conditionProfile,
+                                        float conditionAmount,
+                                        juce::String* errorMessage) {
         Marketplace::Session session;
         if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
             if (errorMessage != nullptr) {
@@ -33,6 +37,7 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
             }
             return false;
         }
+        _audioProcessor.setAmpCondition(conditionProfile, conditionAmount);
         _notificationBanner.clearAction();
         _notificationBanner.showMessage("Amp loaded", NotificationBanner::Type::Success, 5000);
         return true;

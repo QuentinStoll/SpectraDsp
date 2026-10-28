@@ -565,6 +565,7 @@ void AmpCapturePanel::pollCloud() {
                 if (safeThis->_processor.unlockSpectraSession(session.accessToken) &&
                     safeThis->_processor.loadSpectraModel(cipher.getData(), cipher.getSize(),
                                                           static_cast<const uint8_t*>(key.getData()), key.getSize())) {
+                    safeThis->_processor.setAmpCondition(AmpCondition::kOff, 0.0f);
                     safeThis->setStatus(title + " is ready and loaded.");
                 } else {
                     safeThis->setStatus(title + " is in the library. Open it from there to play.");

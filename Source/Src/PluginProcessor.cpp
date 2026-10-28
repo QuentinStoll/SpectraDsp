@@ -132,6 +132,8 @@ ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
     _pedalToneParam = _apvts.getRawParameterValue("pedalTone");
     _pedalLevelParam = _apvts.getRawParameterValue("pedalLevel");
     _pedalModelParam = _apvts.getRawParameterValue("pedalModel");
+    _conditionProfileParam = _apvts.getRawParameterValue("conditionProfile");
+    _conditionAmountParam = _apvts.getRawParameterValue("conditionAmount");
     writeChainLayout(_apvts.state, _chainLayoutPacked.load());
     writeChainBypass(_apvts.state, 0);
     for (auto& mix : _ampWetMix) {
@@ -266,6 +268,12 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     for (auto& drive : _pedalDrives) {
         drive.prepare(sampleRate, samplesPerBlock);
     }
+    const auto conditionSalt = static_cast<std::uint32_t>(juce::Random::getSystemRandom().nextInt());
+    for (int instance = 0; instance < kChainCopies; ++instance) {
+        _ampConditions[static_cast<std::size_t>(instance)].prepare(
+            sampleRate, conditionSalt + static_cast<std::uint32_t>(instance) * 0x9E3779B9u);
+    }
+    _conditionInput.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
 
     for (auto& blocker : _dcBlockers) {
         *blocker.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(sampleRate, 35.0f);
@@ -744,23 +752,39 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
     const bool ampEnabled = slotEnabled && getParameterValue(_isAmpEnabledParam, 1.0f) > 0.5f;
     wetMix.setTargetValue(ampEnabled ? 1.0f : 0.0f);
 
+    auto& condition = _ampConditions[mixIndex];
+    condition.set(static_cast<int>(std::lround(getParameterValue(_conditionProfileParam, 0.0f))),
+                  getParameterValue(_conditionAmountParam, 0.0f) * 0.01f);
+    if (static_cast<int>(_conditionInput.size()) < numSamples) {
+        _conditionInput.resize(static_cast<std::size_t>(numSamples));
+    }
+    if (static_cast<int>(_spectraWet.size()) < numSamples) {
+        _spectraWet.resize(static_cast<std::size_t>(numSamples));
+    }
+
+    auto mixConditioned = [&](float* channel) {
+        condition.processPost(_spectraWet.data(), numSamples);
+        for (int i = 0; i < numSamples; ++i) {
+            const float dry = channel[i];
+            float wet = _spectraWet[static_cast<std::size_t>(i)];
+            if (!std::isfinite(wet)) {
+                wet = dry;
+            }
+            const float mix = wetMix.getNextValue();
+            channel[i] = dry + (wet - dry) * mix;
+        }
+    };
+
     if (_spectraAmp.isLoaded()) {
         auto* channel0Data = buffer.getWritePointer(0);
-        if (static_cast<int>(_spectraWet.size()) >= numSamples &&
-            _spectraAmp.render(instance, channel0Data, _spectraWet.data(), numSamples)) {
-            for (int i = 0; i < numSamples; ++i) {
-                const float dry = channel0Data[i];
-                float wet = _spectraWet[static_cast<std::size_t>(i)];
-                if (!std::isfinite(wet)) {
-                    wet = dry;
-                }
-                const float mix = wetMix.getNextValue();
-                channel0Data[i] = dry + (wet - dry) * mix;
-            }
+        juce::FloatVectorOperations::copy(_conditionInput.data(), channel0Data, numSamples);
+        condition.processPre(_conditionInput.data(), numSamples);
+        if (_spectraAmp.render(instance, _conditionInput.data(), _spectraWet.data(), numSamples)) {
+            mixConditioned(channel0Data);
         } else {
             wetMix.skip(numSamples);
         }
-        _dcBlockers[static_cast<std::size_t>(juce::jlimit(0, kChainCopies - 1, instance))].process(context);
+        _dcBlockers[mixIndex].process(context);
         return;
     }
 
@@ -779,13 +803,16 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
             const auto inputGain = _ampInputGain;
             const auto outputGain = _ampOutputGain;
             auto* channel0Data = buffer.getWritePointer(0);
+            auto* driven = _conditionInput.data();
 
             // Keep the recurrent state tracking the input while the block is bypassed.
             // Freezing it makes the amp take seconds to recover when it is switched back on.
             for (int i = 0; i < numSamples; ++i) {
-                const float dry = channel0Data[i];
-                const float driven = dry * inputGain;
-                const float inputSample[] = {driven};
+                driven[i] = channel0Data[i] * inputGain;
+            }
+            condition.processPre(driven, numSamples);
+            for (int i = 0; i < numSamples; ++i) {
+                const float inputSample[] = {driven[i]};
                 model->forward(inputSample);
                 float wet = model->getOutputs()[0];
 
@@ -797,16 +824,12 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
                 // CoreAudioML / AIDA models store a residual in in_skip: the network
                 // predicts the difference, and the input channels are added back.
                 if (inputSkip > 0) {
-                    wet += driven;
+                    wet += channel0Data[i] * inputGain;
                 }
                 wet *= outputGain;
-                if (!std::isfinite(wet)) {
-                    wet = dry;
-                }
-
-                const float mix = wetMix.getNextValue();
-                channel0Data[i] = dry + (wet - dry) * mix;
+                _spectraWet[static_cast<std::size_t>(i)] = std::isfinite(wet) ? wet : channel0Data[i];
             }
+            mixConditioned(channel0Data);
         } else {
             wetMix.skip(numSamples);
         }
@@ -1009,6 +1032,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout ProfilerAudioProcessor::crea
         "Pedal Model",
         juce::StringArray{"Screamer", "Distortion", "Boost"},
         0));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"conditionProfile", 1},
+        "Condition",
+        juce::StringArray{"Off", "Black", "Death", "Raw"},
+        0));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"conditionAmount", 1},
+        "Condition Amount",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f),
+        0.0f));
 
     Fx::addParameters(layout);
     return layout;
@@ -1209,7 +1242,25 @@ bool ProfilerAudioProcessor::loadAmpFile(const juce::File& file) {
 
     const auto loaded = installAmpPayload(bytes.getData(), bytes.getSize(), file);
     bytes.fillWith(0);
+    if (loaded) {
+        setAmpCondition(AmpCondition::kOff, 0.0f);
+    }
     return loaded;
+}
+
+void ProfilerAudioProcessor::setAmpCondition(int profile, float amountPercent) {
+    const auto index = static_cast<float>(juce::jlimit(AmpCondition::kOff, AmpCondition::kRaw, profile));
+    const auto amount = juce::jlimit(0.0f, 100.0f, amountPercent);
+    if (auto* parameter = _apvts.getParameter("conditionProfile")) {
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(index));
+        parameter->endChangeGesture();
+    }
+    if (auto* parameter = _apvts.getParameter("conditionAmount")) {
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(amount));
+        parameter->endChangeGesture();
+    }
 }
 
 bool ProfilerAudioProcessor::loadSpectraModel(const void* cipher, size_t cipherSize, const uint8_t* key, size_t keySize) {

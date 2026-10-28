@@ -30,6 +30,18 @@ struct MarketplaceAccountPanel::PackRow : public juce::Component {
         if (item.hasIntegratedIr) {
             meta << "  ·  Cabinet included";
         }
+        const auto condition = item.conditionProfile.toLowerCase();
+        juce::String conditionName;
+        if (condition == "black") {
+            conditionName = "Black";
+        } else if (condition == "death") {
+            conditionName = "Death";
+        } else if (condition == "raw") {
+            conditionName = "Raw";
+        }
+        if (conditionName.isNotEmpty() && item.conditionAmount >= 1.0f) {
+            meta << "  ·  " << conditionName << " " << juce::String(juce::roundToInt(item.conditionAmount)) << "%";
+        }
         _meta.setText(meta, juce::dontSendNotification);
         _meta.setFont(ProfilerStyle::Fonts::regular(12.0f));
         _meta.setColour(juce::Label::textColourId, ProfilerStyle::Colors::textMuted);
@@ -185,6 +197,7 @@ void MarketplaceAccountPanel::start() {
     _accountLabel.setText(_session.email, juce::dontSendNotification);
     showLibrary();
     loadLibrary();
+    startTimer(15000);
 }
 
 int MarketplaceAccountPanel::getPreferredHeight(int width) const {
@@ -328,7 +341,22 @@ void MarketplaceAccountPanel::applyLoginResult(const Marketplace::LoginResult& r
     setBusy(false);
 }
 
+void MarketplaceAccountPanel::visibilityChanged() {
+    if (isShowing() && _mode == Mode::Library) {
+        loadLibrary();
+    }
+}
+
+void MarketplaceAccountPanel::timerCallback() {
+    if (isShowing() && _mode == Mode::Library) {
+        loadLibrary();
+    }
+}
+
 void MarketplaceAccountPanel::loadLibrary() {
+    if (_busy) {
+        return;
+    }
     if (_session.accessToken.isEmpty() && _session.refreshToken.isEmpty()) {
         showLogin({});
         return;
@@ -383,7 +411,9 @@ void MarketplaceAccountPanel::loadLibrary() {
             if (result.email.isNotEmpty()) {
                 safeThis->_session.email = result.email;
             }
-            safeThis->_statusLabel.setText(safeThis->_items.empty() ? "No packs on this account yet." : juce::String{},
+            safeThis->_statusLabel.setText(safeThis->_items.empty()
+                                               ? "No packs on this account yet. Profiles you create here stay on this computer."
+                                               : juce::String(safeThis->_items.size()) + " on this account.",
                                            juce::dontSendNotification);
             safeThis->showLibrary();
         });
@@ -400,11 +430,13 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     const auto title = _items[static_cast<size_t>(index)].title;
     const auto kind = _items[static_cast<size_t>(index)].kind;
     const auto session = _session;
+    const auto listedProfile = Marketplace::conditionProfileIndex(_items[static_cast<size_t>(index)].conditionProfile);
+    const auto listedAmount = _items[static_cast<size_t>(index)].conditionAmount;
     if (kind == "amp") {
         setBusy(true);
         _statusLabel.setText("Opening " + title + "...", juce::dontSendNotification);
         juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
-        _jobs.addJob([safeThis, packId, session, title]() {
+        _jobs.addJob([safeThis, packId, session, title, listedProfile, listedAmount]() {
             auto directory = getSettingsFolder().getChildFile("Spectra");
             directory.createDirectory();
             const auto cipherFile = directory.getChildFile(packId + ".spectra");
@@ -413,8 +445,16 @@ void MarketplaceAccountPanel::downloadPack(int index) {
             juce::MemoryBlock key;
             juce::String error;
             auto working = session;
-            if (cipherFile.existsAsFile() && keyFile.existsAsFile() && cipherFile.loadFileAsData(cipher) && keyFile.loadFileAsData(key) &&
-                key.getSize() == 32) {
+            auto conditionProfile = listedProfile;
+            auto conditionAmount = listedAmount;
+            const bool cached = cipherFile.existsAsFile() && keyFile.existsAsFile() && cipherFile.loadFileAsData(cipher) &&
+                                keyFile.loadFileAsData(key) && key.getSize() == 32;
+            if (cached && safeThis != nullptr) {
+                const auto status = safeThis->_client.ampStatus(working.accessToken, packId);
+                if (status.status == Marketplace::Status::Success && status.hasCondition) {
+                    conditionProfile = Marketplace::conditionProfileIndex(status.conditionProfile);
+                    conditionAmount = status.conditionAmount;
+                }
             } else if (safeThis != nullptr) {
                 const auto library = safeThis->_client.loadLibrary(working);
                 const Marketplace::LibraryItem* fresh = nullptr;
@@ -440,11 +480,13 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                         key = decodedKey.getMemoryBlock();
                         cipherFile.replaceWithData(cipher.getData(), cipher.getSize());
                         keyFile.replaceWithData(key.getData(), key.getSize());
+                        conditionProfile = Marketplace::conditionProfileIndex(fresh->conditionProfile);
+                        conditionAmount = fresh->conditionAmount;
                     }
                 }
             }
 
-            juce::MessageManager::callAsync([safeThis, working, cipher, key, error]() {
+            juce::MessageManager::callAsync([safeThis, working, cipher, key, error, conditionProfile, conditionAmount]() {
                 if (safeThis == nullptr) {
                     return;
                 }
@@ -460,8 +502,14 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 }
                 juce::String playError;
                 const auto played = safeThis->onPlaySpectra != nullptr &&
-                                    safeThis->onPlaySpectra(cipher, key, &playError);
-                safeThis->_statusLabel.setText(played ? "Amp loaded." : playError, juce::dontSendNotification);
+                                    safeThis->onPlaySpectra(cipher, key, conditionProfile, conditionAmount, &playError);
+                juce::String loaded = "Amp loaded.";
+                if (played && conditionProfile > 0 && conditionAmount >= 1.0f) {
+                    const char* names[] = {"Off", "Black", "Death", "Raw"};
+                    loaded = juce::String("Amp loaded · ") + names[juce::jlimit(0, 3, conditionProfile)] + " " +
+                             juce::String(juce::roundToInt(conditionAmount)) + "%.";
+                }
+                safeThis->_statusLabel.setText(played ? loaded : playError, juce::dontSendNotification);
                 safeThis->setBusy(false);
             });
         });

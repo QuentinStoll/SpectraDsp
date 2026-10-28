@@ -52,7 +52,22 @@ struct LibraryItem {
     juce::String irFileUrl;
     juce::String kind;
     bool hasIntegratedIr = false;
+    juce::String conditionProfile{"off"};
+    float conditionAmount = 0.0f;
 };
+
+inline int conditionProfileIndex(const juce::String& profile) {
+    if (profile.equalsIgnoreCase("black")) {
+        return 1;
+    }
+    if (profile.equalsIgnoreCase("death")) {
+        return 2;
+    }
+    if (profile.equalsIgnoreCase("raw")) {
+        return 3;
+    }
+    return 0;
+}
 
 struct AmpJobResult {
     Status status = Status::Unexpected;
@@ -78,6 +93,9 @@ struct AmpStatusResult {
     juce::String state;
     juce::String fileUrl;
     juce::String message;
+    bool hasCondition = false;
+    juce::String conditionProfile{"off"};
+    float conditionAmount = 0.0f;
 };
 
 struct LibraryResult {
