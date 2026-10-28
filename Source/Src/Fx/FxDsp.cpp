@@ -44,12 +44,83 @@ float reductionDb(float levelDb, float thresholdDb, float ratio, float kneeDb) n
     return (x * x) / (2.0f * kneeDb) * slope;
 }
 
+constexpr int kPitchHeads = 4;
+
+void primeHeads(float* distance, bool& primed, float window) noexcept {
+    if (primed) {
+        return;
+    }
+    for (int head = 0; head < kPitchHeads; ++head) {
+        distance[head] = window * ((float)head + 0.5f) / (float)kPitchHeads;
+    }
+    primed = true;
+}
+
+void advanceHeads(float* distance, float ratio, float window) noexcept {
+    if (std::abs(ratio - 1.0f) < 0.0008f) {
+        for (int head = 0; head < kPitchHeads; ++head) {
+            distance[head] = window * 0.5f;
+        }
+        return;
+    }
+    const float step = 1.0f - ratio;
+    for (int head = 0; head < kPitchHeads; ++head) {
+        distance[head] += step;
+        // One correction per side. Applying both tests in sequence cancels the wrap
+        // whenever the head lands in the first sample of the grain.
+        while (distance[head] >= window) {
+            distance[head] -= window;
+        }
+        while (distance[head] < 0.0f) {
+            distance[head] += window;
+        }
+    }
+}
+
+// Four heads, one source period apart, so a harmonic series splices in phase.
+float alignedGrain(float requested, float period, float confidence, int bufferLength) noexcept {
+    const float limit = (float)juce::jmax(64, bufferLength - 6);
+    const float fallback = juce::jlimit(32.0f, limit, requested);
+    if (!(confidence > 0.55f) || !(period > 16.0f)) {
+        return fallback;
+    }
+    return juce::jlimit(32.0f, limit, period * (float)kPitchHeads);
+}
+
+void followPeriod(float period, float confidence, float& trackedPeriod, float& trackedConfidence, float* heads, bool& primed) noexcept {
+    if (!(confidence > 0.85f) || !(period > 16.0f)) {
+        if (confidence < 0.2f) {
+            trackedConfidence = 0.0f;
+            primed = false;
+        }
+        return;
+    }
+    const bool first = !(trackedConfidence > 0.55f);
+    const float delta = std::abs(period - trackedPeriod);
+    const bool jump = !first && delta > trackedPeriod * 0.12f;
+    if (!first && !jump && primed && delta > 0.35f) {
+        const float scale = period / trackedPeriod;
+        for (int head = 0; head < kPitchHeads; ++head) {
+            heads[head] *= scale;
+        }
+    }
+    trackedPeriod = period;
+    trackedConfidence = confidence;
+    if (first || jump) {
+        primed = false;
+    }
+}
+
+float pitchWindow(float distance, float window) noexcept {
+    const float phase = juce::jlimit(0.0f, 1.0f, distance / juce::jmax(8.0f, window));
+    return 0.5f * (1.0f - std::cos(juce::MathConstants<float>::twoPi * phase));
+}
+
 void renderPitch(DelayLine& left,
                  DelayLine& right,
                  float inLeft,
                  float inRight,
-                 float& distA,
-                 float& distB,
+                 float* distance,
                  bool& primed,
                  float ratio,
                  float window,
@@ -57,91 +128,82 @@ void renderPitch(DelayLine& left,
                  float& outRight) noexcept {
     left.push(inLeft);
     right.push(inRight);
-    window = juce::jmax(8.0f, window);
-    if (!primed) {
-        distA = window * 0.75f;
-        distB = window * 0.25f;
-        primed = true;
+    window = juce::jmax(32.0f, window);
+    primeHeads(distance, primed, window);
+    advanceHeads(distance, ratio, window);
+    float gainSum = 0.0f;
+    float leftSum = 0.0f;
+    float rightSum = 0.0f;
+    for (int head = 0; head < kPitchHeads; ++head) {
+        const float gain = pitchWindow(distance[head], window);
+        gainSum += gain;
+        leftSum += left.read(distance[head]) * gain;
+        rightSum += right.read(distance[head]) * gain;
     }
-
-    if (std::abs(ratio - 1.0f) < 0.0008f) {
-        outLeft = left.read(window * 0.5f);
-        outRight = right.read(window * 0.5f);
-        return;
-    }
-
-    distA += 1.0f - ratio;
-    distB += 1.0f - ratio;
-    const float span = juce::jmax(4.0f, window - 1.0f);
-    auto contain = [&](float& distance) {
-        while (distance < 1.0f) {
-            distance += span;
-        }
-        while (distance > window) {
-            distance -= span;
-        }
-        distance = juce::jlimit(1.0f, window, distance);
-    };
-    contain(distA);
-    contain(distB);
-
-    const float gainA = std::sin(juce::MathConstants<float>::pi * (distA / window));
-    const float gainB = std::sin(juce::MathConstants<float>::pi * (distB / window));
-    const float norm = juce::jmax(1.0e-4f, gainA + gainB);
-    outLeft = (left.read(distA) * gainA + left.read(distB) * gainB) / norm;
-    outRight = (right.read(distA) * gainA + right.read(distB) * gainB) / norm;
+    const float norm = juce::jmax(1.0e-4f, gainSum);
+    outLeft = leftSum / norm;
+    outRight = rightSum / norm;
 }
 
-float renderPitchMono(DelayLine& line, float input, float& distA, float& distB, bool& primed, float ratio, float window) noexcept {
+float renderPitchMono(DelayLine& line, float input, float* distance, bool& primed, float ratio, float window) noexcept {
     line.push(input);
-    window = juce::jmax(8.0f, window);
-    if (!primed) {
-        distA = window * 0.75f;
-        distB = window * 0.25f;
-        primed = true;
+    window = juce::jmax(32.0f, window);
+    primeHeads(distance, primed, window);
+    advanceHeads(distance, ratio, window);
+    float gainSum = 0.0f;
+    float sum = 0.0f;
+    for (int head = 0; head < kPitchHeads; ++head) {
+        const float gain = pitchWindow(distance[head], window);
+        gainSum += gain;
+        sum += line.read(distance[head]) * gain;
     }
-    if (std::abs(ratio - 1.0f) < 0.0008f) {
-        return line.read(window * 0.5f);
-    }
-
-    distA += 1.0f - ratio;
-    distB += 1.0f - ratio;
-    const float span = juce::jmax(4.0f, window - 1.0f);
-    auto contain = [&](float& distance) {
-        while (distance < 1.0f) {
-            distance += span;
-        }
-        while (distance > window) {
-            distance -= span;
-        }
-        distance = juce::jlimit(1.0f, window, distance);
-    };
-    contain(distA);
-    contain(distB);
-    const float gainA = std::sin(juce::MathConstants<float>::pi * (distA / window));
-    const float gainB = std::sin(juce::MathConstants<float>::pi * (distB / window));
-    const float norm = juce::jmax(1.0e-4f, gainA + gainB);
-    return (line.read(distA) * gainA + line.read(distB) * gainB) / norm;
+    return sum / juce::jmax(1.0e-4f, gainSum);
 }
 
 int checkedVoice(int voice) noexcept {
     return voice >= 0 && voice < kVoices ? voice : -1;
 }
+
+// At a head reset, nudge the new read so it matches the head that is still
+// sounding. A fixed jump lands at a random phase and cancels the crossfade.
+float dropAlign(const DelayLine& left, const DelayLine& right, float from, float target, int radius) noexcept {
+    if (radius < 4) {
+        return 0.0f;
+    }
+    float bestDelta = 0.0f;
+    float best = 0.0f;
+    const int win = radius * 2;
+    for (int delta = -radius; delta <= radius; delta += 2) {
+        float corr = 0.0f;
+        for (int index = 0; index < win; index += 4) {
+            const float heard = left.read(target + (float)index) + right.read(target + (float)index);
+            const float incoming = left.read(from + (float)(delta + index)) + right.read(from + (float)(delta + index));
+            corr += heard * incoming;
+        }
+        if (corr > best) {
+            best = corr;
+            bestDelta = (float)delta;
+        }
+    }
+    return best > 0.0f ? bestDelta : 0.0f;
+}
 }  // namespace
 
 void PitchTracker::prepare(double newSampleRate) {
     sampleRate = juce::jmax(8000.0, newSampleRate);
-    ring.assign(4096, 0.0f);
-    difference.assign(1200, 1.0f);
+    ring.assign(8192, 0.0f);
+    difference.assign(2048, 1.0f);
     write = 0;
     since = 0;
-    hop = 2048;
+    filled = 0;
+    hop = 512;
 }
 
 void PitchTracker::clear() {
     std::fill(ring.begin(), ring.end(), 0.0f);
     write = 0;
     since = 0;
+    filled = 0;
 }
 
 bool PitchTracker::push(float sample, float& periodSamples, float& confidence) {
@@ -150,17 +212,19 @@ bool PitchTracker::push(float sample, float& periodSamples, float& confidence) {
     }
     ring[(size_t)write] = sample;
     write = (write + 1) % (int)ring.size();
-    if (++since < hop) {
+    filled = juce::jmin(filled + 1, (int)ring.size());
+    if (++since < hop || filled < 3200) {
         return false;
     }
     since = 0;
 
-    const int window = 1024;
-    const int maxLag = juce::jmin(1000, (int)(sampleRate / 40.0));
+    const int window = 1536;
+    const int maxLag = juce::jmin(1400, (int)(sampleRate / 45.0));
     const int minLag = juce::jmax(8, (int)(sampleRate / 1200.0));
     const int ringSize = (int)ring.size();
     auto at = [&](int index) {
-        int wrapped = (write + index) % ringSize;
+        int wrapped = write - 1 - index;
+        wrapped %= ringSize;
         if (wrapped < 0) {
             wrapped += ringSize;
         }
@@ -181,7 +245,7 @@ bool PitchTracker::push(float sample, float& periodSamples, float& confidence) {
     float bestValue = 1.0f;
     for (int tau = 1; tau <= maxLag; ++tau) {
         float sum = 0.0f;
-        for (int index = 0; index < window; ++index) {
+        for (int index = 0; index < window; index += 2) {
             const float delta = at(index) - at(index + tau);
             sum += delta * delta;
         }
@@ -220,7 +284,7 @@ bool PitchTracker::push(float sample, float& periodSamples, float& confidence) {
 
 void Harmonizer::prepare(double newSampleRate, int) {
     sampleRate = juce::jmax(8000.0, newSampleRate);
-    const int length = (int)millisToSamples(90.0f, sampleRate) + 8;
+    const int length = (int)millisToSamples(160.0f, sampleRate) + 8;
     for (auto& voice : voices) {
         voice.left.prepare(length);
         voice.right.prepare(length);
@@ -246,6 +310,7 @@ void Harmonizer::reset() {
         voice.tracker.clear();
         voice.primed = false;
         voice.period = 256.0f;
+        voice.confidence = 0.0f;
         voice.lastSemitones = 100.0f;
     }
 }
@@ -269,7 +334,7 @@ void Harmonizer::process(int voiceIndex, float* left, float* right, int numSampl
     const int fixed = juce::jmax(1, latencySamples(settings.latencyMs));
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     if (settings.formantLock && std::abs(semitones - voice.lastSemitones) > 0.05f) {
         const float shelf = juce::jlimit(-12.0f, 12.0f, -0.45f * semitones);
@@ -283,17 +348,13 @@ void Harmonizer::process(int voiceIndex, float* left, float* right, int numSampl
         const float inRight = right[sample];
         float period = voice.period;
         float confidence = 0.0f;
-        if (voice.tracker.push(0.5f * (inLeft + inRight), period, confidence) && confidence > 0.6f) {
-            voice.period = period;
+        if (voice.tracker.push(0.5f * (inLeft + inRight), period, confidence)) {
+            followPeriod(period, confidence, voice.period, voice.confidence, voice.readHead, voice.primed);
         }
-
-        float grain = (float)fixed;
-        if (settings.formantLock && voice.period > 16.0f) {
-            grain = juce::jlimit(32.0f, (float)fixed, voice.period * 2.0f);
-        }
+        const float grain = alignedGrain((float)fixed, voice.period, voice.confidence, voice.left.length());
         float pitchedLeft = 0.0f;
         float pitchedRight = 0.0f;
-        renderPitch(voice.left, voice.right, inLeft, inRight, voice.readA, voice.readB, voice.primed, ratio, grain,
+        renderPitch(voice.left, voice.right, inLeft, inRight, voice.readHead, voice.primed, ratio, grain,
                     pitchedLeft, pitchedRight);
         if (settings.formantLock) {
             pitchedLeft = voice.tiltLeft.process(pitchedLeft);
@@ -314,67 +375,128 @@ void Harmonizer::process(int voiceIndex, float* left, float* right, int numSampl
     }
 }
 
-void DropPitch::prepare(double newSampleRate, int) {
-    sampleRate = juce::jmax(8000.0, newSampleRate);
-    const int length = (int)millisToSamples(120.0f, sampleRate) + 8;
-    for (auto& voice : voices) {
-        voice.left.prepare(length);
-        voice.right.prepare(length);
-        voice.dryLeft.prepare(length);
-        voice.dryRight.prepare(length);
-        voice.padLeft.prepare(length);
-        voice.padRight.prepare(length);
+struct DropPitch::State {
+    struct Engine {
+        DelayLine left;
+        DelayLine right;
+        DelayLine dryLeft;
+        DelayLine dryRight;
+        float delay[2] = {};
+        float offset[2] = {};
+        float span = 1.0f;
+        int base = 1;
+    };
+
+    std::array<Engine, kVoices> engines;
+    double sampleRate = 48000.0;
+    bool ready = false;
+
+    int latencyFor(float latencyMs) const noexcept {
+        const float ms = juce::jlimit(8.0f, 20.0f, latencyMs);
+        return juce::jmax(8, (int)std::lround(ms * 0.001 * sampleRate));
     }
+};
+
+DropPitch::DropPitch() = default;
+DropPitch::~DropPitch() = default;
+DropPitch::DropPitch(DropPitch&&) noexcept = default;
+DropPitch& DropPitch::operator=(DropPitch&&) noexcept = default;
+
+void DropPitch::prepare(double newSampleRate, int) {
+    const double rate = juce::jmax(8000.0, newSampleRate);
+    if (!state) {
+        state = std::make_unique<State>();
+    }
+    state->sampleRate = rate;
+    const int maxLatency = state->latencyFor(20.0f);
+    for (auto& engine : state->engines) {
+        const int tail = (int)std::lround(rate * 0.002) + 32;
+        engine.left.prepare(maxLatency * 2 + tail);
+        engine.right.prepare(maxLatency * 2 + tail);
+        engine.dryLeft.prepare(maxLatency + 16);
+        engine.dryRight.prepare(maxLatency + 16);
+        engine.base = maxLatency;
+        engine.span = (float)(maxLatency * 2);
+    }
+    state->ready = true;
     reset();
 }
 
 void DropPitch::reset() {
-    for (auto& voice : voices) {
-        voice.left.clear();
-        voice.right.clear();
-        voice.dryLeft.clear();
-        voice.dryRight.clear();
-        voice.padLeft.clear();
-        voice.padRight.clear();
-        voice.primed = false;
+    if (!state) {
+        return;
+    }
+    for (auto& engine : state->engines) {
+        engine.left.clear();
+        engine.right.clear();
+        engine.dryLeft.clear();
+        engine.dryRight.clear();
+        engine.delay[0] = engine.span * 0.5f;
+        engine.delay[1] = 0.0f;
+        engine.offset[0] = 0.0f;
+        engine.offset[1] = 0.0f;
     }
 }
 
 int DropPitch::latencySamples(float latencyMs) const {
-    if (sampleRate <= 0.0) {
-        return 0;
-    }
-    return (int)std::round(juce::jlimit(8.0f, 40.0f, latencyMs) * 0.001f * (float)sampleRate);
+    return state && state->ready ? state->latencyFor(latencyMs) : 0;
 }
 
 void DropPitch::process(int voiceIndex, float* left, float* right, int numSamples, const DropSettings& settings) {
     const int index = checkedVoice(voiceIndex);
-    if (index < 0 || left == nullptr || right == nullptr || numSamples <= 0) {
+    if (!state || !state->ready || index < 0 || left == nullptr || right == nullptr || numSamples <= 0) {
         return;
     }
-    auto& voice = voices[(size_t)index];
+    auto& engine = state->engines[(size_t)index];
     const float semitones = juce::jlimit(-12.0f, 0.0f, settings.semitones);
     const float ratio = std::pow(2.0f, semitones / 12.0f);
-    const int fixed = juce::jmax(1, latencySamples(settings.latencyMs));
-    const float grain = (float)fixed;
+    const int base = state->latencyFor(settings.latencyMs);
+    if (base != engine.base) {
+        engine.base = base;
+        engine.span = (float)(base * 2);
+        engine.delay[0] = engine.span * 0.5f;
+        engine.delay[1] = 0.0f;
+        engine.offset[0] = 0.0f;
+        engine.offset[1] = 0.0f;
+    }
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
+    const float dryDelay = (float)engine.base;
+    const int radius = (int)std::lround(state->sampleRate * 0.002);
+    const float step = 1.0f - ratio;
 
     for (int sample = 0; sample < numSamples; ++sample) {
         const float inLeft = left[sample];
         const float inRight = right[sample];
-        float pitchedLeft = 0.0f;
-        float pitchedRight = 0.0f;
-        renderPitch(voice.left, voice.right, inLeft, inRight, voice.readA, voice.readB, voice.primed, ratio, grain,
-                    pitchedLeft, pitchedRight);
-        const float pad = juce::jmax(1.0f, (float)fixed - grain * 0.5f);
-        voice.padLeft.push(pitchedLeft);
-        voice.padRight.push(pitchedRight);
-        voice.dryLeft.push(inLeft);
-        voice.dryRight.push(inRight);
-        left[sample] = safeSample(voice.dryLeft.read((float)fixed) * dryGain + voice.padLeft.read(pad) * wetGain);
-        right[sample] = safeSample(voice.dryRight.read((float)fixed) * dryGain + voice.padRight.read(pad) * wetGain);
+        engine.left.push(inLeft);
+        engine.right.push(inRight);
+        engine.dryLeft.push(inLeft);
+        engine.dryRight.push(inRight);
+
+        float leftSum = 0.0f;
+        float rightSum = 0.0f;
+        float gainSum = 0.0f;
+        for (int head = 0; head < 2; ++head) {
+            engine.delay[head] += step;
+            if (engine.delay[head] >= engine.span) {
+                engine.delay[head] -= engine.span;
+                const int other = 1 - head;
+                const float heard = engine.delay[other] + engine.offset[other];
+                engine.offset[head] = dropAlign(engine.left, engine.right, engine.delay[head], heard, radius);
+            }
+            const float readDelay = juce::jlimit(1.0f, engine.span + (float)radius, engine.delay[head] + engine.offset[head]);
+            const float phase = juce::jlimit(0.0f, 1.0f, engine.delay[head] / engine.span);
+            const float window = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::twoPi * phase));
+            leftSum += engine.left.read(readDelay) * window;
+            rightSum += engine.right.read(readDelay) * window;
+            gainSum += window;
+        }
+        const float norm = juce::jmax(1.0e-4f, gainSum);
+        const float wetLeft = leftSum / norm;
+        const float wetRight = rightSum / norm;
+        left[sample] = safeSample(engine.dryLeft.read(dryDelay) * dryGain + wetLeft * wetGain);
+        right[sample] = safeSample(engine.dryRight.read(dryDelay) * dryGain + wetRight * wetGain);
     }
 }
 
@@ -489,7 +611,7 @@ void Octaver::process(int voiceIndex, float* left, float* right, int numSamples,
 
 void PlateReverb::prepare(double newSampleRate, int) {
     sampleRate = juce::jmax(8000.0, newSampleRate);
-    const int line = (int)millisToSamples(40.0f, sampleRate) + 8;
+    const int line = (int)millisToSamples(90.0f, sampleRate) + 8;
     const int pre = (int)millisToSamples(50.0f, sampleRate) + 4;
     for (auto& voice : voices) {
         for (auto& delay : voice.lines) {
@@ -527,7 +649,7 @@ void PlateReverb::process(int voiceIndex, float* left, float* right, int numSamp
         return;
     }
     auto& voice = voices[(size_t)index];
-    const float bases[] = {8.9f, 11.3f, 13.7f, 16.1f};
+    const float bases[] = {22.0f, 27.4f, 33.1f, 38.6f, 46.2f, 53.7f, 61.4f, 73.8f};
     const float pre = juce::jmax(1.0f, millisToSamples(settings.predelayMs, sampleRate));
     const float dampPole = juce::jmap(settings.damping, 0.0f, 100.0f, 0.12f, 0.9f);
     const float lpHz = juce::jmap(settings.tone, 0.0f, 100.0f, 1800.0f, 12000.0f);
@@ -538,8 +660,18 @@ void PlateReverb::process(int voiceIndex, float* left, float* right, int numSamp
     }
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
-    const float phaseInc = 0.2f / (float)sampleRate;
+    pedalMix(settings.mix, dryGain, wetGain);
+    const float phaseInc = 0.35f / (float)sampleRate;
+    const float hadamard[8][8] = {
+        {1, 1, 1, 1, 1, 1, 1, 1},
+        {1, -1, 1, -1, 1, -1, 1, -1},
+        {1, 1, -1, -1, 1, 1, -1, -1},
+        {1, -1, -1, 1, 1, -1, -1, 1},
+        {1, 1, 1, 1, -1, -1, -1, -1},
+        {1, -1, 1, -1, -1, 1, -1, 1},
+        {1, 1, -1, -1, -1, -1, 1, 1},
+        {1, -1, -1, 1, -1, 1, 1, -1},
+    };
 
     for (int sample = 0; sample < numSamples; ++sample) {
         const float inLeft = left[sample];
@@ -548,28 +680,36 @@ void PlateReverb::process(int voiceIndex, float* left, float* right, int numSamp
         voice.predelay.push(mono);
         const float excited = voice.predelay.read(pre);
         voice.phase = wrapPhase(voice.phase + phaseInc);
-        const float mod = sine(voice.phase) * millisToSamples(0.15f, sampleRate);
-        float taps[4];
-        for (int line = 0; line < 4; ++line) {
-            const float target = millisToSamples(bases[line], sampleRate) + mod * (line % 2 == 0 ? 1.0f : -1.0f);
-            voice.lengths[line] += (target - voice.lengths[line]) * 0.002f;
+        const float mod = sine(voice.phase) * millisToSamples(0.8f, sampleRate);
+        float taps[8];
+        for (int line = 0; line < 8; ++line) {
+            const float wobble = mod * (line % 2 == 0 ? 1.0f : -1.0f) * (0.65f + 0.08f * (float)line);
+            const float target = millisToSamples(bases[line], sampleRate) + wobble;
+            if (voice.lengths[line] < 2.0f) {
+                voice.lengths[line] = target;
+            } else {
+                voice.lengths[line] += (target - voice.lengths[line]) * 0.002f;
+            }
             taps[line] = voice.lines[line].read(juce::jmax(2.0f, voice.lengths[line]));
         }
-        const float a = taps[0];
-        const float b = taps[1];
-        const float c = taps[2];
-        const float d = taps[3];
-        float mixed[4] = {0.5f * (a + b + c + d), 0.5f * (a - b + c - d), 0.5f * (a + b - c - d), 0.5f * (a - b - c + d)};
-        for (int line = 0; line < 4; ++line) {
+        float mixed[8]{};
+        for (int row = 0; row < 8; ++row) {
+            float sum = 0.0f;
+            for (int column = 0; column < 8; ++column) {
+                sum += hadamard[row][column] * taps[column];
+            }
+            mixed[row] = sum * 0.25f;
+        }
+        for (int line = 0; line < 8; ++line) {
             const float damped = dampPole * voice.damp[line].state + (1.0f - dampPole) * mixed[line];
             voice.damp[line].state = damped;
             const float gain = feedbackForDecay(voice.lengths[line], settings.decay, sampleRate);
-            voice.lines[line].push(excited * 0.35f + damped * gain);
+            voice.lines[line].push(excited * 0.22f + damped * gain);
         }
-        float wetLeft = voice.dc[0].process(0.28f * (taps[0] + 0.7f * taps[2]));
-        float wetRight = voice.dc[1].process(0.28f * (taps[1] + 0.7f * taps[3]));
+        float wetLeft = voice.dc[0].process(0.18f * (taps[0] + taps[2] + 0.7f * taps[4] + taps[6]));
+        float wetRight = voice.dc[1].process(0.18f * (taps[1] + taps[3] + 0.7f * taps[5] + taps[7]));
         const float mid = 0.5f * (wetLeft + wetRight);
-        const float side = 0.18f * (wetLeft - wetRight);
+        const float side = 0.55f * (wetLeft - wetRight);
         wetLeft = mid + side;
         wetRight = mid - side;
         for (int channel = 0; channel < 2; ++channel) {
@@ -584,7 +724,7 @@ void PlateReverb::process(int voiceIndex, float* left, float* right, int numSamp
 
 void HallReverb::prepare(double newSampleRate, int) {
     sampleRate = juce::jmax(8000.0, newSampleRate);
-    const int comb = (int)millisToSamples(160.0f, sampleRate) + 8;
+    const int comb = (int)millisToSamples(220.0f, sampleRate) + 8;
     const int pre = (int)millisToSamples(90.0f, sampleRate) + 4;
     for (auto& voice : voices) {
         for (int line = 0; line < 4; ++line) {
@@ -593,10 +733,14 @@ void HallReverb::prepare(double newSampleRate, int) {
         }
         voice.predelayL.prepare(pre);
         voice.predelayR.prepare(pre);
-        voice.diffuseL[0].prepare((int)millisToSamples(4.7f, sampleRate), 0.72f);
-        voice.diffuseL[1].prepare((int)millisToSamples(1.6f, sampleRate), 0.62f);
-        voice.diffuseR[0].prepare((int)millisToSamples(5.9f, sampleRate), 0.72f);
-        voice.diffuseR[1].prepare((int)millisToSamples(2.1f, sampleRate), 0.62f);
+        voice.diffuseL[0].prepare((int)millisToSamples(4.7f, sampleRate), 0.7f);
+        voice.diffuseL[1].prepare((int)millisToSamples(1.6f, sampleRate), 0.6f);
+        voice.diffuseL[2].prepare((int)millisToSamples(8.3f, sampleRate), 0.65f);
+        voice.diffuseL[3].prepare((int)millisToSamples(3.1f, sampleRate), 0.58f);
+        voice.diffuseR[0].prepare((int)millisToSamples(5.9f, sampleRate), 0.7f);
+        voice.diffuseR[1].prepare((int)millisToSamples(2.1f, sampleRate), 0.6f);
+        voice.diffuseR[2].prepare((int)millisToSamples(9.4f, sampleRate), 0.65f);
+        voice.diffuseR[3].prepare((int)millisToSamples(3.7f, sampleRate), 0.58f);
     }
     reset();
 }
@@ -637,8 +781,8 @@ void HallReverb::process(int voiceIndex, float* left, float* right, int numSampl
         return;
     }
     auto& voice = voices[(size_t)index];
-    const float baseL[] = {29.7f, 37.1f, 41.1f, 43.7f};
-    const float baseR[] = {31.1f, 35.3f, 39.7f, 45.1f};
+    const float baseL[] = {48.0f, 59.6f, 67.2f, 74.4f};
+    const float baseR[] = {51.2f, 56.8f, 64.0f, 78.1f};
     const float size = juce::jmap(settings.size, 0.0f, 100.0f, 0.65f, 1.5f);
     const float damp = juce::jmap(settings.tone, 0.0f, 100.0f, 0.72f, 0.12f);
     const float width = juce::jlimit(0.0f, 1.0f, settings.width * 0.01f);
@@ -651,17 +795,23 @@ void HallReverb::process(int voiceIndex, float* left, float* right, int numSampl
     }
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         const float inLeft = left[sample];
         const float inRight = right[sample];
         voice.predelayL.push(inLeft);
         voice.predelayR.push(inRight);
-        float diffL = voice.diffuseL[1].process(voice.diffuseL[0].process(voice.predelayL.read(pre)));
-        float diffR = voice.diffuseR[1].process(voice.diffuseR[0].process(voice.predelayR.read(pre)));
-        voice.phase = wrapPhase(voice.phase + 0.13f / (float)sampleRate);
-        const float mod = sine(voice.phase) * millisToSamples(0.35f, sampleRate);
+        float diffL = voice.predelayL.read(pre);
+        float diffR = voice.predelayR.read(pre);
+        for (auto& stage : voice.diffuseL) {
+            diffL = stage.process(diffL);
+        }
+        for (auto& stage : voice.diffuseR) {
+            diffR = stage.process(diffR);
+        }
+        voice.phase = wrapPhase(voice.phase + 0.17f / (float)sampleRate);
+        const float mod = sine(voice.phase) * millisToSamples(0.8f, sampleRate);
         float sumL = 0.0f;
         float sumR = 0.0f;
         for (int line = 0; line < 4; ++line) {
@@ -750,7 +900,7 @@ void ShimmerReverb::process(int voiceIndex, float* left, float* right, int numSa
     voice.tone[1].setLowpass(lpHz, sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         const float inLeft = left[sample];
@@ -774,7 +924,7 @@ void ShimmerReverb::process(int voiceIndex, float* left, float* right, int numSa
         }
         sumL = voice.dc[0].process(sumL * 0.25f);
         sumR = voice.dc[1].process(sumR * 0.25f);
-        const float pitched = renderPitchMono(voice.pitch, 0.5f * (sumL + sumR), voice.readA, voice.readB, voice.primed, ratio, window);
+        const float pitched = renderPitchMono(voice.pitch, 0.5f * (sumL + sumR), voice.readHead, voice.primed, ratio, window);
         voice.feedbackSample = pitched * shimmer * 0.32f;
         float wetLeft = voice.tone[0].process(sumL * (1.0f - shimmer) + pitched * shimmer);
         float wetRight = voice.tone[1].process(sumR * (1.0f - shimmer) + pitched * shimmer);
@@ -791,6 +941,7 @@ void SpringReverb::prepare(double newSampleRate, int) {
             voice.dispersion[stage].prepare((int)millisToSamples(stages[stage], sampleRate), 0.62f);
         }
         voice.taps.prepare((int)millisToSamples(80.0f, sampleRate) + 8);
+        voice.chirp.prepare((int)millisToSamples(28.0f, sampleRate) + 4);
     }
     reset();
 }
@@ -801,9 +952,11 @@ void SpringReverb::reset() {
             stage.clear();
         }
         voice.taps.clear();
+        voice.chirp.clear();
         voice.boing[0].clear();
         voice.boing[1].clear();
         voice.damp.clear();
+        voice.split.clear();
         voice.tone.clear();
         voice.dc.clear();
         voice.lastBoing = -1.0f;
@@ -828,18 +981,23 @@ void SpringReverb::process(int voiceIndex, float* left, float* right, int numSam
     }
     const float damp = juce::jmap(settings.damping, 0.0f, 100.0f, 0.15f, 0.9f);
     voice.tone.setLowpass(juce::jmap(settings.damping, 0.0f, 100.0f, 3800.0f, 1200.0f), sampleRate);
+    voice.split.setLowpass(900.0f, sampleRate);
     const float taps[] = {19.0f, 27.0f, 36.0f, 48.0f};
     const float tapGain[] = {0.42f, 0.26f, 0.15f, 0.08f};
     const float feedback = feedbackForDecay(millisToSamples(48.0f, sampleRate), settings.decay, sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         const float inLeft = left[sample];
         const float inRight = right[sample];
         const float mono = 0.5f * (inLeft + inRight);
-        float dispersed = mono;
+        const float low = voice.split.process(mono);
+        const float high = mono - low;
+        voice.chirp.push(low);
+        const float chirpDelay = millisToSamples(6.0f + boing * 14.0f, sampleRate);
+        float dispersed = high * 0.85f + voice.chirp.read(juce::jmax(2.0f, chirpDelay));
         for (auto& stage : voice.dispersion) {
             dispersed = stage.process(dispersed);
         }
@@ -897,7 +1055,7 @@ void GranularReverb::process(int voiceIndex, float* left, float* right, int numS
     const float norm = 1.0f / overlap;
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
     float previousLeft = 0.0f;
     float previousRight = 0.0f;
 
@@ -997,18 +1155,19 @@ void TapeDelay::process(int voiceIndex, float* left, float* right, int numSample
     const float target = millisToSamples(juce::jlimit(50.0f, 300.0f, settings.timeMs), sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
     const float norm = 1.0f / std::tanh(drive);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         voice.time += (target - voice.time) * 0.0015f;
-        voice.phase = wrapPhase(voice.phase + juce::jmap(settings.wow, 0.0f, 100.0f, 0.5f, 3.0f) / (float)sampleRate);
-        const float flutter = sine(voice.phase * 5.3f) * wow * 0.25f;
+        voice.phase = wrapPhase(voice.phase + juce::jmap(settings.wow, 0.0f, 100.0f, 0.15f, 1.1f) / (float)sampleRate);
+        const float flutter = sine(voice.phase * 5.3f) * wow * 0.18f;
         const float delay = juce::jmax(2.0f, voice.time + sine(voice.phase) * wow + flutter);
         auto saturate = [&](float value, int channel) {
             const float shaped = std::tanh(value * drive) * norm;
             const float low = voice.lowpass[channel].process(shaped);
-            return low - voice.highpass[channel].process(low);
+            const float body = low - voice.highpass[channel].process(low);
+            return body + 0.18f * low;
         };
         const float echoL = saturate(voice.left.read(delay), 0);
         const float echoR = saturate(voice.right.read(delay), 1);
@@ -1021,7 +1180,7 @@ void TapeDelay::process(int voiceIndex, float* left, float* right, int numSample
 
 void PingPongDelay::prepare(double newSampleRate, int) {
     sampleRate = juce::jmax(8000.0, newSampleRate);
-    const int length = (int)millisToSamples(1200.0f, sampleRate) + 8;
+    const int length = (int)millisToSamples(2200.0f, sampleRate) + 8;
     for (auto& voice : voices) {
         voice.left.prepare(length);
         voice.right.prepare(length);
@@ -1051,11 +1210,11 @@ void PingPongDelay::process(int voiceIndex, float* left, float* right, int numSa
         return;
     }
     auto& voice = voices[(size_t)index];
-    float timeMs = juce::jlimit(50.0f, 1000.0f, settings.timeMs);
+    float timeMs = juce::jlimit(50.0f, 2000.0f, settings.timeMs);
     if (settings.sync) {
         const float beats[] = {0.25f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f};
         const float beat = beats[juce::jlimit(0, 7, settings.division)];
-        timeMs = juce::jlimit(50.0f, 1000.0f, (float)(60000.0 * beat / juce::jmax(20.0, settings.bpm)));
+        timeMs = juce::jlimit(50.0f, 2000.0f, (float)(60000.0 * beat / juce::jmax(20.0, settings.bpm)));
     }
     const float target = millisToSamples(timeMs, sampleRate);
     const float feedback = juce::jlimit(0.0f, 0.9f, settings.feedback * 0.01f);
@@ -1070,7 +1229,7 @@ void PingPongDelay::process(int voiceIndex, float* left, float* right, int numSa
     }
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         voice.time += (target - voice.time) * 0.002f;
@@ -1134,7 +1293,7 @@ void DarkDelay::process(int voiceIndex, float* left, float* right, int numSample
     voice.tone[1].setLowpass(toneHz, sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         voice.time += (target - voice.time) * 0.0012f;
@@ -1190,7 +1349,7 @@ void TapeExtremeDelay::process(int voiceIndex, float* left, float* right, int nu
     const float window = millisToSamples(28.0f, sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         voice.time += (target - voice.time) * 0.0015f;
@@ -1201,7 +1360,7 @@ void TapeExtremeDelay::process(int voiceIndex, float* left, float* right, int nu
         const float mid = 0.5f * (echoL + echoR);
         float pitched = mid;
         if (std::abs(settings.cents) > 0.4f) {
-            pitched = renderPitchMono(voice.pitch, mid, voice.readA, voice.readB, voice.primed, ratio, window);
+            pitched = renderPitchMono(voice.pitch, mid, voice.readHead, voice.primed, ratio, window);
         }
         auto crush = [&](float value) {
             const float x = value * drive;
@@ -1271,31 +1430,42 @@ void ReverseDelay::process(int voiceIndex, float* left, float* right, int numSam
     const float lpHz = juce::jmap(settings.tone, 0.0f, 100.0f, 1000.0f, 12000.0f);
     voice.tone[0].setLowpass(lpHz, sampleRate);
     voice.tone[1].setLowpass(lpHz, sampleRate);
-    const float fadeStep = 1.0f / juce::jmax(1.0f, 0.008f * (float)sampleRate);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
-    equalPower(settings.mix, dryGain, wetGain);
+    pedalMix(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         float wetLeft = 0.0f;
         float wetRight = 0.0f;
         if (settings.mode == 1) {
-            auto& recordL = voice.loopL[(size_t)voice.bank];
-            auto& recordR = voice.loopR[(size_t)voice.bank];
-            auto& playL = voice.loopL[(size_t)(1 - voice.bank)];
-            auto& playR = voice.loopR[(size_t)(1 - voice.bank)];
-            recordL[(size_t)voice.record] = left[sample];
-            recordR[(size_t)voice.record] = right[sample];
-            const int playIndex = juce::jlimit(0, length - 1, length - 1 - voice.record);
-            const float revL = voice.tone[0].process(playL[(size_t)playIndex]);
-            const float revR = voice.tone[1].process(playR[(size_t)playIndex]);
-            voice.fade = juce::jmin(1.0f, voice.fade + fadeStep);
-            wetLeft = revL * voice.fade;
-            wetRight = revR * voice.fade;
+            auto& bufferL = voice.loopL[0];
+            auto& bufferR = voice.loopR[0];
+            auto at = [&](const std::vector<float>& buffer, int position) {
+                int index = position % length;
+                if (index < 0) {
+                    index += length;
+                }
+                return buffer[(size_t)index];
+            };
+            bufferL[(size_t)voice.record] = left[sample];
+            bufferR[(size_t)voice.record] = right[sample];
+            if (voice.bank < 0 || voice.bank >= length) {
+                voice.bank = 0;
+            }
+            const float phaseA = (float)voice.bank / (float)length;
+            const float phaseB = phaseA < 0.5f ? phaseA + 0.5f : phaseA - 0.5f;
+            const float windowA = std::pow(std::sin(juce::MathConstants<float>::pi * phaseA), 2.0f);
+            const float windowB = std::pow(std::sin(juce::MathConstants<float>::pi * phaseB), 2.0f);
+            const int ageB = (int)std::lround(phaseB * (float)length);
+            const float revL = at(bufferL, voice.record - 1 - voice.bank) * windowA + at(bufferL, voice.record - 1 - ageB) * windowB;
+            const float revR = at(bufferR, voice.record - 1 - voice.bank) * windowA + at(bufferR, voice.record - 1 - ageB) * windowB;
+            wetLeft = voice.tone[0].process(revL);
+            wetRight = voice.tone[1].process(revR);
+            if (++voice.bank >= length) {
+                voice.bank = 0;
+            }
             if (++voice.record >= length) {
                 voice.record = 0;
-                voice.bank = 1 - voice.bank;
-                voice.fade = 0.0f;
             }
         } else if (settings.mode == 2) {
             const float delay = (float)length;
@@ -1331,6 +1501,7 @@ void EnsembleChorus::prepare(double newSampleRate, int) {
 void EnsembleChorus::reset() {
     for (auto& voice : voices) {
         voice.delay.clear();
+        voice.tone.clear();
         voice.phase = 0.0f;
     }
 }
@@ -1349,11 +1520,12 @@ void EnsembleChorus::process(int voiceIndex, float* left, float* right, int numS
     float dryGain = 1.0f;
     float wetGain = 0.0f;
     equalPower(settings.mix, dryGain, wetGain);
+    voice.tone.setLowpass(juce::jmap(settings.depth, 0.0f, 100.0f, 6800.0f, 2600.0f), sampleRate);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         const float inLeft = left[sample];
         const float inRight = right[sample];
-        voice.delay.push(0.5f * (inLeft + inRight));
+        voice.delay.push(voice.tone.process(0.5f * (inLeft + inRight)));
         voice.phase = wrapPhase(voice.phase + rate);
         float wetLeft = 0.0f;
         float wetRight = 0.0f;
@@ -1431,6 +1603,7 @@ void Phaser4::reset() {
             }
         }
         voice.phase = 0.0f;
+        voice.feedback[0] = voice.feedback[1] = 0.0f;
     }
 }
 
@@ -1450,14 +1623,16 @@ void Phaser4::process(int voiceIndex, float* left, float* right, int numSamples,
     for (int sample = 0; sample < numSamples; ++sample) {
         voice.phase = wrapPhase(voice.phase + rate);
         const float hz = juce::jlimit(40.0f, (float)(sampleRate * 0.45), center * std::pow(2.0f, sine(voice.phase) * depth));
-        float wetLeft = left[sample];
-        float wetRight = right[sample];
+        float wetLeft = left[sample] + voice.feedback[0] * 0.62f;
+        float wetRight = right[sample] + voice.feedback[1] * 0.62f;
         for (int stage = 0; stage < 4; ++stage) {
-            voice.stages[0][stage].setFrequency(hz, sampleRate);
-            voice.stages[1][stage].setFrequency(hz, sampleRate);
+            voice.stages[0][stage].setFrequency(hz * (1.0f + 0.03f * (float)stage), sampleRate);
+            voice.stages[1][stage].setFrequency(hz * (1.0f + 0.03f * (float)stage), sampleRate);
             wetLeft = voice.stages[0][stage].process(wetLeft);
             wetRight = voice.stages[1][stage].process(wetRight);
         }
+        voice.feedback[0] = juce::jlimit(-2.0f, 2.0f, wetLeft);
+        voice.feedback[1] = juce::jlimit(-2.0f, 2.0f, wetRight);
         const float phasedLeft = 0.5f * (left[sample] + wetLeft);
         const float phasedRight = 0.5f * (right[sample] + wetRight);
         left[sample] = safeSample(left[sample] * dryGain + phasedLeft * wetGain);
@@ -1478,8 +1653,7 @@ void Phaser8::reset() {
             }
         }
         voice.phase = 0.0f;
-        voice.lastHz[0] = voice.lastHz[1] = -1.0f;
-        voice.lastQ = -1.0f;
+        voice.feedback[0] = voice.feedback[1] = 0.0f;
     }
 }
 
@@ -1491,31 +1665,26 @@ void Phaser8::process(int voiceIndex, float* left, float* right, int numSamples,
     auto& voice = voices[(size_t)index];
     const float rate = juce::jlimit(0.1f, 10.0f, settings.rate) / (float)sampleRate;
     const float depth = juce::jmap(settings.sweep, 0.0f, 100.0f, 0.4f, 3.2f) * juce::jmap(settings.depth, 0.0f, 100.0f, 0.25f, 1.0f);
-    const float q = juce::jlimit(2.0f, 4.0f, settings.q);
+    const float feedback = juce::jmap(settings.q, 2.0f, 4.0f, 0.35f, 0.72f);
     float dryGain = 1.0f;
     float wetGain = 0.0f;
     equalPower(settings.mix, dryGain, wetGain);
 
     for (int sample = 0; sample < numSamples; ++sample) {
         voice.phase = wrapPhase(voice.phase + rate);
-        const float hzL = juce::jlimit(50.0f, (float)(sampleRate * 0.42), 900.0f * std::pow(2.0f, sine(voice.phase) * depth));
-        const float hzR = juce::jlimit(50.0f, (float)(sampleRate * 0.42), 900.0f * std::pow(2.0f, sine(voice.phase + 0.08f) * depth));
-        if (hzL != voice.lastHz[0] || hzR != voice.lastHz[1] || q != voice.lastQ) {
-            for (int stage = 0; stage < 8; ++stage) {
-                const float spread = 1.0f + 0.04f * (float)(stage - 4);
-                voice.stages[0][stage].setAllpass(sampleRate, hzL * spread, q);
-                voice.stages[1][stage].setAllpass(sampleRate, hzR * spread, q);
-            }
-            voice.lastHz[0] = hzL;
-            voice.lastHz[1] = hzR;
-            voice.lastQ = q;
-        }
-        float wetLeft = left[sample];
-        float wetRight = right[sample];
+        const float hzL = juce::jlimit(80.0f, (float)(sampleRate * 0.42), 700.0f * std::pow(2.0f, sine(voice.phase) * depth));
+        const float hzR = juce::jlimit(80.0f, (float)(sampleRate * 0.42), 700.0f * std::pow(2.0f, sine(voice.phase + 0.08f) * depth));
+        float wetLeft = left[sample] + voice.feedback[0] * feedback;
+        float wetRight = right[sample] + voice.feedback[1] * feedback;
         for (int stage = 0; stage < 8; ++stage) {
+            const float spread = 1.0f + 0.06f * (float)stage;
+            voice.stages[0][stage].setFrequency(hzL * spread, sampleRate);
+            voice.stages[1][stage].setFrequency(hzR * spread, sampleRate);
             wetLeft = voice.stages[0][stage].process(wetLeft);
             wetRight = voice.stages[1][stage].process(wetRight);
         }
+        voice.feedback[0] = juce::jlimit(-2.0f, 2.0f, wetLeft);
+        voice.feedback[1] = juce::jlimit(-2.0f, 2.0f, wetRight);
         left[sample] = safeSample(left[sample] * dryGain + 0.5f * (left[sample] + wetLeft) * wetGain);
         right[sample] = safeSample(right[sample] * dryGain + 0.5f * (right[sample] + wetRight) * wetGain);
     }
@@ -1556,7 +1725,7 @@ void Flanger::process(int voiceIndex, float* left, float* right, int numSamples,
     const float depth = juce::jlimit(0.0f, 1.0f, settings.depth * 0.01f);
     const float centre = millisToSamples((minMs + maxMs) * 0.5f, sampleRate);
     const float amount = millisToSamples((maxMs - minMs) * 0.5f, sampleRate) * depth;
-    const float maxFeedback = settings.hard ? 0.9f : 0.5f;
+    const float maxFeedback = settings.hard ? 0.7f : 0.5f;
     const float feedback = juce::jlimit(0.0f, maxFeedback, settings.feedback * 0.01f);
     const float rateMin = settings.hard ? 0.5f : 0.1f;
     const float rateMax = settings.hard ? 10.0f : 5.0f;
@@ -1573,12 +1742,15 @@ void Flanger::process(int voiceIndex, float* left, float* right, int numSamples,
         const float lfoR = settings.hard ? std::tanh(triangle(voice.phase + 0.13f) * 5.0f) : lfo;
         const float delayL = juce::jlimit(1.0f, millisToSamples(12.0f, sampleRate), centre + lfo * amount);
         const float delayR = juce::jlimit(1.0f, millisToSamples(12.0f, sampleRate), centre + lfoR * amount);
-        if (settings.hard && --voice.ringCountdown <= 0) {
-            const float hz = juce::jlimit(200.0f, 6000.0f, (float)sampleRate / juce::jmax(2.0f, delayL));
-            const float gain = juce::jmap(settings.ring, 0.0f, 100.0f, 0.0f, 10.0f);
-            voice.ring[0].setPeak(sampleRate, hz, 3.5f, gain);
-            voice.ring[1].setPeak(sampleRate, hz * 0.97f, 3.5f, gain);
-            voice.ringCountdown = 16;
+        if (settings.hard) {
+            const float targetHz = juce::jlimit(200.0f, 6000.0f, (float)sampleRate / juce::jmax(2.0f, delayL));
+            voice.lastRingHz += (voice.lastRingHz < 0.0f ? targetHz : (targetHz - voice.lastRingHz) * 0.08f);
+            if (voice.lastRingHz < 0.0f) {
+                voice.lastRingHz = targetHz;
+            }
+            const float gain = juce::jmap(settings.ring, 0.0f, 100.0f, 0.0f, 8.0f);
+            voice.ring[0].setPeak(sampleRate, voice.lastRingHz, 2.2f, gain);
+            voice.ring[1].setPeak(sampleRate, voice.lastRingHz * 0.97f, 2.2f, gain);
         }
         float echoL = voice.left.read(delayL);
         float echoR = voice.right.read(delayR);
@@ -1799,9 +1971,11 @@ void DynamicEq::process(int voiceIndex, float* left, float* right, int numSample
     for (int sample = 0; sample < numSamples; ++sample) {
         float l = left[sample];
         float r = right[sample];
+        const float originalL = l;
+        const float originalR = r;
         for (int band = 0; band < 4; ++band) {
-            const float bandL = voice.filters[0][band].process(l);
-            const float bandR = voice.filters[1][band].process(r);
+            const float bandL = voice.filters[0][band].process(originalL);
+            const float bandR = voice.filters[1][band].process(originalR);
             const float detect = juce::jmax(std::abs(bandL), std::abs(bandR));
             const float coef = detect > voice.envelope[band] ? attack : release;
             voice.envelope[band] += coef * (detect - voice.envelope[band]);
@@ -1917,6 +2091,7 @@ void Tuner::reset() {
         std::fill(voice.fftData.begin(), voice.fftData.end(), 0.0f);
         voice.filled = 0;
         voice.strobe = 0.0f;
+        voice.held = {};
     }
 }
 
@@ -2011,10 +2186,18 @@ void Tuner::analysePoly(Voice& voice, Fx::TunerSnapshot& snapshot) {
 
 void Tuner::process(int voiceIndex, const float* left, const float* right, int numSamples, const TunerSettings& settings, Fx::TunerSnapshot& snapshot) {
     const int index = checkedVoice(voiceIndex);
-    if (index < 0 || left == nullptr || right == nullptr || !settings.enabled) {
+    if (index < 0 || left == nullptr || right == nullptr) {
         return;
     }
     auto& voice = voices[(size_t)index];
+    if (!settings.enabled) {
+        voice.held = {};
+        snapshot = {};
+        return;
+    }
+    // A block that misses the analysis hop must keep the last note. Publishing
+    // a fresh empty snapshot made the tuner flicker off between estimates.
+    snapshot = voice.held;
     float sum = 0.0f;
     for (int sample = 0; sample < numSamples; ++sample) {
         const float mid = 0.5f * (left[sample] + right[sample]);
@@ -2024,11 +2207,13 @@ void Tuner::process(int voiceIndex, const float* left, const float* right, int n
             float confidence = 0.0f;
             if (voice.tracker.push(mid, period, confidence)) {
                 analyseMono(voice, period, confidence, std::sqrt(sum / (float)(sample + 1)), snapshot);
+                voice.held = snapshot;
             }
         } else if (voice.filled < 4096) {
             voice.fftData[(size_t)voice.filled] = mid * voice.window[(size_t)voice.filled];
             if (++voice.filled >= 4096) {
                 analysePoly(voice, snapshot);
+                voice.held = snapshot;
                 voice.filled = 0;
             }
         }

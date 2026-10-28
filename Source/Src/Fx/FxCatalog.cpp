@@ -30,14 +30,14 @@ constexpr ParamSpec kHarm[] = {
     choice("harmMode", "Mode", "Octave Down|Octave Up|Fifth|Major Third|Detune", 1.0f),
     flt("harmInterval", "Interval", -12.0f, 12.0f, 0.01f, 0.0f, "st"),
     flt("harmMix", "Mix", 0.0f, 100.0f, 0.1f, 50.0f, "%"),
-    flt("harmLatency", "Latency", 2.0f, 40.0f, 0.1f, 4.0f, "ms"),
+    flt("harmLatency", "Latency", 2.0f, 40.0f, 0.1f, 22.0f, "ms"),
     flag("harmFormant", "Formant", true)};
 
 constexpr ParamSpec kDrop[] = {
     on("dropOn"),
     flt("dropSemi", "Semitones", -12.0f, 0.0f, 1.0f, -2.0f, "st"),
     flt("dropMix", "Mix", 0.0f, 100.0f, 0.1f, 100.0f, "%"),
-    flt("dropLatency", "Latency", 8.0f, 40.0f, 0.1f, 20.0f, "ms")};
+    flt("dropLatency", "Latency", 8.0f, 20.0f, 0.1f, 20.0f, "ms")};
 
 constexpr ParamSpec kOct[] = {
     on("octOn"),
@@ -243,7 +243,7 @@ constexpr ParamSpec kGate[] = {
     flt("ngtRange", "Range", -60.0f, 0.0f, 0.1f, -60.0f, "dB"),
     flt("ngtHold", "Hold", 0.0f, 300.0f, 0.1f, 25.0f, "ms"),
     flt("ngtLook", "Lookahead", 5.0f, 20.0f, 0.1f, 8.0f, "ms"),
-    flag("ngtScOn", "SC Filter", false),
+    flag("ngtScOn", "SC Filter", true),
     flt("ngtSc", "SC HPF", 40.0f, 300.0f, 1.0f, 100.0f, "Hz", 0.5f)};
 
 constexpr ParamSpec kTun[] = {
@@ -255,7 +255,7 @@ constexpr ModuleSpec kModules[] = {
      "TD-PSOLA dual-window pitch shifter with spectral-tilt formant lock", kHarm,
      (int)(sizeof(kHarm) / sizeof(kHarm[0]))},
     {SignalChain::Stage::PitchDrop, "Drop", "DROP",
-     "Polyphonic transpose down, dry signal replaced", kDrop, (int)(sizeof(kDrop) / sizeof(kDrop[0]))},
+     "Two-head time-domain transpose, every note moves together", kDrop, (int)(sizeof(kDrop) / sizeof(kDrop[0]))},
     {SignalChain::Stage::PitchOctaver, "Octaver", "OCT",
      "Fundamental-locked octave divider with onset trigger", kOct, (int)(sizeof(kOct) / sizeof(kOct[0]))},
     {SignalChain::Stage::ReverbPlate, "Plate", "PLATE",

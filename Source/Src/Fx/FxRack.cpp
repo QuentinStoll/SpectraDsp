@@ -169,7 +169,7 @@ int FxRack::latencySamplesFor(SignalChain::Stage stage) const {
     }
     switch (stage) {
         case SignalChain::Stage::PitchHarmonizer:
-            return _impl->harmonizer.latencySamples(_impl->get("harmLatency", 4.0f));
+            return _impl->harmonizer.latencySamples(_impl->get("harmLatency", 22.0f));
         case SignalChain::Stage::PitchDrop:
             return _impl->drop.latencySamples(_impl->get("dropLatency", 20.0f));
         case SignalChain::Stage::NoiseGate:

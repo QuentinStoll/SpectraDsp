@@ -131,6 +131,7 @@ ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
     _pedalDriveParam = _apvts.getRawParameterValue("pedalDrive");
     _pedalToneParam = _apvts.getRawParameterValue("pedalTone");
     _pedalLevelParam = _apvts.getRawParameterValue("pedalLevel");
+    _pedalModelParam = _apvts.getRawParameterValue("pedalModel");
     writeChainLayout(_apvts.state, _chainLayoutPacked.load());
     writeChainBypass(_apvts.state, 0);
     for (auto& mix : _ampWetMix) {
@@ -262,13 +263,8 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
         lowCut.reset();
     }
 
-    for (auto& tone : _pedalToneFilters) {
-        tone.reset();
-        tone.prepare(spec);
-    }
-    updatePedalToneCoefficients();
-    for (auto& tone : _pedalToneFilters) {
-        tone.reset();
+    for (auto& drive : _pedalDrives) {
+        drive.prepare(sampleRate, samplesPerBlock);
     }
 
     for (auto& blocker : _dcBlockers) {
@@ -311,8 +307,8 @@ void ProfilerAudioProcessor::releaseResources() {
     for (auto& lowCut : _cabLowCuts) {
         lowCut.reset();
     }
-    for (auto& tone : _pedalToneFilters) {
-        tone.reset();
+    for (auto& drive : _pedalDrives) {
+        drive.reset();
     }
     _inputTrim.reset();
     _masterVolume.reset();
@@ -546,6 +542,9 @@ void ProfilerAudioProcessor::updateReportedLatency() {
         latency += _fx.latencySamplesFor(stage);
         if (stage == SignalChain::Stage::Amp) {
             ++activeAmps;
+        }
+        if (stage == SignalChain::Stage::Pedal && getParameterValue(_isPedalEnabledParam, 1.0f) > 0.5f) {
+            latency += _pedalDrives[0].latencySamples();
         }
     }
     if (_spectraAmp.isLoaded()) {
@@ -838,7 +837,7 @@ void ProfilerAudioProcessor::processEqStage(juce::dsp::ProcessContextReplacing<f
 }
 
 void ProfilerAudioProcessor::processPedalStage(juce::AudioBuffer<float>& buffer,
-                                               juce::dsp::ProcessContextReplacing<float>& context,
+                                               juce::dsp::ProcessContextReplacing<float>&,
                                                int numSamples,
                                                int instance,
                                                bool slotEnabled) {
@@ -846,31 +845,14 @@ void ProfilerAudioProcessor::processPedalStage(juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    const auto drive = juce::jmap(getParameterValue(_pedalDriveParam, 4.0f), 0.0f, 10.0f, 1.0f, 16.0f);
-    const auto level = juce::Decibels::decibelsToGain(getParameterValue(_pedalLevelParam, 0.0f));
-    const auto makeup = 1.0f / std::tanh(drive * 0.35f);
-    auto* channel0Data = buffer.getWritePointer(0);
-    for (int i = 0; i < numSamples; ++i) {
-        channel0Data[i] = std::tanh(channel0Data[i] * drive) * makeup * level;
-    }
-
-    updatePedalToneCoefficients();
-    _pedalToneFilters[static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance))].process(context);
-}
-
-void ProfilerAudioProcessor::updatePedalToneCoefficients() {
-    const auto sampleRate = getSampleRate();
-    if (sampleRate <= 0.0) {
-        return;
-    }
-
-    const auto tone = juce::jlimit(0.0f, 1.0f, getParameterValue(_pedalToneParam, 65.0f) / 100.0f);
-    const auto hz = 400.0f * std::pow(30.0f, tone);
-    const auto coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(
-        sampleRate, juce::jlimit(400.0f, static_cast<float>(sampleRate * 0.45), hz));
-    for (auto& filter : _pedalToneFilters) {
-        *filter.state = coefficients;
-    }
+    const auto index = static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance));
+    const auto model = (int)std::lround(getParameterValue(_pedalModelParam, 0.0f));
+    _pedalDrives[index].process(buffer.getWritePointer(0),
+                                numSamples,
+                                model,
+                                getParameterValue(_pedalDriveParam, 4.0f),
+                                getParameterValue(_pedalToneParam, 65.0f),
+                                getParameterValue(_pedalLevelParam, 0.0f));
 }
 
 void ProfilerAudioProcessor::updateEqCoefficients() {
@@ -1022,6 +1004,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ProfilerAudioProcessor::crea
         juce::ParameterID{"pedalTone", 1}, "Pedal Tone", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 65.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"pedalLevel", 1}, "Pedal Level", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"pedalModel", 1},
+        "Pedal Model",
+        juce::StringArray{"Screamer", "Distortion", "Boost"},
+        0));
 
     Fx::addParameters(layout);
     return layout;

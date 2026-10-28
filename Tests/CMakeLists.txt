@@ -9,6 +9,7 @@ set(PROFILER_TEST_SOURCES
     UiSettingsTests.cpp
     MarketplaceClientTests.cpp
     SpectraEngineTests.cpp
+    FxQualityTests.cpp
 )
 
 add_executable(ProfilerTests EXCLUDE_FROM_ALL
@@ -18,6 +19,7 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/AmpCapture.cpp
     ../Source/Src/PluginProcessor.cpp
     ../Source/Src/Fx/FxCatalog.cpp
+    ../Source/Src/Fx/PedalDrive.cpp
     ../Source/Src/Fx/FxDsp.cpp
     ../Source/Src/Fx/FxRack.cpp
     ../Source/Src/ProfileManager.cpp

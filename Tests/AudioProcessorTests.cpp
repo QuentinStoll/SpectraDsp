@@ -239,7 +239,7 @@ class AudioProcessorUnitTests : public juce::UnitTest {
     void testParameterDefaults() {
         ProfilerAudioProcessor processor;
 
-        expect(processor.getParameters().size() == 27 + Fx::parameterCount(),
+        expect(processor.getParameters().size() == 28 + Fx::parameterCount(),
                "Unexpected processor parameter count.");
         expectClose(getParameterValue(processor, "master"), 50.0f, "master default");
         expectClose(getParameterValue(processor, "gain"), 0.0f, "gain default");

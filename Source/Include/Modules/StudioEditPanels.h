@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 
+#include "Components/CustomComboBox.h"
 #include "Components/CustomKnob.h"
 #include "Components/CustomLevelMeter.h"
 #include "Components/CustomToggleButton.h"
@@ -170,11 +171,13 @@ class PedalDrivePanel : public juce::Component {
    private:
     juce::Label _title{"", "Overdrive"};
     juce::Label _bypassLabel{"", "Bypassed"};
+    CustomComboBox _model;
     CustomToggleButton _enabled{"Pedal Enabled"};
     CustomKnob _driveKnob{"Drive", 0.0f, 10.0f, 4.0f, ""};
     CustomKnob _toneKnob{"Tone", 0.0f, 100.0f, 65.0f, "%", 1.0f};
     CustomKnob _levelKnob{"Level", -12.0f, 12.0f, 0.0f, "dB"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _enabledAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> _modelAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _driveAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _toneAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _levelAttachment;

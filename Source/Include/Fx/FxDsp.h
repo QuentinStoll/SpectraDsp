@@ -21,6 +21,19 @@ inline void equalPower(float mixPercent, float& dry, float& wet) noexcept {
     wet = std::sin(angle);
 }
 
+// First half of the knob adds the effect on top of a full dry signal.
+// The second half fades the dry out, so mix 100% is fully wet.
+inline void pedalMix(float mixPercent, float& dry, float& wet) noexcept {
+    const float mix = juce::jlimit(0.0f, 1.0f, mixPercent * 0.01f);
+    if (mix <= 0.5f) {
+        dry = 1.0f;
+        wet = mix * 2.0f;
+    } else {
+        dry = (1.0f - mix) * 2.0f;
+        wet = 1.0f;
+    }
+}
+
 inline float millisToSamples(float millis, double sampleRate) noexcept {
     return (float)(juce::jmax(0.0, millis * 0.001 * sampleRate));
 }
@@ -288,14 +301,15 @@ class PitchTracker {
     std::vector<float> difference;
     int write = 0;
     int since = 0;
-    int hop = 2048;
+    int filled = 0;
+    int hop = 512;
 };
 
 struct HarmonizerSettings {
     int mode = 1;
     float intervalSemitones = 0.0f;
     float mix = 50.0f;
-    float latencyMs = 4.0f;
+    float latencyMs = 22.0f;
     bool formantLock = true;
 };
 
@@ -317,9 +331,9 @@ class Harmonizer {
         Biquad tiltLeft;
         Biquad tiltRight;
         PitchTracker tracker;
-        float readA = 0.0f;
-        float readB = 0.0f;
+        float readHead[4]{};
         float period = 256.0f;
+        float confidence = 0.0f;
         float lastSemitones = 100.0f;
         bool primed = false;
     };
@@ -335,31 +349,25 @@ struct DropSettings {
     float latencyMs = 20.0f;
 };
 
-// Polyphonic transpose down, in the role of a DigiTech Drop: the shifted
-// signal replaces the dry guitar. The shifter is the dual-window granular
-// reader already used by the harmonizer.
+// Polyphonic transpose down. Two read heads play the input at one ratio, so
+// every partial of a chord moves together. The delay stays inside 8–20 ms.
 class DropPitch {
    public:
+    DropPitch();
+    ~DropPitch();
+    DropPitch(const DropPitch&) = delete;
+    DropPitch& operator=(const DropPitch&) = delete;
+    DropPitch(DropPitch&&) noexcept;
+    DropPitch& operator=(DropPitch&&) noexcept;
+
     void prepare(double sampleRate, int maxBlock);
     void reset();
     void process(int voice, float* left, float* right, int numSamples, const DropSettings& settings);
     int latencySamples(float latencyMs) const;
 
    private:
-    struct Voice {
-        DelayLine left;
-        DelayLine right;
-        DelayLine dryLeft;
-        DelayLine dryRight;
-        DelayLine padLeft;
-        DelayLine padRight;
-        float readA = 0.0f;
-        float readB = 0.0f;
-        bool primed = false;
-    };
-
-    double sampleRate = 48000.0;
-    std::array<Voice, kVoices> voices;
+    struct State;
+    std::unique_ptr<State> state;
 };
 
 struct OctaverSettings {
@@ -411,13 +419,13 @@ class PlateReverb {
 
    private:
     struct Voice {
-        DelayLine lines[4];
+        DelayLine lines[8];
         DelayLine predelay;
-        OnePole damp[4];
+        OnePole damp[8];
         OnePole toneLp[2];
         OnePole toneHp[2];
         DcBlock dc[2];
-        float lengths[4]{};
+        float lengths[8]{};
         float phase = 0.0f;
     };
     double sampleRate = 48000.0;
@@ -445,8 +453,8 @@ class HallReverb {
         DelayLine combR[4];
         DelayLine predelayL;
         DelayLine predelayR;
-        AllpassDelay diffuseL[2];
-        AllpassDelay diffuseR[2];
+        AllpassDelay diffuseL[4];
+        AllpassDelay diffuseR[4];
         float dampL[4]{};
         float dampR[4]{};
         float lengthL[4]{};
@@ -483,8 +491,7 @@ class ShimmerReverb {
         DelayLine pitch;
         float dampL[4]{};
         float dampR[4]{};
-        float readA = 0.0f;
-        float readB = 0.0f;
+        float readHead[4]{};
         bool primed = false;
         OnePole tone[2];
         DcBlock dc[2];
@@ -512,8 +519,10 @@ class SpringReverb {
     struct Voice {
         AllpassDelay dispersion[6];
         DelayLine taps;
+        DelayLine chirp;
         Biquad boing[2];
         OnePole damp;
+        OnePole split;
         OnePole tone;
         DcBlock dc;
         float lastBoing = -1.0f;
@@ -665,8 +674,7 @@ class TapeExtremeDelay {
         DelayLine left;
         DelayLine right;
         DelayLine pitch;
-        float readA = 0.0f;
-        float readB = 0.0f;
+        float readHead[4]{};
         bool primed = false;
         float phase = 0.0f;
         float time = 2000.0f;
@@ -724,6 +732,7 @@ class EnsembleChorus {
    private:
     struct Voice {
         DelayLine delay;
+        OnePole tone;
         float phase = 0.0f;
     };
     double sampleRate = 48000.0;
@@ -768,6 +777,7 @@ class Phaser4 {
    private:
     struct Voice {
         FirstAllpass stages[2][4];
+        float feedback[2]{};
         float phase = 0.0f;
     };
     double sampleRate = 48000.0;
@@ -790,10 +800,9 @@ class Phaser8 {
 
    private:
     struct Voice {
-        Biquad stages[2][8];
+        FirstAllpass stages[2][8];
+        float feedback[2]{};
         float phase = 0.0f;
-        float lastHz[2]{-1.0f, -1.0f};
-        float lastQ = -1.0f;
     };
     double sampleRate = 48000.0;
     std::array<Voice, kVoices> voices;
@@ -981,6 +990,7 @@ class Tuner {
         std::vector<float> window;
         int filled = 0;
         float strobe = 0.0f;
+        Fx::TunerSnapshot held{};
     };
     double sampleRate = 48000.0;
     std::array<Voice, kVoices> voices;

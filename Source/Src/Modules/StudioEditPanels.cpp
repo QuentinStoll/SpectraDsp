@@ -763,8 +763,12 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
     configureBypassLabel(_bypassLabel);
     _enabled.setLabelVisible(false);
 
+    _model.addItem("Screamer", 1);
+    _model.addItem("Distortion", 2);
+    _model.addItem("Boost", 3);
     addAndMakeVisible(_title);
     addAndMakeVisible(_bypassLabel);
+    addAndMakeVisible(_model);
     addAndMakeVisible(_enabled);
     addAndMakeVisible(_driveKnob);
     addAndMakeVisible(_toneKnob);
@@ -772,6 +776,8 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
 
     _enabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         apvts, "isPedalEnabled", _enabled);
+    _modelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, "pedalModel", _model);
     _driveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         apvts, "pedalDrive", _driveKnob.getSlider());
     _toneAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -787,6 +793,7 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
 
 void PedalDrivePanel::refreshBypassState() {
     const auto enabled = _enabled.getToggleState();
+    _model.setEnabled(enabled);
     _driveKnob.setEnabled(enabled);
     _toneKnob.setEnabled(enabled);
     _levelKnob.setEnabled(enabled);
@@ -804,6 +811,9 @@ void PedalDrivePanel::resized() {
     _bypassLabel.setBounds(header.removeFromRight(80));
     header.removeFromRight(8);
     _title.setBounds(header);
+    area.removeFromTop(4);
+    _model.setBounds(area.removeFromTop(24).removeFromLeft(180));
+    area.removeFromTop(6);
 
     constexpr int knobWidth = 108;
     constexpr int gap = 24;

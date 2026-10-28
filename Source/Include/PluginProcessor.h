@@ -8,6 +8,7 @@
 
 #include "EqBandLayout.h"
 #include "Fx/FxRack.h"
+#include "Fx/PedalDrive.h"
 #include "ProfileManager.h"
 #include "SignalChainLayout.h"
 #include "SpectraAmp.h"
@@ -182,6 +183,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::atomic<float>* _pedalDriveParam{nullptr};
     std::atomic<float>* _pedalToneParam{nullptr};
     std::atomic<float>* _pedalLevelParam{nullptr};
+    std::atomic<float>* _pedalModelParam{nullptr};
 
     std::array<juce::SmoothedValue<float>, EqBands::count> _eqGainSmoothed{};
     std::array<juce::SmoothedValue<float>, EqBands::count> _eqFreqSmoothed{};
@@ -195,7 +197,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     int _reportedLatency = 0;
 
     std::array<Filter, kChainCopies> _cabLowCuts{};
-    std::array<Filter, kChainCopies> _pedalToneFilters{};
+    std::array<PedalDrive, kChainCopies> _pedalDrives{};
 
     enum class IrCaptureState {
         Idle = 0,
@@ -255,7 +257,6 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void syncAmpCopies(bool force = false);
     void setEqBypassed(bool bypassed);
     bool loadIrIntoConvolvers(const void* data, size_t size);
-    void updatePedalToneCoefficients();
     void updateReportedLatency();
     struct AmpModelMetadata {
         int inputSkip = 0;

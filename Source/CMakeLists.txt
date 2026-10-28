@@ -85,6 +85,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Modules/ExportProfilModule.cpp
     Src/Modules/FxEditPanel.cpp
     Src/Fx/FxCatalog.cpp
+    Src/Fx/PedalDrive.cpp
     Src/Fx/FxDsp.cpp
     Src/Fx/FxRack.cpp
     Src/Modules/FileAssetsModule.cpp
