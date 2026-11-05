@@ -145,6 +145,7 @@ class SignalChainStrip : public juce::Component {
     SignalChainBlock* effectBlockAtSlot(int chainSlot) noexcept;
     bool selectBlockInDirection(int columnDelta, int rowDelta);
     void selectChainSlot(int chainSlot);
+    void updateBlockSelection();
     void handleBlockClick(BlockId blockId);
     void handleEffectClick(int movableIndex);
     bool isOccupiedSlot(int slot) const;

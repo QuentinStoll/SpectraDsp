@@ -334,7 +334,7 @@ SignalChainStrip::SignalChainStrip() {
     _inputGate.setIoNode(true);
     _masterVolume.setIoNode(true);
     _masterVolume.setShowsLed(false);
-    _effects[static_cast<size_t>(SignalChain::movableIndexForSlot(2))].setToggleState(true, juce::dontSendNotification);
+    updateBlockSelection();
     _busLayer.toBack();
     setOpaque(true);
     setWantsKeyboardFocus(true);
@@ -431,6 +431,7 @@ void SignalChainStrip::placeBlocks() {
         block.setCaption(Fx::captionFor(stage));
         block.setBounds(_slotBounds[static_cast<size_t>(slot)]);
     }
+    updateBlockSelection();
 }
 
 void SignalChainStrip::updateBusLayer() {
@@ -615,9 +616,6 @@ void SignalChainStrip::setLayout(const SignalChain::Layout& layout) {
         selectChainSlot(SignalChain::inputSlot);
     }
     placeBlocks();
-    if (auto* selected = effectBlockAtSlot(_selectedChainSlot)) {
-        selected->setToggleState(true, juce::dontSendNotification);
-    }
     updateBusLayer();
     repaint();
 }
@@ -635,25 +633,33 @@ SignalChainBlock* SignalChainStrip::effectBlockAtSlot(int chainSlot) noexcept {
 }
 
 void SignalChainStrip::selectChainSlot(int chainSlot) {
+    if (chainSlot != SignalChain::inputSlot && chainSlot != SignalChain::outputSlot
+        && (!SignalChain::isMovableSlot(chainSlot) || _layout.atSlot(chainSlot) == SignalChain::Stage::Empty)) {
+        return;
+    }
+
     _selectedChainSlot = chainSlot;
     if (chainSlot == SignalChain::inputSlot) {
         _selected = BlockId::InputGate;
-        _inputGate.setToggleState(true, juce::dontSendNotification);
     } else if (chainSlot == SignalChain::outputSlot) {
         _selected = BlockId::MasterVolume;
-        _masterVolume.setToggleState(true, juce::dontSendNotification);
     } else {
-        const auto stage = _layout.atSlot(chainSlot);
-        if (stage == SignalChain::Stage::Empty) {
-            return;
-        }
-        _selected = blockForStage(stage);
-        if (auto* block = effectBlockAtSlot(chainSlot)) {
-            block->setToggleState(true, juce::dontSendNotification);
-        }
+        _selected = blockForStage(_layout.atSlot(chainSlot));
     }
 
+    updateBlockSelection();
     handleBlockClick(_selected);
+}
+
+void SignalChainStrip::updateBlockSelection() {
+    _inputGate.setToggleState(_selectedChainSlot == SignalChain::inputSlot, juce::dontSendNotification);
+    _masterVolume.setToggleState(_selectedChainSlot == SignalChain::outputSlot, juce::dontSendNotification);
+    for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(index);
+        _effects[static_cast<size_t>(index)].setToggleState(
+            slot == _selectedChainSlot && _layout.atSlot(slot) != SignalChain::Stage::Empty,
+            juce::dontSendNotification);
+    }
 }
 
 void SignalChainStrip::handleEffectClick(int movableIndex) {
