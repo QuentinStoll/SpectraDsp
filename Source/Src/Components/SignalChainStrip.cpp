@@ -143,12 +143,18 @@ bool SignalChainBlock::hitTest(int x, int y) {
 }
 
 void SignalChainBlock::mouseDown(const juce::MouseEvent& event) {
+    _ledPressActive = false;
     if (event.mods.isPopupMenu()) {
         return;
     }
 
+    _ledPressActive = isLedHit(event.getPosition());
+    if (_ledPressActive) {
+        return;
+    }
+
     juce::Button::mouseDown(event);
-    if (_isIoNode || isLedHit(event.getPosition()) || onDragBegin == nullptr) {
+    if (_isIoNode || onDragBegin == nullptr) {
         return;
     }
 
@@ -156,7 +162,7 @@ void SignalChainBlock::mouseDown(const juce::MouseEvent& event) {
 }
 
 void SignalChainBlock::mouseDrag(const juce::MouseEvent& event) {
-    if (event.mods.isPopupMenu()) {
+    if (event.mods.isPopupMenu() || _ledPressActive) {
         return;
     }
 
@@ -167,6 +173,15 @@ void SignalChainBlock::mouseDrag(const juce::MouseEvent& event) {
 }
 
 void SignalChainBlock::mouseUp(const juce::MouseEvent& event) {
+    if (_ledPressActive) {
+        _ledPressActive = false;
+        if (!event.mods.isPopupMenu() && event.mouseWasClicked()
+            && isLedHit(event.getPosition()) && onLedClicked) {
+            onLedClicked();
+        }
+        return;
+    }
+
     if (event.mods.isPopupMenu()) {
         if (event.mouseWasClicked() && onPickerRequested) {
             onPickerRequested();
@@ -176,11 +191,6 @@ void SignalChainBlock::mouseUp(const juce::MouseEvent& event) {
 
     if (onDragEnd != nullptr) {
         onDragEnd(event);
-    }
-
-    if (event.mouseWasClicked() && isLedHit(event.getPosition()) && onLedClicked) {
-        onLedClicked();
-        return;
     }
 
     juce::Button::mouseUp(event);

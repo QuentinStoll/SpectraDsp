@@ -49,6 +49,7 @@ class SignalChainBlock : public juce::Button {
     bool _ledOn = true;
     bool _isIoNode = false;
     bool _showsLed = true;
+    bool _ledPressActive = false;
     float _signalLevel = 0.0f;
     FlowMark _flowMark = FlowMark::None;
 

@@ -591,12 +591,13 @@ AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_ampDrop);
     addAndMakeVisible(_outputKnob);
 
-    _ampEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        processor._apvts, "isAmpEnabled", _ampEnabled);
     _outputAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "gain", _outputKnob.getSlider());
 
     _ampEnabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_ampEnabled.getToggleState());
+        }
         refreshAssets();
         if (onAssetsChanged) {
             onAssetsChanged();
@@ -628,6 +629,13 @@ void AmpProfilerPanel::refreshAssets() {
     resized();
 }
 
+void AmpProfilerPanel::setBlockEnabled(bool enabled) {
+    if (_ampEnabled.getToggleState() != enabled) {
+        _ampEnabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshAssets();
+    }
+}
+
 void AmpProfilerPanel::paint(juce::Graphics&) {}
 
 void AmpProfilerPanel::resized() {
@@ -657,12 +665,13 @@ CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_irDrop);
     addAndMakeVisible(_lowCutKnob);
 
-    _cabEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        processor._apvts, "isCabEnabled", _cabEnabled);
     _lowCutAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "cabLowCut", _lowCutKnob.getSlider());
 
     _cabEnabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_cabEnabled.getToggleState());
+        }
         refreshAssets();
         if (onAssetsChanged) {
             onAssetsChanged();
@@ -694,6 +703,13 @@ void CabinetIrPanel::refreshAssets() {
     resized();
 }
 
+void CabinetIrPanel::setBlockEnabled(bool enabled) {
+    if (_cabEnabled.getToggleState() != enabled) {
+        _cabEnabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshAssets();
+    }
+}
+
 void CabinetIrPanel::paint(juce::Graphics&) {}
 
 void CabinetIrPanel::resized() {
@@ -723,9 +739,11 @@ EqPostFxPanel::EqPostFxPanel(juce::AudioProcessorValueTreeState& apvts)
     addAndMakeVisible(_eqEnabled);
     addAndMakeVisible(_eqDisplay);
     addAndMakeVisible(_eqModule);
-    _eqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, "isEqEnabled", _eqEnabled);
 
     _eqEnabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_eqEnabled.getToggleState());
+        }
         refreshBypassState();
     };
     refreshBypassState();
@@ -738,6 +756,13 @@ void EqPostFxPanel::refreshBypassState() {
     _bypassLabel.setVisible(!enabled);
     resized();
     repaint();
+}
+
+void EqPostFxPanel::setBlockEnabled(bool enabled) {
+    if (_eqEnabled.getToggleState() != enabled) {
+        _eqEnabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshBypassState();
+    }
 }
 
 void EqPostFxPanel::paint(juce::Graphics&) {}
@@ -774,8 +799,6 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
     addAndMakeVisible(_toneKnob);
     addAndMakeVisible(_levelKnob);
 
-    _enabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        apvts, "isPedalEnabled", _enabled);
     _modelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         apvts, "pedalModel", _model);
     _driveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -786,6 +809,9 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
         apvts, "pedalLevel", _levelKnob.getSlider());
 
     _enabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_enabled.getToggleState());
+        }
         refreshBypassState();
     };
     refreshBypassState();
@@ -799,6 +825,13 @@ void PedalDrivePanel::refreshBypassState() {
     _levelKnob.setEnabled(enabled);
     _bypassLabel.setVisible(!enabled);
     resized();
+}
+
+void PedalDrivePanel::setBlockEnabled(bool enabled) {
+    if (_enabled.getToggleState() != enabled) {
+        _enabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshBypassState();
+    }
 }
 
 void PedalDrivePanel::paint(juce::Graphics&) {}

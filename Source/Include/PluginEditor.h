@@ -83,6 +83,7 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void placeChosenBlock(int slot, SignalChain::Stage stage);
     void updateChainStatus();
     void toggleBlockBypass(SignalChainStrip::BlockId blockId);
+    void setSelectedBlockEnabled(bool enabled);
     void showStatus(const juce::String& message, bool success);
     void exportProfil(const juce::NamedValueSet& values, const juce::File& destinationFile);
     void createProfil(const juce::NamedValueSet& values);

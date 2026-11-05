@@ -36,7 +36,11 @@ FxEditPanel::FxEditPanel(ProfilerAudioProcessor& processor)
         if (!SignalChain::isMovableSlot(_chainSlot)) {
             return;
         }
-        _processor.setChainSlotBypassed(_chainSlot, !_bypass.getToggleState());
+        if (onEnabledChanged) {
+            onEnabledChanged(_bypass.getToggleState());
+        } else {
+            _processor.setChainSlotBypassed(_chainSlot, !_bypass.getToggleState());
+        }
     };
     addChildComponent(_bypass);
     addChildComponent(_note);
@@ -56,7 +60,9 @@ void FxEditPanel::refreshBypass() {
     if (!isVisible() || Fx::moduleFor(_stage) == nullptr) {
         return;
     }
-    const bool enabled = !SignalChain::isMovableSlot(_chainSlot) || !_processor.isChainSlotBypassed(_chainSlot);
+    const auto* parameter = _processor._apvts.getRawParameterValue(Fx::moduleFor(_stage)->bypassId());
+    const bool enabled = (!SignalChain::isMovableSlot(_chainSlot) || !_processor.isChainSlotBypassed(_chainSlot))
+                         && (parameter == nullptr || parameter->load() > 0.5f);
     _bypass.setToggleState(enabled, juce::dontSendNotification);
 }
 
