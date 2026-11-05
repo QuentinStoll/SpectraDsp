@@ -243,7 +243,7 @@ class AudioProcessorUnitTests : public juce::UnitTest {
     void testParameterDefaults() {
         ProfilerAudioProcessor processor;
 
-        expect(processor.getParameters().size() == 28 + Fx::parameterCount(),
+        expect(processor.getParameters().size() == 30 + Fx::parameterCount(),
                "Unexpected processor parameter count.");
         expectClose(getParameterValue(processor, "master"), 50.0f, "master default");
         expectClose(getParameterValue(processor, "gain"), 0.0f, "gain default");
@@ -272,6 +272,8 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expectClose(getParameterValue(processor, "pedalDrive"), 4.0f, "pedalDrive default");
         expectClose(getParameterValue(processor, "pedalTone"), 65.0f, "pedalTone default");
         expectClose(getParameterValue(processor, "pedalLevel"), 0.0f, "pedalLevel default");
+        expectClose(getParameterValue(processor, "conditionProfile"), 0.0f, "conditionProfile default");
+        expectClose(getParameterValue(processor, "conditionAmount"), 0.0f, "conditionAmount default");
     }
 
     void testStateRoundTrip() {

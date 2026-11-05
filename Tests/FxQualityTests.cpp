@@ -85,7 +85,7 @@ class FxQualityUnitTests : public juce::UnitTest {
         PedalDrive drive;
         drive.prepare(48000.0, 256);
         expect(drive.latencySamples() < 144, "4x drive latency should stay under 3 ms for live playing. samples " +
-                                                  juce::String(drive.latencySamples()));
+                                                 juce::String(drive.latencySamples()));
     }
 
     void testDelayDry() {
@@ -128,7 +128,7 @@ class FxQualityUnitTests : public juce::UnitTest {
         }
         expect(later > 0.001f, "Plate should produce a tail.");
         expect(early < later * 0.25f, "Plate onset before 17 ms should stay quieter than the body. early " +
-                                           juce::String(early, 5) + " later " + juce::String(later, 5));
+                                          juce::String(early, 5) + " later " + juce::String(later, 5));
     }
 
     void testReverseLevel() {
@@ -165,7 +165,7 @@ class FxQualityUnitTests : public juce::UnitTest {
         }
         expect(maxRms > 0.02f, "Reverse should produce a signal.");
         expect(minRms > maxRms * 0.5f, "Reverse envelope should stay within 6 dB. min " + juce::String(minRms, 4) +
-                                            " max " + juce::String(maxRms, 4));
+                                           " max " + juce::String(maxRms, 4));
     }
 
     void testHarmonizer() {
@@ -222,8 +222,8 @@ class FxQualityUnitTests : public juce::UnitTest {
         expect(std::abs(peakHz - 440.0f) <= 4.0f,
                "Octave should land within 15 cents of 440 Hz. peak " + juce::String(peakHz, 0));
         expect(side < octave * 0.01f, "Grain sidebands should stay 40 dB down. ratio " +
-                                           juce::String(side / juce::jmax(1.0e-8f, octave), 5) + " at " +
-                                           juce::String(sideHz));
+                                          juce::String(side / juce::jmax(1.0e-8f, octave), 5) + " at " +
+                                          juce::String(sideHz));
     }
 
     struct DropWindowScore {
@@ -381,7 +381,7 @@ class FxQualityUnitTests : public juce::UnitTest {
             }
         }
         expect(std::abs(peak - 96000) < 1500, "A 2 s ping-pong should echo near 96000 samples, not clamp to 1 s. peak " +
-                                                   juce::String(peak));
+                                                  juce::String(peak));
     }
 
     void testHallStereo() {
@@ -440,7 +440,7 @@ class FxQualityUnitTests : public juce::UnitTest {
         const float after = goertzel(left.data() + 4000, count - 4000, 48000.0, 8000.0);
         const float ratio = after / juce::jmax(1.0e-6f, before);
         expect(ratio > 0.944f && ratio < 1.06f, "Low-band compression should leave 8 kHz within 0.5 dB. ratio " +
-                                                     juce::String(ratio, 4));
+                                                    juce::String(ratio, 4));
     }
 };
 
