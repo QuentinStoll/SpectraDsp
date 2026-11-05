@@ -18,10 +18,10 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
         resized();
     };
     _accountPanel.onPlaySpectra = [this](const juce::MemoryBlock& cipher,
-                                        const juce::MemoryBlock& key,
-                                        int conditionProfile,
-                                        float conditionAmount,
-                                        juce::String* errorMessage) {
+                                         const juce::MemoryBlock& key,
+                                         int conditionProfile,
+                                         float conditionAmount,
+                                         juce::String* errorMessage) {
         Marketplace::Session session;
         if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
             if (errorMessage != nullptr) {
