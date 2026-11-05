@@ -223,11 +223,12 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _blockPicker.onBlockChosen = [this](int slot, SignalChain::Stage stage) {
         placeChosenBlock(slot, stage);
     };
-    _blockPicker.onBlockRemoved = [this](int slot) {
+    _signalChain.onBlockRemoved = [this](int slot) {
         _audioProcessor.clearChainSlot(slot);
         _signalChain.setLayout(_audioProcessor.getChainLayout());
         updateChainStatus();
     };
+    _blockPicker.onBlockRemoved = _signalChain.onBlockRemoved;
     _audioProcessor._apvts.state.addListener(this);
     _signalChain.setLayout(_audioProcessor.getChainLayout());
 

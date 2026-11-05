@@ -99,6 +99,7 @@ class SignalChainStrip : public juce::Component {
     std::function<void(const SignalChain::Layout&)> onLayoutChanged;
     std::function<void(int fromSlot, int toSlot)> onSlotsSwapped;
     std::function<void(int slot)> onBlockPickerRequested;
+    std::function<void(int slot)> onBlockRemoved;
     std::function<void()> onClearAllBlocks;
 
    private:

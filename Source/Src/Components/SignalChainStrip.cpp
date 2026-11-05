@@ -544,6 +544,17 @@ bool SignalChainStrip::selectBlockInDirection(int columnDelta, int rowDelta) {
 }
 
 bool SignalChainStrip::keyPressed(const juce::KeyPress& key) {
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) {
+        if (!SignalChain::isMovableSlot(_selectedChainSlot)
+            || _layout.atSlot(_selectedChainSlot) == SignalChain::Stage::Empty
+            || !onBlockRemoved) {
+            return false;
+        }
+
+        onBlockRemoved(_selectedChainSlot);
+        return true;
+    }
+
     if (key == juce::KeyPress::leftKey) {
         return selectBlockInDirection(-1, 0);
     }
