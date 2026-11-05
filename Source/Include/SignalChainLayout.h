@@ -189,6 +189,10 @@ struct Layout {
         slots[static_cast<size_t>(target)] = Stage::Empty;
     }
 
+    void clearAll() noexcept {
+        slots.fill(Stage::Empty);
+    }
+
     void moveSlot(int fromSlot, int toSlot) noexcept {
         const int from = movableIndexForSlot(fromSlot);
         const int to = movableIndexForSlot(toSlot);

@@ -115,6 +115,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void resetChainLayout();
     void placeChainStage(SignalChain::Stage stage, int slot);
     void clearChainSlot(int slot);
+    void clearAllChainBlocks();
     void swapChainSlots(int fromSlot, int toSlot);
     bool isChainSlotBypassed(int chainSlot) const noexcept;
     void setChainSlotBypassed(int chainSlot, bool bypassed);

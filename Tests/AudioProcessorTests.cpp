@@ -384,6 +384,25 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(duplicateOrder[1] == SignalChain::Stage::Amp, "The second amp should process immediately after the first.");
         duplicates.clear(3);
         expect(duplicates.count(SignalChain::Stage::Amp) == 1, "Clearing a slot should remove only that amp.");
+        duplicates.clearAll();
+        expect(duplicates.occupiedCount() == 0, "Clear all should empty every chain slot.");
+        expect(!duplicates.contains(SignalChain::Stage::Amp), "Clear all should remove every amp.");
+        expect(!duplicates.contains(SignalChain::Stage::Cab), "Clear all should remove the cabinet.");
+        expect(!duplicates.contains(SignalChain::Stage::Eq), "Clear all should remove the EQ.");
+
+        ProfilerAudioProcessor clearedChain;
+        clearedChain.setChainSlotBypassed(2, true);
+        clearedChain.clearAllChainBlocks();
+        expect(clearedChain.getChainLayout().occupiedCount() == 0,
+               "Clear all blocks should empty the processor chain.");
+        expect(!clearedChain.isChainSlotBypassed(2),
+               "Clearing every block should drop bypass on the removed amp.");
+        juce::MemoryBlock clearedState;
+        clearedChain.getStateInformation(clearedState);
+        ProfilerAudioProcessor clearedRestored;
+        clearedRestored.setStateInformation(clearedState.getData(), static_cast<int>(clearedState.getSize()));
+        expect(clearedRestored.getChainLayout().occupiedCount() == 0,
+               "An emptied chain should survive processor state round-trip.");
 
         ProfilerAudioProcessor singleAmp;
         prepareProcessor(singleAmp, 44100.0, 256);

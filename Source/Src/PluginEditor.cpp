@@ -214,6 +214,12 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _signalChain.onBlockPickerRequested = [this](int slot) {
         openBlockPicker(slot);
     };
+    _signalChain.onClearAllBlocks = [this]() {
+        _audioProcessor.clearAllChainBlocks();
+        closeBlockPicker();
+        _signalChain.setLayout(_audioProcessor.getChainLayout());
+        updateChainStatus();
+    };
     _blockPicker.onBlockChosen = [this](int slot, SignalChain::Stage stage) {
         placeChosenBlock(slot, stage);
     };

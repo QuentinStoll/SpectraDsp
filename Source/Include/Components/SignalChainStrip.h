@@ -99,6 +99,7 @@ class SignalChainStrip : public juce::Component {
     std::function<void(const SignalChain::Layout&)> onLayoutChanged;
     std::function<void(int fromSlot, int toSlot)> onSlotsSwapped;
     std::function<void(int slot)> onBlockPickerRequested;
+    std::function<void()> onClearAllBlocks;
 
    private:
     class SignalBusLayer : public juce::Component {
@@ -159,6 +160,7 @@ class SignalChainStrip : public juce::Component {
     void finishBlockDrag(const juce::MouseEvent& event);
     void commitDrop(int fromSlot, int toSlot);
     void requestPicker(int slot);
+    void showBlockMenu(int slot);
     int fillChainOrder(std::array<int, 16>& order) const noexcept;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SignalChainStrip)

@@ -6,6 +6,7 @@ Notable changes for every published release are recorded below, newest first. Re
 
 ### Added
 
+- Right-clicking a chain block offers Clear all blocks, which removes every effect block and leaves the input and output in place.
 - The standalone window opens maximized. It can be restored and resized down to 1100×550.
 - The Play view signal chain continues onto a second row as one serial path. The same block type can appear more than once, each copy is processed in order, and an occupied slot can be cleared from the block picker.
 - macOS build and test jobs for Apple Silicon, producing the standalone app, VST3, and Audio Unit.
