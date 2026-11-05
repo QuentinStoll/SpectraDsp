@@ -12,6 +12,8 @@ constexpr float kMeterCeilDb = -3.0f;
 constexpr float kMeterAttackSeconds = 0.045f;
 constexpr float kMeterReleaseSeconds = 0.22f;
 constexpr int kDragThresholdPx = 6;
+constexpr int kChangeBlockItem = 1;
+constexpr int kClearAllBlocksItem = 2;
 
 float meterFromDb(float db) {
     const auto normalised = juce::jmap(juce::jlimit(kMeterFloorDb, kMeterCeilDb, db),
@@ -306,7 +308,7 @@ SignalChainStrip::SignalChainStrip() {
             }
         };
         block.onPickerRequested = [this, index]() {
-            requestPicker(SignalChain::chainSlotForMovableIndex(index));
+            showBlockMenu(SignalChain::chainSlotForMovableIndex(index));
         };
         block.onDragBegin = [this, index](const juce::MouseEvent& event) {
             startEffectDrag(index, event);
@@ -846,6 +848,29 @@ void SignalChainStrip::requestPicker(int slot) {
     if (onBlockPickerRequested) {
         onBlockPickerRequested(slot);
     }
+}
+
+void SignalChainStrip::showBlockMenu(int slot) {
+    if (!SignalChain::isMovableSlot(slot) || _layout.atSlot(slot) == SignalChain::Stage::Empty) {
+        return;
+    }
+
+    juce::PopupMenu menu;
+    menu.addItem(kChangeBlockItem, "Change block");
+    menu.addSeparator();
+    menu.addItem(kClearAllBlocksItem, "Clear all blocks", _layout.occupiedCount() > 0);
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(),
+                       [safe = juce::Component::SafePointer<SignalChainStrip>(this), slot](int result) {
+                           if (safe == nullptr) {
+                               return;
+                           }
+                           if (result == kChangeBlockItem) {
+                               safe->requestPicker(slot);
+                           } else if (result == kClearAllBlocksItem && safe->onClearAllBlocks) {
+                               safe->onClearAllBlocks();
+                           }
+                       });
 }
 
 int SignalChainStrip::fillChainOrder(std::array<int, 16>& order) const noexcept {

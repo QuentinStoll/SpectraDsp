@@ -651,6 +651,12 @@ void ProfilerAudioProcessor::clearChainSlot(int slot) {
     setChainLayout(layout);
 }
 
+void ProfilerAudioProcessor::clearAllChainBlocks() {
+    auto layout = getChainLayout();
+    layout.clearAll();
+    setChainLayout(layout);
+}
+
 void ProfilerAudioProcessor::setEqBypassed(bool bypassed) {
     for (auto& eqChain : _eqChains) {
         eqChain.setBypassed<LowShelf>(bypassed);
