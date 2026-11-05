@@ -252,7 +252,7 @@ void FxRack::process(SignalChain::Stage stage,
             case SignalChain::Stage::PitchHarmonizer:
                 fx.harmonizer.process(instance, sliceL, sliceR, count,
                                       {(int)fx.get("harmMode", 1.0f), fx.get("harmInterval", 0.0f), fx.get("harmMix", 50.0f),
-                                       fx.get("harmLatency", 4.0f), fx.enabled("harmFormant")});
+                                       fx.get("harmLatency", 22.0f), fx.enabled("harmFormant")});
                 break;
             case SignalChain::Stage::PitchDrop:
                 fx.drop.process(instance, sliceL, sliceR, count,

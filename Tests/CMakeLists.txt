@@ -11,6 +11,7 @@ set(PROFILER_TEST_SOURCES
     SpectraEngineTests.cpp
     FxQualityTests.cpp
     AmpConditionTests.cpp
+    AudioContractTests.cpp
 )
 
 add_executable(ProfilerTests EXCLUDE_FROM_ALL
@@ -188,6 +189,24 @@ add_profiler_audio_processor_test(NamA2Realtime "audio processor nam a2 realtime
 add_profiler_audio_processor_test(NamCloneQuality "audio processor nam clone quality")
 add_profiler_audio_processor_test(CabinetIrReachesSignal "audio processor cabinet ir reaches the signal")
 add_profiler_audio_processor_test(EffectChain "audio processor effect chain")
+
+function(add_profiler_audio_contract_test test_name case_name)
+    add_test(NAME ProfilerTests.AudioContract.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_audio_contract_test(DryLatencyIsZero "audio contract dry latency is zero")
+add_profiler_audio_contract_test(PedalLatencyMatchesTheDrive "audio contract pedal latency matches the drive")
+add_profiler_audio_contract_test(HarmonizerLatencyMatchesTheParameter "audio contract harmonizer latency matches the parameter")
+add_profiler_audio_contract_test(DropLatencyMatchesTheParameter "audio contract drop latency matches the parameter")
+add_profiler_audio_contract_test(GateLookaheadMatchesTheParameter "audio contract gate lookahead matches the parameter")
+add_profiler_audio_contract_test(BlockBoundariesStayContinuous "audio contract block boundaries stay continuous")
+add_profiler_audio_contract_test(BypassSettlesWithoutAClick "audio contract bypass settles without a click")
+add_profiler_audio_contract_test(OversizedBlockStaysFinite "audio contract oversized block stays finite")
+add_profiler_audio_contract_test(SilenceStaysSilent "audio contract silence stays silent")
+add_profiler_audio_contract_test(StagesStayRealtime "audio contract stages stay realtime")
+add_profiler_audio_contract_test(HarmonizerOctaveStaysInTune "audio contract harmonizer octave stays in tune")
+add_profiler_audio_contract_test(DropStaysInTune "audio contract drop stays in tune")
 
 function(add_profiler_amp_capture_test test_name case_name)
     add_test(NAME ProfilerTests.AmpCapture.${test_name}

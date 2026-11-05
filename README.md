@@ -169,7 +169,7 @@ On Linux or macOS:
 bash ./install.sh test
 ```
 
-These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job.
+These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job. Commits on main publish the 48 kHz latencies and realtime ratios at https://quentinstoll.github.io/VstProfiler/dev/bench/.
 
 ## Contributing
 
