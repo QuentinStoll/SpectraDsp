@@ -1,9 +1,9 @@
 #include "Views/SettingsView.h"
 
+#include "ActionFeedback.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 #include "UiSettings.h"
-#include "ActionFeedback.h"
 
 namespace {
 enum BackgroundPresetId {

@@ -1,7 +1,7 @@
 #include "Components/NotificationBanner.h"
 
-#include "BinaryData.h"
 #include "ActionFeedback.h"
+#include "BinaryData.h"
 
 namespace {
 int getTextWidth(const juce::Font& font, const juce::String& text) {

@@ -175,8 +175,7 @@ void SignalChainBlock::mouseDrag(const juce::MouseEvent& event) {
 void SignalChainBlock::mouseUp(const juce::MouseEvent& event) {
     if (_ledPressActive) {
         _ledPressActive = false;
-        if (!event.mods.isPopupMenu() && event.mouseWasClicked()
-            && isLedHit(event.getPosition()) && onLedClicked) {
+        if (!event.mods.isPopupMenu() && event.mouseWasClicked() && isLedHit(event.getPosition()) && onLedClicked) {
             onLedClicked();
         }
         return;
@@ -556,9 +555,7 @@ bool SignalChainStrip::selectBlockInDirection(int columnDelta, int rowDelta) {
 
 bool SignalChainStrip::keyPressed(const juce::KeyPress& key) {
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) {
-        if (!SignalChain::isMovableSlot(_selectedChainSlot)
-            || _layout.atSlot(_selectedChainSlot) == SignalChain::Stage::Empty
-            || !onBlockRemoved) {
+        if (!SignalChain::isMovableSlot(_selectedChainSlot) || _layout.atSlot(_selectedChainSlot) == SignalChain::Stage::Empty || !onBlockRemoved) {
             return false;
         }
 
@@ -643,8 +640,7 @@ SignalChainBlock* SignalChainStrip::effectBlockAtSlot(int chainSlot) noexcept {
 }
 
 void SignalChainStrip::selectChainSlot(int chainSlot) {
-    if (chainSlot != SignalChain::inputSlot && chainSlot != SignalChain::outputSlot
-        && (!SignalChain::isMovableSlot(chainSlot) || _layout.atSlot(chainSlot) == SignalChain::Stage::Empty)) {
+    if (chainSlot != SignalChain::inputSlot && chainSlot != SignalChain::outputSlot && (!SignalChain::isMovableSlot(chainSlot) || _layout.atSlot(chainSlot) == SignalChain::Stage::Empty)) {
         return;
     }
 

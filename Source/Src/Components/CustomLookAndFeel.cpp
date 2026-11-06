@@ -361,8 +361,8 @@ void CustomLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
                                        bool /*isMouseOverButton*/, bool /*isButtonDown*/) {
     const auto alpha = button.isEnabled() ? 1.0f : ProfilerStyle::Contrast::disabledAlpha();
     const auto normal = button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
-                                                          : juce::TextButton::textColourOffId)
-                    .withMultipliedAlpha(alpha);
+                                                                  : juce::TextButton::textColourOffId)
+                            .withMultipliedAlpha(alpha);
     g.setColour(ProfilerStyle::Contrast::enabled
                     ? (button.getToggleState() || button.isDown() ? juce::Colours::black : juce::Colours::white).withAlpha(alpha)
                     : normal);

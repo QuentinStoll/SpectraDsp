@@ -1,8 +1,8 @@
 #include "Views/AmpCapturePanel.h"
-#include "ActionFeedback.h"
 
 #include <cstdlib>
 
+#include "ActionFeedback.h"
 #include "MarketplaceClient.h"
 #include "PluginProcessor.h"
 #include "SettingsPath.h"

@@ -56,9 +56,12 @@ juce::String ParameterChanges::describe(juce::AudioProcessorParameter& parameter
     if (unit.isEmpty()) {
         if (auto* identified = dynamic_cast<juce::AudioProcessorParameterWithID*>(&parameter)) {
             const auto& id = identified->paramID;
-            if (id == "gain" || id == "noise" || id == "input" || id == "output" || id == "pedalLevel") unit = "dB";
-            else if (id == "master" || id == "pedalTone" || id == "conditionAmount") unit = "%";
-            else if (id == "cabLowCut") unit = "Hz";
+            if (id == "gain" || id == "noise" || id == "input" || id == "output" || id == "pedalLevel")
+                unit = "dB";
+            else if (id == "master" || id == "pedalTone" || id == "conditionAmount")
+                unit = "%";
+            else if (id == "cabLowCut")
+                unit = "Hz";
             for (const auto& band : EqBands::specs) {
                 if (id == band.gainId) unit = "dB";
                 if (id == band.freqId) unit = "Hz";

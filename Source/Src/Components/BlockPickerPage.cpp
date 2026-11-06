@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "Stylesheet.h"
 #include "ActionFeedback.h"
+#include "Stylesheet.h"
 
 namespace {
 struct TileSpec {
@@ -106,7 +106,8 @@ void BlockPickerPage::TileButton::paintButton(juce::Graphics& g, bool isMouseOve
     const auto fill = juce::Colours::black;
     const auto border = ProfilerStyle::Contrast::enabled
                             ? (isMouseOverButton || getToggleState() || hasKeyboardFocus(true)
-                                   ? ProfilerStyle::Contrast::accent() : juce::Colours::white)
+                                   ? ProfilerStyle::Contrast::accent()
+                                   : juce::Colours::white)
                             : _colour.withAlpha(isButtonDown ? 1.0f : (isMouseOverButton ? 0.95f : 0.72f));
 
     g.setColour(fill);

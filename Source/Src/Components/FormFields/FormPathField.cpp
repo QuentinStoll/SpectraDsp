@@ -1,4 +1,5 @@
 #include "Components/FormFields/FormPathField.h"
+
 #include "ActionFeedback.h"
 
 FormPathField::FormPathField(const juce::Identifier& fieldId,

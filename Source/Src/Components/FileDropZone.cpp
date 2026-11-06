@@ -1,7 +1,7 @@
 #include "Components/FileDropZone.h"
 
-#include "Stylesheet.h"
 #include "ActionFeedback.h"
+#include "Stylesheet.h"
 
 namespace {
 constexpr const char* kDropZoneHelp = "Left click / Drag & Drop to load • Right click to unload";

@@ -1,9 +1,9 @@
 #include "Views/ProfilView.h"
 
+#include "ActionFeedback.h"
 #include "Modules/AddProfilModule.h"
 #include "Modules/DeleteProfileConfirmationModule.h"
 #include "Stylesheet.h"
-#include "ActionFeedback.h"
 
 ProfilView::ProfilView(ProfilerAudioProcessor& p)
     : _audioProcessor(p) {

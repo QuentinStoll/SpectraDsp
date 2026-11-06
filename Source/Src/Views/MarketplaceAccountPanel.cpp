@@ -1,6 +1,6 @@
 #include "Views/MarketplaceAccountPanel.h"
-#include "ActionFeedback.h"
 
+#include "ActionFeedback.h"
 #include "SettingsPath.h"
 #include "Stylesheet.h"
 
@@ -415,8 +415,8 @@ void MarketplaceAccountPanel::loadLibrary() {
                 safeThis->_session.email = result.email;
             }
             safeThis->setStatus(safeThis->_items.empty()
-                                               ? "No packs on this account yet. Profiles you create here stay on this computer."
-                                               : juce::String(safeThis->_items.size()) + " on this account.");
+                                    ? "No packs on this account yet. Profiles you create here stay on this computer."
+                                    : juce::String(safeThis->_items.size()) + " on this account.");
             safeThis->showLibrary();
         });
     });

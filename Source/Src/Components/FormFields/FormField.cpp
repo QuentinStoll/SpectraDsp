@@ -1,6 +1,6 @@
 #include "Components/FormFields/FormField.h"
-#include "ActionFeedback.h"
 
+#include "ActionFeedback.h"
 #include "Stylesheet.h"
 
 FormField::FormField(const juce::Identifier& fieldId, const juce::String& labelText)

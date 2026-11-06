@@ -1,6 +1,6 @@
 #include "Modules/ExportProfilModule.h"
-#include "ActionFeedback.h"
 
+#include "ActionFeedback.h"
 #include "BinaryData.h"
 #include "ProfileManager.h"
 #include "Stylesheet.h"

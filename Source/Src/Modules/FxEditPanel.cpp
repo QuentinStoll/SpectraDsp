@@ -61,8 +61,7 @@ void FxEditPanel::refreshBypass() {
         return;
     }
     const auto* parameter = _processor._apvts.getRawParameterValue(Fx::moduleFor(_stage)->bypassId());
-    const bool enabled = (!SignalChain::isMovableSlot(_chainSlot) || !_processor.isChainSlotBypassed(_chainSlot))
-                         && (parameter == nullptr || parameter->load() > 0.5f);
+    const bool enabled = (!SignalChain::isMovableSlot(_chainSlot) || !_processor.isChainSlotBypassed(_chainSlot)) && (parameter == nullptr || parameter->load() > 0.5f);
     _bypass.setToggleState(enabled, juce::dontSendNotification);
 }
 

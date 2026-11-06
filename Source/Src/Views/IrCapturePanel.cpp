@@ -1,6 +1,6 @@
 #include "Views/IrCapturePanel.h"
-#include "ActionFeedback.h"
 
+#include "ActionFeedback.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 

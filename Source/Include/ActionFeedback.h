@@ -32,7 +32,7 @@ class ParameterChanges {
     ~ParameterChanges();
     void setEnabled(bool enabled);
     void discardPending();
-    juce::StringArray takeMessages(); // Message thread only.
+    juce::StringArray takeMessages();  // Message thread only.
     static juce::String describe(juce::AudioProcessorParameter& parameter);
 
    private:

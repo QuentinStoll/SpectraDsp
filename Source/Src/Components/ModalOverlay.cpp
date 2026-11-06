@@ -1,4 +1,5 @@
 #include "Components/ModalOverlay.h"
+
 #include "ActionFeedback.h"
 
 ModalOverlay::ModalOverlay() {

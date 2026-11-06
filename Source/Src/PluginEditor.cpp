@@ -14,10 +14,14 @@ constexpr int kHostChromeRetryLimit = 10;
 
 const char* enableParameterFor(SignalChain::Stage stage) {
     switch (stage) {
-        case SignalChain::Stage::Amp: return "isAmpEnabled";
-        case SignalChain::Stage::Cab: return "isCabEnabled";
-        case SignalChain::Stage::Eq: return "isEqEnabled";
-        case SignalChain::Stage::Pedal: return "isPedalEnabled";
+        case SignalChain::Stage::Amp:
+            return "isAmpEnabled";
+        case SignalChain::Stage::Cab:
+            return "isCabEnabled";
+        case SignalChain::Stage::Eq:
+            return "isEqEnabled";
+        case SignalChain::Stage::Pedal:
+            return "isPedalEnabled";
         default:
             if (const auto* module = Fx::moduleFor(stage)) {
                 return module->bypassId();
@@ -534,8 +538,9 @@ void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
     _closeOverlayButton.setVisible(true);
     resized();
     repaint();
-    reportAction(mode == OverlayMode::Settings ? "Settings opened."
-                 : mode == OverlayMode::Library ? "Profile library opened." : "Profile export opened.");
+    reportAction(mode == OverlayMode::Settings  ? "Settings opened."
+                 : mode == OverlayMode::Library ? "Profile library opened."
+                                                : "Profile export opened.");
 }
 
 void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId blockId) {
@@ -552,13 +557,13 @@ void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId block
                           _signalChain.getSelectedChainSlot());
     }
     updateChainStatus();
-    const auto name = blockId == SignalChainStrip::BlockId::InputGate ? juce::String("Input / Gate")
+    const auto name = blockId == SignalChainStrip::BlockId::InputGate      ? juce::String("Input / Gate")
                       : blockId == SignalChainStrip::BlockId::MasterVolume ? juce::String("Master volume")
-                      : blockId == SignalChainStrip::BlockId::AmpProfiler ? juce::String("Amp")
-                      : blockId == SignalChainStrip::BlockId::CabinetIr ? juce::String("Cabinet / IR")
-                      : blockId == SignalChainStrip::BlockId::EqPostFx ? juce::String("EQ")
-                      : blockId == SignalChainStrip::BlockId::PedalDrive ? juce::String("Overdrive")
-                      : juce::String(Fx::captionFor(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot())));
+                      : blockId == SignalChainStrip::BlockId::AmpProfiler  ? juce::String("Amp")
+                      : blockId == SignalChainStrip::BlockId::CabinetIr    ? juce::String("Cabinet / IR")
+                      : blockId == SignalChainStrip::BlockId::EqPostFx     ? juce::String("EQ")
+                      : blockId == SignalChainStrip::BlockId::PedalDrive   ? juce::String("Overdrive")
+                                                                           : juce::String(Fx::captionFor(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot())));
     reportAction((name.isNotEmpty() ? name : juce::String("Amp")) + " controls opened.");
 }
 
@@ -631,11 +636,20 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
         _signalChain.setSlotLed(slot, enabled);
         if (slot == _signalChain.getSelectedChainSlot()) {
             switch (stage) {
-                case SignalChain::Stage::Amp: _ampPanel.setBlockEnabled(enabled); break;
-                case SignalChain::Stage::Cab: _cabinetPanel.setBlockEnabled(enabled); break;
-                case SignalChain::Stage::Eq: _eqPanel.setBlockEnabled(enabled); break;
-                case SignalChain::Stage::Pedal: _pedalPanel.setBlockEnabled(enabled); break;
-                default: break;
+                case SignalChain::Stage::Amp:
+                    _ampPanel.setBlockEnabled(enabled);
+                    break;
+                case SignalChain::Stage::Cab:
+                    _cabinetPanel.setBlockEnabled(enabled);
+                    break;
+                case SignalChain::Stage::Eq:
+                    _eqPanel.setBlockEnabled(enabled);
+                    break;
+                case SignalChain::Stage::Pedal:
+                    _pedalPanel.setBlockEnabled(enabled);
+                    break;
+                default:
+                    break;
             }
         }
     }
@@ -659,19 +673,18 @@ void ProfilerAudioProcessorEditor::toggleBlockBypass(SignalChainStrip::BlockId b
             toggle("isGateEnabled");
             _inputGatePanel.refreshBypassState();
             reportAction(_audioProcessor._apvts.getRawParameterValue("isGateEnabled")->load() > 0.5f
-                             ? "Input gate enabled." : "Input gate bypassed.");
+                             ? "Input gate enabled."
+                             : "Input gate bypassed.");
             break;
         case SignalChainStrip::BlockId::AmpProfiler:
         case SignalChainStrip::BlockId::CabinetIr:
         case SignalChainStrip::BlockId::EqPostFx:
         case SignalChainStrip::BlockId::PedalDrive:
-        case SignalChainStrip::BlockId::Fx:
-        {
+        case SignalChainStrip::BlockId::Fx: {
             const auto slot = _signalChain.getSelectedChainSlot();
             const auto* parameter = _audioProcessor._apvts.getRawParameterValue(
                 enableParameterFor(_audioProcessor.getChainLayout().atSlot(slot)));
-            const bool enabled = !_audioProcessor.isChainSlotBypassed(slot)
-                                 && (parameter == nullptr || parameter->load() > 0.5f);
+            const bool enabled = !_audioProcessor.isChainSlotBypassed(slot) && (parameter == nullptr || parameter->load() > 0.5f);
             setSelectedBlockEnabled(!enabled);
             break;
         }

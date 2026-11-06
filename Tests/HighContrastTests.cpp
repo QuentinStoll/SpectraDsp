@@ -1,8 +1,8 @@
+#include <cmath>
+
 #include "Components/CustomLookAndFeel.h"
 #include "Stylesheet.h"
 #include "TestRunner.h"
-
-#include <cmath>
 
 namespace profiler_tests {
 namespace {
@@ -10,8 +10,7 @@ double luminance(juce::Colour colour) {
     const auto linear = [](double value) {
         return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
     };
-    return 0.2126 * linear(colour.getFloatRed()) + 0.7152 * linear(colour.getFloatGreen())
-           + 0.0722 * linear(colour.getFloatBlue());
+    return 0.2126 * linear(colour.getFloatRed()) + 0.7152 * linear(colour.getFloatGreen()) + 0.0722 * linear(colour.getFloatBlue());
 }
 
 double contrastRatio(juce::Colour a, juce::Colour b) {
@@ -43,7 +42,7 @@ class HighContrastTests : public juce::UnitTest {
         for (int pass = 0; pass < 2; ++pass) {
             ProfilerStyle::Contrast::enabled = true;
             lookAndFeel.refreshTheme(root);
-            lookAndFeel.refreshTheme(root); // Repeated refreshes must preserve original overrides.
+            lookAndFeel.refreshTheme(root);  // Repeated refreshes must preserve original overrides.
             const auto black = juce::Colours::black;
             expect(contrastRatio(ProfilerStyle::Contrast::foreground(), black) >= 7.0);
             expect(contrastRatio(ProfilerStyle::Contrast::accent(), black) >= 7.0);

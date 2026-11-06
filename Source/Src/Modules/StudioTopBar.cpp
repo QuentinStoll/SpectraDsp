@@ -1,9 +1,9 @@
 #include "Modules/StudioTopBar.h"
 
+#include "ActionFeedback.h"
 #include "Components/CustomLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
-#include "ActionFeedback.h"
 
 StudioTopBar::IconButton::IconButton(const juce::String& name, Icon icon)
     : juce::Button(name),

@@ -1,9 +1,9 @@
 #pragma once
 
 #include <JuceHeader.h>
+
 #include "ActionFeedback.h"
 #include "Components/ActionStatusBar.h"
-
 #include "Components/BlockPickerPage.h"
 #include "Components/CustomLookAndFeel.h"
 #include "Components/NotificationBanner.h"
