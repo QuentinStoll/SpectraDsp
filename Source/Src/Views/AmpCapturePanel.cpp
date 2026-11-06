@@ -10,7 +10,7 @@
 namespace {
 juce::File capturesFolder() {
     return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-        .getChildFile("Profiler")
+        .getChildFile("Spectra")
         .getChildFile("Captures");
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a Spectra installer from staged Profiler binaries."""
+"""Build a Spectra installer from staged plugin binaries."""
 
 from __future__ import annotations
 
@@ -41,6 +41,12 @@ def find_standalone(plugin_root: Path) -> Path | None:
     return first_match(
         plugin_root,
         [
+            "Standalone/Spectra.app",
+            "Standalone/Spectra.exe",
+            "Standalone/Spectra",
+            "Spectra.app",
+            "Spectra.exe",
+            "Spectra",
             "Standalone/Profiler.app",
             "Standalone/Profiler.exe",
             "Standalone/Profiler",
@@ -55,6 +61,9 @@ def find_vst3(plugin_root: Path) -> Path | None:
     return first_match(
         plugin_root,
         [
+            "lib/VST3/Spectra.vst3",
+            "VST3/Spectra.vst3",
+            "Spectra.vst3",
             "lib/VST3/Profiler.vst3",
             "VST3/Profiler.vst3",
             "Profiler.vst3",
@@ -66,6 +75,9 @@ def find_au(plugin_root: Path) -> Path | None:
     return first_match(
         plugin_root,
         [
+            "lib/AU/Spectra.component",
+            "AU/Spectra.component",
+            "Spectra.component",
             "lib/AU/Profiler.component",
             "AU/Profiler.component",
             "Profiler.component",
@@ -74,7 +86,7 @@ def find_au(plugin_root: Path) -> Path | None:
 
 
 def standalone_dir(standalone: Path) -> Path:
-    if standalone.suffix.lower() in {".exe", ".app"} or standalone.name == "Profiler":
+    if standalone.suffix.lower() in {".exe", ".app"} or standalone.name in {"Spectra", "Profiler"}:
         return standalone.parent
     return standalone
 
@@ -154,13 +166,13 @@ def stage_linux_payload(standalone: Path | None, vst3: Path | None) -> Path:
     install_src = SCRIPT_DIR / "linux" / "install.sh"
     shutil.copy2(install_src, payload / "install.sh")
     (payload / "install.sh").chmod((payload / "install.sh").stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    icon = REPO_ROOT / "Source" / "Assets" / "png" / "ProfilerPP.png"
+    icon = REPO_ROOT / "Source" / "Assets" / "png" / "SpectraIcon.png"
     if icon.is_file():
-        shutil.copy2(icon, payload / "profiler.png")
+        shutil.copy2(icon, payload / "spectra.png")
     if standalone:
         copytree(standalone_dir(standalone), payload / "standalone")
     if vst3:
-        copytree(vst3, payload / "vst3" / "Profiler.vst3")
+        copytree(vst3, payload / "vst3" / vst3.name)
     return payload
 
 

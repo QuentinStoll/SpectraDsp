@@ -11,13 +11,13 @@
         <line choice="vst3"/>
         <line choice="au"/>
     </choices-outline>
-    <choice id="standalone" title="Standalone" description="Profiler application in /Applications" selected="true" enabled="true">
+    <choice id="standalone" title="Standalone" description="Spectra application in /Applications" selected="true" enabled="true">
         <pkg-ref id="com.spectradsp.spectra.standalone"/>
     </choice>
-    <choice id="vst3" title="VST3 plugin" description="Profiler.vst3 in /Library/Audio/Plug-Ins/VST3" selected="true" enabled="true">
+    <choice id="vst3" title="VST3 plugin" description="Spectra.vst3 in /Library/Audio/Plug-Ins/VST3" selected="true" enabled="true">
         <pkg-ref id="com.spectradsp.spectra.vst3"/>
     </choice>
-    <choice id="au" title="Audio Unit" description="Profiler.component in /Library/Audio/Plug-Ins/Components" selected="true" enabled="true">
+    <choice id="au" title="Audio Unit" description="Spectra.component in /Library/Audio/Plug-Ins/Components" selected="true" enabled="true">
         <pkg-ref id="com.spectradsp.spectra.au"/>
     </choice>
     <pkg-ref id="com.spectradsp.spectra.standalone" version="0" onConclusion="none">standalone.pkg</pkg-ref>

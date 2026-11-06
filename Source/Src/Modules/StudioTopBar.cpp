@@ -37,7 +37,7 @@ void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverBu
 StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
     : _audioProcessor(processor),
       _apvts(processor._apvts) {
-    _logoLabel.setText("PROFILER", juce::dontSendNotification);
+    _logoLabel.setText("SPECTRA", juce::dontSendNotification);
     _logoLabel.setFont(ProfilerStyle::Fonts::logo(18.0f));
     _logoLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     _logoLabel.setJustificationType(juce::Justification::centredLeft);

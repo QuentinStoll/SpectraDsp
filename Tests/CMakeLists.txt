@@ -47,7 +47,7 @@ target_compile_definitions(ProfilerTests PRIVATE
     JucePlugin_WantsMidiInput=0
     JucePlugin_ProducesMidiOutput=0
     JucePlugin_IsMidiEffect=0
-    JucePlugin_Name="Profiler"
+    JucePlugin_Name="Spectra"
     PROFILER_TEST_TEMP_ROOT="${CMAKE_CURRENT_BINARY_DIR}/tmp"
 )
 

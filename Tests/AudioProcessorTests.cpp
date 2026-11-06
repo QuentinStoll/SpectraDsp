@@ -213,13 +213,13 @@ class AudioProcessorUnitTests : public juce::UnitTest {
     void testMetadata() {
         ProfilerAudioProcessor processor;
 
-        expect(processor.getName() == "Profiler", "Processor should expose the plugin name.");
-        expect(!processor.acceptsMidi(), "Profiler should not accept MIDI.");
-        expect(!processor.producesMidi(), "Profiler should not produce MIDI.");
-        expect(!processor.isMidiEffect(), "Profiler should not be a MIDI effect.");
-        expect(processor.getTailLengthSeconds() == 0.0, "Profiler should not declare a tail.");
-        expect(processor.getNumPrograms() == 1, "Profiler should expose one default program.");
-        expect(processor.getCurrentProgram() == 0, "Profiler should start on program zero.");
+        expect(processor.getName() == "Spectra", "Processor should expose the plugin name.");
+        expect(!processor.acceptsMidi(), "Spectra should not accept MIDI.");
+        expect(!processor.producesMidi(), "Spectra should not produce MIDI.");
+        expect(!processor.isMidiEffect(), "Spectra should not be a MIDI effect.");
+        expect(processor.getTailLengthSeconds() == 0.0, "Spectra should not declare a tail.");
+        expect(processor.getNumPrograms() == 1, "Spectra should expose one default program.");
+        expect(processor.getCurrentProgram() == 0, "Spectra should start on program zero.");
         expect(processor.getProgramName(0).isEmpty(), "Default program should not have a custom name.");
     }
 

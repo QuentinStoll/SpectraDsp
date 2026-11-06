@@ -18,13 +18,16 @@ if(NOT PROFILER_PLUGIN_FORMATS)
 endif()
 
 juce_add_plugin(${PLUGIN_NAME}
-    COMPANY_NAME "Profiler"
-    PRODUCT_NAME "Profiler"
-    PLUGIN_NAME "Profiler"
+    COMPANY_NAME "Spectra DSP"
+    PRODUCT_NAME "Spectra"
+    PLUGIN_NAME "Spectra"
+    BUNDLE_ID "com.spectradsp.spectra"
+    PLUGIN_MANUFACTURER_CODE "Sdsp"
+    PLUGIN_CODE "Spct"
 
     FORMATS ${PROFILER_PLUGIN_FORMATS}
-    ICON_BIG   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/ProfilerPP.png"
-    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/ProfilerPP.png"
+    ICON_BIG   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/SpectraIcon.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/SpectraIcon.png"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE

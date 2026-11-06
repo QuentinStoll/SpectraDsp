@@ -78,7 +78,7 @@ CHOICES=""
 OUTLINE=""
 
 if [[ -n "$STANDALONE" ]]; then
-    copy_bundle "$STANDALONE" "$ROOTS/standalone/Profiler.app"
+    copy_bundle "$STANDALONE" "$ROOTS/standalone/$(basename "$STANDALONE")"
     pkgbuild \
         --root "$ROOTS/standalone" \
         --install-location /Applications \
@@ -87,14 +87,14 @@ if [[ -n "$STANDALONE" ]]; then
         "$PKGS/standalone.pkg"
     OUTLINE="${OUTLINE}<line choice=\"standalone\"/>"
     CHOICES="${CHOICES}
-    <choice id=\"standalone\" title=\"Standalone\" description=\"Profiler application in /Applications\" selected=\"true\" enabled=\"true\">
+    <choice id=\"standalone\" title=\"Standalone\" description=\"Spectra application in /Applications\" selected=\"true\" enabled=\"true\">
         <pkg-ref id=\"com.spectradsp.spectra.standalone\"/>
     </choice>
     <pkg-ref id=\"com.spectradsp.spectra.standalone\" version=\"${VERSION}\" onConclusion=\"none\">standalone.pkg</pkg-ref>"
 fi
 
 if [[ -n "$VST3" ]]; then
-    copy_bundle "$VST3" "$ROOTS/vst3/Profiler.vst3"
+    copy_bundle "$VST3" "$ROOTS/vst3/$(basename "$VST3")"
     pkgbuild \
         --root "$ROOTS/vst3" \
         --install-location "/Library/Audio/Plug-Ins/VST3" \
@@ -103,14 +103,14 @@ if [[ -n "$VST3" ]]; then
         "$PKGS/vst3.pkg"
     OUTLINE="${OUTLINE}<line choice=\"vst3\"/>"
     CHOICES="${CHOICES}
-    <choice id=\"vst3\" title=\"VST3 plugin\" description=\"Profiler.vst3 in /Library/Audio/Plug-Ins/VST3\" selected=\"true\" enabled=\"true\">
+    <choice id=\"vst3\" title=\"VST3 plugin\" description=\"Spectra.vst3 in /Library/Audio/Plug-Ins/VST3\" selected=\"true\" enabled=\"true\">
         <pkg-ref id=\"com.spectradsp.spectra.vst3\"/>
     </choice>
     <pkg-ref id=\"com.spectradsp.spectra.vst3\" version=\"${VERSION}\" onConclusion=\"none\">vst3.pkg</pkg-ref>"
 fi
 
 if [[ -n "$AU" ]]; then
-    copy_bundle "$AU" "$ROOTS/au/Profiler.component"
+    copy_bundle "$AU" "$ROOTS/au/$(basename "$AU")"
     pkgbuild \
         --root "$ROOTS/au" \
         --install-location "/Library/Audio/Plug-Ins/Components" \
@@ -119,7 +119,7 @@ if [[ -n "$AU" ]]; then
         "$PKGS/au.pkg"
     OUTLINE="${OUTLINE}<line choice=\"au\"/>"
     CHOICES="${CHOICES}
-    <choice id=\"au\" title=\"Audio Unit\" description=\"Profiler.component in /Library/Audio/Plug-Ins/Components\" selected=\"true\" enabled=\"true\">
+    <choice id=\"au\" title=\"Audio Unit\" description=\"Spectra.component in /Library/Audio/Plug-Ins/Components\" selected=\"true\" enabled=\"true\">
         <pkg-ref id=\"com.spectradsp.spectra.au\"/>
     </choice>
     <pkg-ref id=\"com.spectradsp.spectra.au\" version=\"${VERSION}\" onConclusion=\"none\">au.pkg</pkg-ref>"

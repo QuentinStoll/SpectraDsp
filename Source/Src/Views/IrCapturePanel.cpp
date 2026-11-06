@@ -72,7 +72,7 @@ void IrCapturePanel::refreshAccountState() {
         _body.setText("IR capture plays a sweep and records the return. Use the standalone, which owns the audio device.",
                       juce::dontSendNotification);
         _cloneButton.setEnabled(false);
-        _status.setText("Open Profiler standalone to clone an IR.", juce::dontSendNotification);
+        _status.setText("Open Spectra standalone to clone an IR.", juce::dontSendNotification);
         return;
     }
 
