@@ -97,6 +97,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Modules/StudioTopBar.cpp
     Src/Modules/UtilityBarModule.cpp
     Src/AmpCapture.cpp
+    Src/AppUpdate.cpp
     Src/MarketplaceClient.cpp
     Src/SpectraEngine.cpp
     Src/SpectraAmp.cpp
@@ -143,6 +144,17 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Include
     ${rtneural_SOURCE_DIR}
 )
+
+target_compile_definitions(${PLUGIN_NAME} PRIVATE
+    SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
+)
+foreach(spectra_release_format VST3 Standalone AU)
+    if(TARGET ${PLUGIN_NAME}_${spectra_release_format})
+        target_compile_definitions(${PLUGIN_NAME}_${spectra_release_format} PRIVATE
+            SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
+        )
+    endif()
+endforeach()
 
 # Apply compiler options and preset-based defines
 apply_compiler_options(${PLUGIN_NAME})

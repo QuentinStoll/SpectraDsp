@@ -1,11 +1,14 @@
 #include "PluginEditor.h"
 
+#include <thread>
+
 #include "Fx/FxCatalog.h"
 #include "ProfileManager.h"
 #include "ProfilerConstantValues.h"
 #include "Stylesheet.h"
 
 #if JUCE_WINDOWS
+#include <windows.h>
 #include <dwmapi.h>
 #endif
 
@@ -254,6 +257,18 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     setWantsKeyboardFocus(true);
     startTimerHz(30);
     resized();
+
+#if JUCE_WINDOWS
+    if (_audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
+        CreateMutexW(nullptr, FALSE, L"SpectraStandaloneMutex");
+    }
+#endif
+
+    _settingsView.onCheckForUpdates = [this]() {
+        checkForAppUpdate(true);
+    };
+    checkForAppUpdate(false);
+
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this)]() {
         if (safeThis != nullptr) {
             safeThis->grabKeyboardFocus();
@@ -262,6 +277,9 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
 }
 
 ProfilerAudioProcessorEditor::~ProfilerAudioProcessorEditor() {
+    if (_updateAlive != nullptr) {
+        _updateAlive->store(false);
+    }
     stopTimer();
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>()) {
         window->setLookAndFeel(nullptr);
@@ -600,6 +618,90 @@ void ProfilerAudioProcessorEditor::showStatus(const juce::String& message, bool 
                                     success ? NotificationBanner::Type::Success : NotificationBanner::Type::Error,
                                     5000);
     resized();
+}
+
+void ProfilerAudioProcessorEditor::checkForAppUpdate(bool userRequested) {
+    if (!userRequested && AppUpdate::runNumberFromTag(AppUpdate::currentTag()) <= 0) {
+        return;
+    }
+    if (_updateAlive == nullptr) {
+        _updateAlive = std::make_shared<std::atomic<bool>>(true);
+    }
+    const auto live = _updateAlive;
+    std::thread([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this), live, userRequested]() {
+        const auto offer = AppUpdate::checkLatest();
+        if (!live->load()) {
+            return;
+        }
+        juce::MessageManager::callAsync([safeThis, live, offer, userRequested]() {
+            if (!live->load() || safeThis == nullptr) {
+                return;
+            }
+            safeThis->presentAppUpdate(offer, userRequested);
+        });
+    }).detach();
+}
+
+void ProfilerAudioProcessorEditor::presentAppUpdate(const AppUpdate::Offer& offer, bool userRequested) {
+    if (!offer.available) {
+        if (userRequested) {
+            showStatus(offer.message, offer.message.containsIgnoreCase("up to date"));
+        }
+        return;
+    }
+
+    _notificationBanner.setAction("Update", [this, offer]() {
+        applyAppUpdate(offer);
+    });
+    _notificationBanner.showMessage(offer.message, NotificationBanner::Type::Info, 0);
+    resized();
+}
+
+void ProfilerAudioProcessorEditor::applyAppUpdate(const AppUpdate::Offer& offer) {
+    if (_updateInProgress) {
+        return;
+    }
+    _updateInProgress = true;
+
+    if (_audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Standalone) {
+        juce::URL("https://spectradsp.com/downloads/" +
+                  juce::String(AppUpdate::expectedInstallerName().contains("macos")
+                                   ? "macos"
+                                   : (AppUpdate::expectedInstallerName().contains("linux") ? "linux" : "windows")))
+            .launchInDefaultBrowser();
+        showStatus("Download the installer, then close the DAW before installing.", true);
+        _updateInProgress = false;
+        return;
+    }
+
+    _notificationBanner.clearAction();
+    _notificationBanner.showMessage("Downloading Spectra " + offer.latestTag + "...",
+                                    NotificationBanner::Type::Info, 0);
+    resized();
+
+    const auto live = _updateAlive;
+    std::thread([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this), live, offer]() {
+        const auto dest = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile(offer.installerName);
+        juce::String error;
+        const auto downloaded = AppUpdate::downloadInstaller(offer.installerUrl, dest, &error);
+        juce::MessageManager::callAsync([safeThis, live, dest, downloaded, error]() {
+            if (!live->load() || safeThis == nullptr) {
+                return;
+            }
+            if (!downloaded) {
+                safeThis->_updateInProgress = false;
+                safeThis->showStatus(error, false);
+                return;
+            }
+            juce::String launchError;
+            if (!AppUpdate::launchInstaller(dest, &launchError)) {
+                safeThis->_updateInProgress = false;
+                safeThis->showStatus(launchError, false);
+                return;
+            }
+            juce::JUCEApplicationBase::quit();
+        });
+    }).detach();
 }
 
 void ProfilerAudioProcessorEditor::exportProfil(const juce::NamedValueSet& values, const juce::File& destinationFile) {

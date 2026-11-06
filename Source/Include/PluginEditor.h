@@ -2,6 +2,10 @@
 
 #include <JuceHeader.h>
 
+#include <atomic>
+#include <memory>
+
+#include "AppUpdate.h"
 #include "Components/BlockPickerPage.h"
 #include "Components/CustomLookAndFeel.h"
 #include "Components/NotificationBanner.h"
@@ -69,6 +73,8 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     OverlayMode _overlayMode = OverlayMode::None;
     int _hostChromePasses = 0;
     bool _standaloneFullscreenRequested = false;
+    bool _updateInProgress = false;
+    std::shared_ptr<std::atomic<bool>> _updateAlive;
 
     void applyStandaloneWindowChrome();
     void applyHostWindowChrome();
@@ -84,6 +90,9 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void updateChainStatus();
     void toggleBlockBypass(SignalChainStrip::BlockId blockId);
     void showStatus(const juce::String& message, bool success);
+    void checkForAppUpdate(bool userRequested);
+    void presentAppUpdate(const AppUpdate::Offer& offer, bool userRequested);
+    void applyAppUpdate(const AppUpdate::Offer& offer);
     void exportProfil(const juce::NamedValueSet& values, const juce::File& destinationFile);
     void createProfil(const juce::NamedValueSet& values);
     juce::String getDefaultExportName() const;
