@@ -13,19 +13,25 @@ export type LatestRelease = {
   assets: ReleaseAsset[];
 };
 
-const ASSET_PATTERNS: Record<string, RegExp> = {
-  macos: /^Spectra-macos-arm64\.pkg$/i,
-  windows: /^Spectra-windows-x64\.exe$/i,
-  "windows-arm64": /^Spectra-windows-arm64\.exe$/i,
-  linux: /^Spectra-linux-x64\.run$/i,
+const ASSET_PATTERNS: Record<string, RegExp[]> = {
+  macos: [/^Spectra-macos-arm64\.pkg$/i, /^macos-arm64\.tar\.gz$/i],
+  windows: [/^Spectra-windows-x64\.exe$/i, /^windows-x64\.zip$/i],
+  "windows-arm64": [/^Spectra-windows-arm64\.exe$/i, /^windows-arm64\.zip$/i],
+  linux: [/^Spectra-linux-x64\.run$/i, /^linux-x64\.tar\.gz$/i],
 };
 
 function releasesRepo(): string {
   return process.env.GITHUB_RELEASES_REPO?.trim() || DEFAULT_REPO;
 }
 
-function matchAsset(release: LatestRelease, pattern: RegExp): ReleaseAsset | undefined {
-  return release.assets.find((asset) => pattern.test(asset.name));
+function matchAsset(release: LatestRelease, patterns: RegExp[]): ReleaseAsset | undefined {
+  for (const pattern of patterns) {
+    const asset = release.assets.find((candidate) => pattern.test(candidate.name));
+    if (asset) {
+      return asset;
+    }
+  }
+  return undefined;
 }
 
 export function assetFor(
@@ -36,7 +42,7 @@ export function assetFor(
   if (os === "windows" && arch === "arm64") {
     return matchAsset(release, ASSET_PATTERNS["windows-arm64"]) ?? matchAsset(release, ASSET_PATTERNS.windows);
   }
-  return matchAsset(release, ASSET_PATTERNS[os]);
+  return matchAsset(release, ASSET_PATTERNS[os] ?? []);
 }
 
 export async function getLatestRelease(): Promise<LatestRelease | null> {

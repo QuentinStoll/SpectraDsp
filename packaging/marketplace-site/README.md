@@ -16,8 +16,10 @@ On the home page, change the Get the rig subtitle from "for Mac and Windows" to
 "for Mac, Windows, and Linux". DownloadCards already adds a Linux card and shows
 the release tag.
 
-Asset names matched on the latest release:
+Asset names matched on the latest release, installer first then the portable archive:
 
-- `Spectra-macos-arm64.pkg`
-- `Spectra-windows-x64.exe` (ARM: `/downloads/windows?arch=arm64` → `Spectra-windows-arm64.exe`)
-- `Spectra-linux-x64.run`
+- `Spectra-macos-arm64.pkg` (fallback `macos-arm64.tar.gz`)
+- `Spectra-windows-x64.exe` (fallback `windows-x64.zip`; ARM: `/downloads/windows?arch=arm64`)
+- `Spectra-linux-x64.run` (fallback `linux-x64.tar.gz`)
+
+A card shows Coming soon when that platform has no matching asset.
