@@ -1,4 +1,4 @@
-const DEFAULT_REPO = "QuentinStoll/VstProfiler";
+const DEFAULT_REPO = "QuentinStoll/SpectraDsp";
 const REVALIDATE_SECONDS = 300;
 
 export type DownloadOs = "macos" | "windows" | "linux";

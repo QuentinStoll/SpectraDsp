@@ -2,7 +2,7 @@
 
 Copy these files into the ProfilerMarketplace repo (this cloud environment cannot
 open that repository). They replace the placeholder `/downloads/placeholder/...`
-links with redirects to the latest GitHub Release of VstProfiler.
+links with redirects to the latest GitHub Release of SpectraDsp.
 
 | This folder | Destination in ProfilerMarketplace |
 | --- | --- |

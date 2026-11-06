@@ -79,7 +79,7 @@ sudo apt-get install -y build-essential cmake git pkg-config \
 
 ### Installation
 
-Prebuilt installers are attached to [GitHub Releases](https://github.com/QuentinStoll/VstProfiler/releases). Each installer lets you choose the standalone application and/or the plugin (VST3, and Audio Unit on macOS). [spectradsp.com](https://spectradsp.com) downloads the latest of those release assets.
+Prebuilt installers are attached to [GitHub Releases](https://github.com/QuentinStoll/SpectraDsp/releases). Each installer lets you choose the standalone application and/or the plugin (VST3, and Audio Unit on macOS). [spectradsp.com](https://spectradsp.com) downloads the latest of those release assets.
 
 - Windows: `Spectra-windows-x64.exe` (ARM64: `Spectra-windows-arm64.exe`)
 - macOS Apple Silicon: `Spectra-macos-arm64.pkg`. The package is not notarized; Gatekeeper may require Open anyway.
