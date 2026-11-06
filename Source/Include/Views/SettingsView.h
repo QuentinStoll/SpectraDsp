@@ -1,8 +1,8 @@
 #pragma once
 
-#include <functional>
-
 #include <JuceHeader.h>
+
+#include <functional>
 
 #include "Components/CustomComboBox.h"
 #include "Components/CustomTextButton.h"
