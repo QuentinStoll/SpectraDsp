@@ -6,6 +6,8 @@ Notable changes for every published release are recorded below, newest first. Re
 
 ### Added
 
+- Per-OS Spectra installers (Windows Inno Setup, macOS pkg, Linux `.run`) with checkboxes for standalone and VST3 (plus Audio Unit on macOS). A manual CI dispatch attaches them to the GitHub Release; spectradsp.com downloads the latest assets.
+- Marketplace client and plugin copy now use `https://spectradsp.com`.
 - Right-clicking a chain block offers Clear all blocks, which removes every effect block and leaves the input and output in place.
 - The standalone window opens maximized. It can be restored and resized down to 1100×550.
 - The Play view signal chain continues onto a second row as one serial path. The same block type can appear more than once, each copy is processed in order, and an occupied slot can be cleared from the block picker.

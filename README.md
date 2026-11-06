@@ -52,7 +52,7 @@ Reproducing the tone and dynamic behavior of real amplifiers is the project's lo
 - Amp files must contain a model that the RTNeural JSON parser accepts, with one input and at least one output. The file chooser lists `.nam`, `.json`, and `.txt`, but an extension alone does not guarantee compatibility.
 - Profiles reference external amp and IR files rather than embedding them. Keep those files available when reopening or sharing a profile.
 - The processor currently requires mono input and stereo output. Configure the host's channel layout accordingly.
-- CI builds and tests Windows x64, Linux x64, and macOS Apple Silicon. A local macOS run in a DAW still needs to be checked on a Mac.
+- CI builds and tests Windows x64, Linux x64, and macOS Apple Silicon, and attaches a per-OS installer to GitHub Releases. A local macOS run in a DAW still needs to be checked on a Mac.
 - AAX is requested by some presets but is not built unless the Avid AAX SDK is present. That SDK requires an Avid developer agreement and is not part of the default build.
 
 ## Getting started
@@ -79,7 +79,13 @@ sudo apt-get install -y build-essential cmake git pkg-config \
 
 ### Installation
 
-Clone the repository and enter its directory:
+Prebuilt installers are attached to [GitHub Releases](https://github.com/QuentinStoll/VstProfiler/releases). Each installer lets you choose the standalone application and/or the plugin (VST3, and Audio Unit on macOS). [spectradsp.com](https://spectradsp.com) downloads the latest of those release assets.
+
+- Windows: `Spectra-windows-x64.exe` (ARM64: `Spectra-windows-arm64.exe`)
+- macOS Apple Silicon: `Spectra-macos-arm64.pkg`. The package is not notarized; Gatekeeper may require Open anyway.
+- Linux x64: `Spectra-linux-x64.run`
+
+To build from source, clone the repository and enter its directory:
 
 ```sh
 git clone https://github.com/QuentinStoll/VstProfiler.git
@@ -169,7 +175,7 @@ On Linux or macOS:
 bash ./install.sh test
 ```
 
-These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job. Commits on main publish the 48 kHz latencies and realtime ratios at https://quentinstoll.github.io/VstProfiler/dev/bench/.
+These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job. A manual workflow dispatch on main publishes installers on the GitHub Release. Commits on main publish the 48 kHz latencies and realtime ratios at https://quentinstoll.github.io/VstProfiler/dev/bench/.
 
 ## Contributing
 

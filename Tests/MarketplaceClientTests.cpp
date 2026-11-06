@@ -77,8 +77,11 @@ class MarketplaceClientTests : public juce::UnitTest {
     }
 
     void testLogin() {
+        expectEquals(juce::String(Marketplace::baseUrl), juce::String("https://spectradsp.com"));
+        expectEquals(juce::String(Marketplace::signupUrl), juce::String("https://spectradsp.com/login"));
+
         auto transport = std::make_shared<FakeTransport>();
-        Marketplace::Client client(transport, "https://profiler.audio");
+        Marketplace::Client client(transport, "https://spectradsp.com");
 
         transport->statusCode = 401;
         transport->responseBody = R"({"message":"nope"})";
@@ -86,7 +89,7 @@ class MarketplaceClientTests : public juce::UnitTest {
         expect(refused.status == Marketplace::Status::Unauthorized);
         expect(refused.message.contains("password"));
         expect(transport->method == "POST");
-        expect(transport->url == "https://profiler.audio/api/v1/plugin/login");
+        expect(transport->url == "https://spectradsp.com/api/v1/plugin/login");
         expect(transport->bearerToken.isEmpty());
         expect(!refused.message.contains("secret"));
 
@@ -160,11 +163,11 @@ class MarketplaceClientTests : public juce::UnitTest {
         expect(transport->url.isEmpty());
 
         transport->statusCode = 200;
-        transport->responseBody = R"({"user":{"id":"user-1","email":"a@profiler.audio"},"library":[{"entitlementId":"ent-1","acquiredAt":"2026-09-01T00:00:00Z","source":"purchase","id":"pack-1","title":"Clean","authorName":"Ada","fileUrl":"/files/clean.profilerprofile","irFileUrl":"https://cdn.example/ir.wav","hasIntegratedIr":false,"conditionProfile":"raw","conditionAmount":70},{"entitlementId":"ent-2","acquiredAt":"2026-09-02T00:00:00Z","source":"free","id":"pack-2","title":"Lead","authorName":"Bea","fileUrl":"https://profiler.audio/files/lead.profilerprofile","irFileUrl":null,"hasIntegratedIr":true}]})";
+        transport->responseBody = R"({"user":{"id":"user-1","email":"a@profiler.audio"},"library":[{"entitlementId":"ent-1","acquiredAt":"2026-09-01T00:00:00Z","source":"purchase","id":"pack-1","title":"Clean","authorName":"Ada","fileUrl":"/files/clean.profilerprofile","irFileUrl":"https://cdn.example/ir.wav","hasIntegratedIr":false,"conditionProfile":"raw","conditionAmount":70},{"entitlementId":"ent-2","acquiredAt":"2026-09-02T00:00:00Z","source":"free","id":"pack-2","title":"Lead","authorName":"Bea","fileUrl":"https://spectradsp.com/files/lead.profilerprofile","irFileUrl":null,"hasIntegratedIr":true}]})";
         auto library = client.fetchLibrary("access-secret");
         expect(library.status == Marketplace::Status::Success);
         expect(transport->method == "GET");
-        expect(transport->url == "https://profiler.audio/api/v1/plugin/library");
+        expect(transport->url == "https://spectradsp.com/api/v1/plugin/library");
         expectEquals(transport->bearerToken, juce::String("access-secret"));
         expectEquals(static_cast<int>(library.items.size()), 2);
         expectEquals(library.items[0].source, juce::String("purchase"));
@@ -197,9 +200,15 @@ class MarketplaceClientTests : public juce::UnitTest {
         expect(transport->bearerToken.isEmpty());
         expectEquals(externalFile.body.toString(), juce::String("profile-bytes"));
 
+        const juce::String hostedUrl("https://spectradsp.com/files/lead.profilerprofile");
+        auto hostedFile = client.download(hostedUrl, "access-secret");
+        expect(hostedFile.status == Marketplace::Status::Success);
+        expect(transport->url == hostedUrl);
+        expectEquals(transport->bearerToken, juce::String("access-secret"));
+
         auto missingUrl = client.download({}, "access-secret");
         expect(missingUrl.status == Marketplace::Status::BadRequest);
-        expect(transport->url == signedUrl);
+        expect(transport->url == hostedUrl);
 
         Marketplace::Session session;
         session.accessToken = "expired-access";
@@ -253,7 +262,7 @@ class MarketplaceClientTests : public juce::UnitTest {
 
     void testIrCapture() {
         auto transport = std::make_shared<FakeTransport>();
-        Marketplace::Client client(transport, "https://profiler.audio");
+        Marketplace::Client client(transport, "https://spectradsp.com");
         std::array<std::uint8_t, 32> key{};
         key[0] = 7;
         juce::MemoryBlock sealed(36, true);
@@ -269,7 +278,7 @@ class MarketplaceClientTests : public juce::UnitTest {
         expect(saved.status == Marketplace::Status::Success);
         expect(saved.id == "cap-1");
         expect(transport->method == "POST");
-        expect(transport->url == "https://profiler.audio/api/v1/plugin/captures/ir");
+        expect(transport->url == "https://spectradsp.com/api/v1/plugin/captures/ir");
         expectEquals(transport->bearerToken, juce::String("access-secret"));
         expect(transport->jsonBody.contains("Cab"));
         expect(!transport->jsonBody.contains("access-secret"));

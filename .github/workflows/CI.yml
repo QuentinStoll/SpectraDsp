@@ -113,6 +113,12 @@ jobs:
           chmod +x ./install.sh
           ./install.sh test
 
+      - name: Test Linux installer packaging
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x packaging/linux/build-run.sh packaging/linux/install.sh
+          python packaging/test_build_installer.py
+
       - name: Summarize audio metrics
         if: always()
         shell: bash
@@ -349,6 +355,25 @@ jobs:
         shell: bash
         run: python scripts/stage_spectra_dsp.py --library "${{ steps.spectra.outputs.library }}" --plugin-root build/bin
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: choco install innosetup --no-progress -y
+
+      - name: Install makeself
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y makeself
+
+      - name: Build Spectra installer
+        shell: bash
+        run: |
+          chmod +x packaging/macos/build-pkg.sh packaging/linux/build-run.sh packaging/linux/install.sh
+          python packaging/build_installer.py \
+            --plugin-root build/bin \
+            --os-arch "${{ matrix.name }}" \
+            --output-dir dist \
+            --version "0.0.${{ github.run_number }}"
+
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -359,6 +384,14 @@ jobs:
             build/bin/lib/VST3/**
             build/bin/lib/AU/**
             build/bin/Standalone/**
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.name }}
+          retention-days: 14
+          if-no-files-found: error
+          path: dist/Spectra-*
 
   release:
     name: Publish Release
@@ -376,6 +409,13 @@ jobs:
           pattern: build-*
           path: artifacts/
 
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: installers/
+          merge-multiple: true
+
       - name: Normalize artifact structure
         run: |
           mkdir -p release-package
@@ -384,6 +424,9 @@ jobs:
             mkdir -p "release-package/$os_arch"
             cp -r "$dir"* "release-package/$os_arch/"
           done
+          mkdir -p release-installers
+          find installers -type f \( -name 'Spectra-*.exe' -o -name 'Spectra-*.pkg' -o -name 'Spectra-*.run' \) -exec cp {} release-installers/ \;
+          ls -la release-installers
 
       - name: Create release archives
         run: |
@@ -421,7 +464,18 @@ jobs:
           name: Release ${{ steps.version.outputs.tag }}
           body: |
             Bundled SpectraDsp `${{ steps.engine.outputs.version }}`.
+
+            Installers (standalone and/or plugin, chosen in the installer UI):
+            - Windows x64: `Spectra-windows-x64.exe`
+            - Windows ARM64: `Spectra-windows-arm64.exe`
+            - macOS Apple Silicon: `Spectra-macos-arm64.pkg` (not notarized)
+            - Linux x64: `Spectra-linux-x64.run`
+
+            https://spectradsp.com points at this latest release.
           generate_release_notes: true
           files: |
             *.zip
             *.tar.gz
+            release-installers/Spectra-*.exe
+            release-installers/Spectra-*.pkg
+            release-installers/Spectra-*.run
