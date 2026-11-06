@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793893662060,
+  "lastUpdate": 1793960826879,
   "repoUrl": "https://github.com/QuentinStoll/SpectraDsp",
   "entries": {
     "Profiler audio": [
@@ -64,6 +64,72 @@ window.BENCHMARK_DATA = {
           {
             "name": "Drop realtime ratio",
             "value": 0.00624065,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "114921049+QuentinStoll@users.noreply.github.com",
+            "name": "Quentin Stoll",
+            "username": "QuentinStoll"
+          },
+          "committer": {
+            "email": "114921049+QuentinStoll@users.noreply.github.com",
+            "name": "Quentin Stoll",
+            "username": "QuentinStoll"
+          },
+          "distinct": true,
+          "id": "7d353ec60c4c8270c876a9d7f3655397b891a984",
+          "message": "fix(ci): install OpenCppCoverage before Windows coverage\n\nEOF",
+          "timestamp": "2026-11-06T11:13:25+01:00",
+          "tree_id": "cb9b11829b1a4c5c1c4e25a5a0b16dc42dcc50dc",
+          "url": "https://github.com/QuentinStoll/SpectraDsp/commit/7d353ec60c4c8270c876a9d7f3655397b891a984"
+        },
+        "date": 1793960826543,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pedal latency",
+            "value": 3,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer latency",
+            "value": 1056,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop latency",
+            "value": 960,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Gate lookahead",
+            "value": 384,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Pedal realtime ratio",
+            "value": 0.006078,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer realtime ratio",
+            "value": 0.3333679,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop realtime ratio",
+            "value": 0.006119,
             "unit": "x realtime",
             "extra": "48 kHz"
           }
