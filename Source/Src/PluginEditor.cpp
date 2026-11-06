@@ -135,7 +135,11 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
       _libraryView(p),
       _settingsView(p) {
     SettingsView::applySavedBackgroundColour();
+    ProfilerStyle::Contrast::setEnabled(UiSettings::loadHighContrastEnabled());
     setLookAndFeel(&_customLookAndFeel);
+    _customLookAndFeel.applyColourScheme();
+    _settingsView.refreshContrastSetting();
+    ProfilerStyle::Contrast::changes().addChangeListener(this);
     setOpaque(true);
     setColour(juce::ResizableWindow::backgroundColourId, juce::Colours::black);
 
@@ -278,6 +282,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     showEditPanel(SignalChainStrip::BlockId::AmpProfiler);
     updateChainStatus();
     setWantsKeyboardFocus(true);
+    _customLookAndFeel.refreshTheme(*this);
     startTimerHz(30);
     resized();
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this)]() {
@@ -289,6 +294,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
 
 ProfilerAudioProcessorEditor::~ProfilerAudioProcessorEditor() {
     stopTimer();
+    ProfilerStyle::Contrast::changes().removeChangeListener(this);
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>()) {
         window->setLookAndFeel(nullptr);
     }
@@ -704,6 +710,11 @@ juce::File ProfilerAudioProcessorEditor::getDefaultExportFile(const juce::String
 }
 
 void ProfilerAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster* source) {
+    if (source == &ProfilerStyle::Contrast::changes()) {
+        _customLookAndFeel.refreshTheme(*this);
+        _settingsView.refreshContrastSetting();
+        return;
+    }
     if (source == &_audioProcessor.getProfileManager()) {
         _ampPanel.refreshAssets();
         _cabinetPanel.refreshAssets();

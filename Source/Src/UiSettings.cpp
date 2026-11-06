@@ -8,6 +8,7 @@ const juce::Identifier backgroundColourPresetId{"backgroundColourPreset"};
 const juce::Identifier troubleshootingSettingId{"troubleshootingSetting"};
 const juce::Identifier hardwareInfoSettingId{"hardwareInfoSetting"};
 const juce::Identifier interfaceScalePercentId{"interfaceScalePercent"};
+const juce::Identifier highContrastEnabledId{"highContrastEnabled"};
 
 constexpr int defaultBackgroundColourPreset = 1;
 constexpr int firstBackgroundColourPreset = 1;
@@ -58,6 +59,7 @@ void saveUiSettingsObject(const juce::DynamicObject& settingsObject) {
     appendProperty(troubleshootingSettingId);
     appendProperty(hardwareInfoSettingId);
     appendProperty(interfaceScalePercentId);
+    appendProperty(highContrastEnabledId);
 
     json << "}";
     getUiSettingsFile().replaceWithText(json);
@@ -83,6 +85,17 @@ int loadIntSetting(const juce::DynamicObject& settingsObject,
 }  // namespace
 
 namespace UiSettings {
+bool loadHighContrastEnabled() {
+    const auto settingsObject = loadUiSettingsObject();
+    return loadIntSetting(settingsObject, highContrastEnabledId, 0) == 1;
+}
+
+void saveHighContrastEnabled(bool enabled) {
+    auto settingsObject = loadUiSettingsObject();
+    settingsObject.setProperty(highContrastEnabledId, enabled ? 1 : 0);
+    saveUiSettingsObject(settingsObject);
+}
+
 int normaliseInterfaceScalePercent(int percent) {
     return percent >= 100 && percent <= 200 && percent % 25 == 0 ? percent : 100;
 }

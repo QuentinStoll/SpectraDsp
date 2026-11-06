@@ -98,6 +98,7 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadTroubleshootingSetting(), 1);
         expectEquals(UiSettings::loadHardwareInfoSetting(), 1);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 100);
+        expect(!UiSettings::loadHighContrastEnabled());
         for (const int percent : {100, 125, 150, 175, 200}) {
             expectEquals(UiSettings::normaliseInterfaceScalePercent(percent), percent);
         }
@@ -114,6 +115,7 @@ class UiSettingsUnitTests : public juce::UnitTest {
         settings.file.deleteFile();
 
         UiSettings::saveBackgroundColourPreset(4);
+        UiSettings::saveHighContrastEnabled(true);
         UiSettings::saveInterfaceScalePercent(175);
         UiSettings::saveTroubleshootingSetting(2);
         UiSettings::saveHardwareInfoSetting(2);
@@ -122,12 +124,18 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadTroubleshootingSetting(), 2);
         expectEquals(UiSettings::loadHardwareInfoSetting(), 2);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 175);
+        expect(UiSettings::loadHighContrastEnabled());
 
         UiSettings::saveInterfaceScalePercent(150);
         expectEquals(UiSettings::loadBackgroundColourPreset(), 4);
         expectEquals(UiSettings::loadTroubleshootingSetting(), 2);
         expectEquals(UiSettings::loadHardwareInfoSetting(), 2);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 150);
+        expect(UiSettings::loadHighContrastEnabled());
+        UiSettings::saveHighContrastEnabled(false);
+        expect(!UiSettings::loadHighContrastEnabled());
+        expectEquals(UiSettings::loadInterfaceScalePercent(), 150);
+        expectEquals(UiSettings::loadBackgroundColourPreset(), 4);
 
         UiSettings::saveBackgroundColourPreset(99);
         UiSettings::saveTroubleshootingSetting(99);
@@ -138,6 +146,7 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadTroubleshootingSetting(), 1);
         expectEquals(UiSettings::loadHardwareInfoSetting(), 1);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 100);
+        expect(!UiSettings::loadHighContrastEnabled());
     }
 
     void testInvalidJson() {
@@ -148,6 +157,9 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadTroubleshootingSetting(), 1);
         expectEquals(UiSettings::loadHardwareInfoSetting(), 1);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 100);
+        expect(!UiSettings::loadHighContrastEnabled());
+        expect(settings.file.replaceWithText("{\"highContrastEnabled\":99}"));
+        expect(!UiSettings::loadHighContrastEnabled());
     }
 };
 

@@ -45,7 +45,7 @@ IrCapturePanel::~IrCapturePanel() {
 }
 
 void IrCapturePanel::paint(juce::Graphics& g) {
-    g.setColour(ProfilerStyle::Colors::border.withAlpha(0.35f));
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.withAlpha(0.35f)));
     g.drawHorizontalLine(0, 0.0f, (float)getWidth());
 }
 

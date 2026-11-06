@@ -115,6 +115,22 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
     };
     addAndMakeVisible(_interfaceScaleMenu);
 
+    _contrastLabel.setText("High contrast", juce::dontSendNotification);
+    addAndMakeVisible(_contrastLabel);
+    _contrastMenu.setTitle("High contrast");
+    _contrastMenu.setTooltip("Use bright text and outlines on black backgrounds.");
+    _contrastMenu.addItem("Off", 1);
+    _contrastMenu.addItem("On", 2);
+    _contrastMenu.setSelectedId(UiSettings::loadHighContrastEnabled() ? 2 : 1, juce::dontSendNotification);
+    _contrastMenu.onChange = [this]() {
+        const bool enabled = _contrastMenu.getSelectedId() == 2;
+        UiSettings::saveHighContrastEnabled(enabled);
+        ProfilerStyle::Contrast::setEnabled(enabled);
+        refreshContrastSetting();
+        refreshColours();
+    };
+    addAndMakeVisible(_contrastMenu);
+
     _troubleshootingLabel.setText("Allow troubleshooting logs", juce::dontSendNotification);
     _troubleshootingLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     addAndMakeVisible(_troubleshootingLabel);
@@ -150,6 +166,11 @@ void SettingsView::paint(juce::Graphics& g) {
     ProfilerStyle::Surfaces::fillPanel(g, getLocalBounds().toFloat());
 }
 
+void SettingsView::refreshContrastSetting() {
+    _contrastMenu.setSelectedId(ProfilerStyle::Contrast::enabled ? 2 : 1, juce::dontSendNotification);
+    _backgroundMenu.setEnabled(!ProfilerStyle::Contrast::enabled);
+}
+
 void SettingsView::resized() {
     auto area = getLocalBounds().reduced(24, 16);
     auto tabs = area.removeFromTop(32);
@@ -166,6 +187,8 @@ void SettingsView::resized() {
     _backgroundMenu.setVisible(showGeneral);
     _interfaceScaleLabel.setVisible(showGeneral);
     _interfaceScaleMenu.setVisible(showGeneral);
+    _contrastLabel.setVisible(showGeneral);
+    _contrastMenu.setVisible(showGeneral);
     _troubleshootingLabel.setVisible(showGeneral);
     _troubleshootingMenu.setVisible(showGeneral);
     _hardwareInfoLabel.setVisible(showGeneral);
@@ -179,11 +202,11 @@ void SettingsView::resized() {
         }
     }
 
-    _titleLabel.setBounds(area.removeFromTop(50));
+    _titleLabel.setBounds(area.removeFromTop(38));
 
-    area.removeFromTop(16);
+    area.removeFromTop(8);
 
-    auto settingLine = area.removeFromTop(40);
+    auto settingLine = area.removeFromTop(36);
 
     _backgroundLabel.setBounds(settingLine.removeFromLeft(180));
 
@@ -191,16 +214,22 @@ void SettingsView::resized() {
 
     _backgroundMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(12);
+    area.removeFromTop(8);
 
-    settingLine = area.removeFromTop(40);
+    settingLine = area.removeFromTop(36);
     _interfaceScaleLabel.setBounds(settingLine.removeFromLeft(180));
     settingLine.removeFromLeft(20);
     _interfaceScaleMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(12);
+    area.removeFromTop(8);
 
-    settingLine = area.removeFromTop(40);
+    settingLine = area.removeFromTop(36);
+    _contrastLabel.setBounds(settingLine.removeFromLeft(180));
+    settingLine.removeFromLeft(20);
+    _contrastMenu.setBounds(settingLine.removeFromLeft(220));
+    area.removeFromTop(8);
+
+    settingLine = area.removeFromTop(36);
 
     _troubleshootingLabel.setBounds(settingLine.removeFromLeft(180));
 
@@ -208,9 +237,9 @@ void SettingsView::resized() {
 
     _troubleshootingMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(12);
+    area.removeFromTop(8);
 
-    settingLine = area.removeFromTop(40);
+    settingLine = area.removeFromTop(36);
 
     _hardwareInfoLabel.setBounds(settingLine.removeFromLeft(180));
 

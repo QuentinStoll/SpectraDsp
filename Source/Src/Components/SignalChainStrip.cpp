@@ -223,7 +223,7 @@ void SignalChainBlock::paintContents(juce::Graphics& g, bool isMouseOverButton) 
                                   _ledOn);
         if (_caption.isNotEmpty()) {
             g.setFont(ProfilerStyle::Fonts::micro());
-            g.setColour(_categoryColour.withAlpha(_ledOn ? 0.95f : 0.45f));
+            g.setColour(ProfilerStyle::Contrast::foreground(_categoryColour.withAlpha(_ledOn ? 0.95f : 0.45f)));
             g.drawFittedText(_caption, getLocalBounds().removeFromBottom(13).reduced(2, 0), juce::Justification::centred, 1);
         }
         return;
@@ -278,7 +278,7 @@ void SignalChainStrip::SignalBusLayer::paint(juce::Graphics& g) {
             return;
         }
 
-        g.setColour(ProfilerStyle::Colors::caption);
+        g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::caption));
         g.drawLine(from.x, from.y, to.x, to.y, 1.2f);
     };
     draw(_input, _down);
@@ -362,7 +362,7 @@ void SignalChainStrip::paint(juce::Graphics& g) {
         if (laf != nullptr) {
             laf->drawEmptySignalSlot(g, _slotBounds[static_cast<size_t>(slot)].toFloat());
         } else {
-            g.setColour(ProfilerStyle::Colors::border.withAlpha(0.55f));
+            g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.withAlpha(0.55f)));
             auto outline = _slotBounds[static_cast<size_t>(slot)].toFloat();
             const auto side = juce::jmin(outline.getWidth(), outline.getHeight()) / 2.5f;
             g.drawRoundedRectangle(outline.withSizeKeepingCentre(side, side), 3.0f, 1.2f);
@@ -371,7 +371,7 @@ void SignalChainStrip::paint(juce::Graphics& g) {
 
     if (SignalChain::isMovableSlot(_dropSlot)) {
         auto dropBounds = _slotBounds[static_cast<size_t>(_dropSlot)].toFloat().reduced(4.0f);
-        g.setColour(ProfilerStyle::Colors::text.withAlpha(0.72f));
+        g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text.withAlpha(0.72f)));
         g.drawRoundedRectangle(dropBounds, 6.0f, 1.6f);
     }
 }

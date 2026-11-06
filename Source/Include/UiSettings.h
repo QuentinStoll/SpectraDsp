@@ -3,6 +3,9 @@
 #include <JuceHeader.h>
 
 namespace UiSettings {
+bool loadHighContrastEnabled();
+void saveHighContrastEnabled(bool enabled);
+
 int normaliseInterfaceScalePercent(int percent);
 int loadInterfaceScalePercent();
 void saveInterfaceScalePercent(int percent);

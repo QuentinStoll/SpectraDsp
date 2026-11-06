@@ -67,10 +67,10 @@ void FileStatusCard::paint(juce::Graphics& g) {
     g.setColour(ProfilerStyle::Colors::elevated);
     g.fillRoundedRectangle(card, ProfilerStyle::Surfaces::panelCorner);
 
-    g.setColour(accent.withAlpha(_status == Status::Empty ? 0.28f : 0.85f));
+    g.setColour(ProfilerStyle::Contrast::accent(accent.withAlpha(_status == Status::Empty ? 0.28f : 0.85f)));
     g.fillRoundedRectangle(card.withWidth(3.0f), 1.5f);
 
-    g.setColour(accent.withAlpha(_status == Status::Empty ? 0.22f : 0.4f));
+    g.setColour(ProfilerStyle::Contrast::outline(accent.withAlpha(_status == Status::Empty ? 0.22f : 0.4f)));
     g.drawRoundedRectangle(card.reduced(0.5f), ProfilerStyle::Surfaces::panelCorner, 1.0f);
 }
 

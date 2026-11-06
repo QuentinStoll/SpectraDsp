@@ -419,9 +419,9 @@ void EqResponseDisplay::mouseDoubleClick(const juce::MouseEvent& event) {
 
 void EqResponseDisplay::paint(juce::Graphics& g) {
     auto bounds = getLocalBounds().toFloat();
-    g.setColour(juce::Colour(0xff08080A));
+    g.setColour(ProfilerStyle::Contrast::surface(juce::Colour(0xff08080A)));
     g.fillRoundedRectangle(bounds, 5.0f);
-    g.setColour(juce::Colour(0xff2A2A32));
+    g.setColour(ProfilerStyle::Contrast::outline(juce::Colour(0xff2A2A32)));
     g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
 
     const auto plot = plotArea();
@@ -429,7 +429,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         return;
     }
 
-    g.setColour(juce::Colour(0xff16161C));
+    g.setColour(ProfilerStyle::Contrast::enabled ? juce::Colour(0xff777777) : juce::Colour(0xff16161C));
     const float dbLines[] = {18.0f, 12.0f, 6.0f, -6.0f, -12.0f, -18.0f};
     for (const auto db : dbLines) {
         g.drawHorizontalLine(juce::roundToInt(yForDb(db)), plot.getX(), plot.getRight());
@@ -440,7 +440,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         g.drawVerticalLine(juce::roundToInt(xForHz(hz)), plot.getY(), plot.getBottom());
     }
 
-    g.setColour(juce::Colour(0xff3A3A46));
+    g.setColour(ProfilerStyle::Contrast::outline(juce::Colour(0xff3A3A46)));
     g.drawHorizontalLine(juce::roundToInt(yForDb(0.0f)), plot.getX(), plot.getRight());
 
     ensureEqCurve();
@@ -473,7 +473,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
                                              false);
         g.setGradientFill(gradient);
         g.fillPath(fill);
-        g.setColour(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.32f : 0.96f));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.32f : 0.96f)));
         g.strokePath(curve, juce::PathStrokeType(_bypassed ? 1.0f : 1.4f,
                                                  juce::PathStrokeType::mitered,
                                                  juce::PathStrokeType::rounded));
@@ -482,7 +482,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
     const auto activeBand = _dragBand >= 0 ? _dragBand : _hoverBand;
     if (activeBand >= 0) {
         const auto markerX = xForHz(bandFreq(activeBand));
-        g.setColour(ProfilerStyle::Colors::rigEq.withAlpha(0.28f));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::rigEq.withAlpha(0.28f)));
         g.drawVerticalLine(juce::roundToInt(markerX), plot.getY(), plot.getBottom());
     }
 
@@ -491,14 +491,14 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         const auto selected = band == _dragBand || band == _hoverBand;
         const auto radius = selected ? kEqHandleRadius + 0.7f : kEqHandleRadius;
         auto handle = juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre);
-        g.setColour(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.35f : (selected ? 1.0f : 0.95f)));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.35f : (selected ? 1.0f : 0.95f))));
         g.fillEllipse(handle);
         g.setColour(juce::Colour(0xff08080A).withAlpha(0.55f));
         g.drawEllipse(handle, 0.9f);
     }
 
     g.setFont(ProfilerStyle::Fonts::micro());
-    g.setColour(ProfilerStyle::Colors::caption.withAlpha(0.55f));
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::caption.withAlpha(0.55f)));
     const float dbLabels[] = {12.0f, 0.0f, -12.0f};
     for (const auto db : dbLabels) {
         auto label = juce::Rectangle<float>(bounds.getX() + 2.0f, yForDb(db) - 6.0f, 24.0f, 12.0f);
@@ -520,7 +520,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         const auto hz = bandFreq(activeBand);
         const auto db = bandGain(activeBand);
         const auto readout = formatHz(hz) + "  " + juce::String(db, 1) + " dB";
-        g.setColour(ProfilerStyle::Colors::text.withAlpha(0.82f));
+        g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text.withAlpha(0.82f)));
         g.drawText(readout,
                    juce::Rectangle<float>(plot.getX(), plot.getY() + 2.0f, plot.getWidth() - 4.0f, 14.0f),
                    juce::Justification::centredRight, false);

@@ -44,6 +44,7 @@ Reproducing the tone and dynamic behavior of real amplifiers is the project's lo
 - Create, edit, import, export, and delete `.profilerprofile` profiles containing parameter values and external asset paths.
 - Use a JUCE interface with **Clone**, **Play**, **Profil**, and settings views.
 - Enlarge text and controls through **Settings > General > Interface scale** (100%–200%). The choice is saved locally; scrollbars keep the interface reachable in smaller windows.
+- Enable **Settings > General > High contrast** for white text and outlines with yellow selection and focus indicators on black backgrounds. This preference is saved locally and updates open editors.
 - Build a standalone application and a VST3 plugin on Windows, macOS, and Linux. macOS builds also produce an Audio Unit.
 
 ### Current limitations

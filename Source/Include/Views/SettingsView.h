@@ -14,6 +14,7 @@ class SettingsView : public juce::Component {
 
     static void applySavedBackgroundColour();
     std::function<void(int)> onInterfaceScaleChanged;
+    void refreshContrastSetting();
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -37,6 +38,8 @@ class SettingsView : public juce::Component {
     CustomComboBox _backgroundMenu;
     juce::Label _interfaceScaleLabel;
     CustomComboBox _interfaceScaleMenu;
+    juce::Label _contrastLabel;
+    CustomComboBox _contrastMenu;
     juce::Label _troubleshootingLabel;
     CustomComboBox _troubleshootingMenu;
     juce::Label _hardwareInfoLabel;

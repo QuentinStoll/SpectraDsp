@@ -64,18 +64,23 @@ juce::Typeface::Ptr CustomLookAndFeel::typefaceForFont(const juce::Font& font) c
 }
 
 void CustomLookAndFeel::applyColourScheme() {
-    using namespace ProfilerStyle::Colors;
+    using namespace ProfilerStyle;
+    const auto text = Contrast::foreground();
+    const auto textMuted = Contrast::foreground(Colors::textMuted);
+    const auto border = Contrast::outline();
+    const auto accent = Contrast::accent();
+    const auto selectedText = Contrast::enabled ? juce::Colours::black : text;
 
-    setColourScheme({background, container, container, border, text, accent, text, accent, text});
+    setColourScheme({Colors::background, Colors::container, Colors::container, border, text, accent, text, accent, text});
 
-    setColour(juce::ResizableWindow::backgroundColourId, background);
-    setColour(juce::DocumentWindow::backgroundColourId, background);
+    setColour(juce::ResizableWindow::backgroundColourId, Colors::background);
+    setColour(juce::DocumentWindow::backgroundColourId, Colors::background);
     setColour(juce::DocumentWindow::textColourId, text);
 
-    setColour(juce::TextButton::buttonColourId, elevated);
+    setColour(juce::TextButton::buttonColourId, Colors::elevated);
     setColour(juce::TextButton::buttonOnColourId, accent);
     setColour(juce::TextButton::textColourOffId, text);
-    setColour(juce::TextButton::textColourOnId, text);
+    setColour(juce::TextButton::textColourOnId, selectedText);
 
     setColour(juce::ToggleButton::textColourId, text);
     setColour(juce::ToggleButton::tickColourId, accent);
@@ -94,33 +99,93 @@ void CustomLookAndFeel::applyColourScheme() {
     setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
 
-    setColour(juce::ComboBox::backgroundColourId, elevated);
+    setColour(juce::ComboBox::backgroundColourId, Colors::elevated);
     setColour(juce::ComboBox::textColourId, text);
     setColour(juce::ComboBox::outlineColourId, border);
     setColour(juce::ComboBox::arrowColourId, textMuted);
     setColour(juce::ComboBox::focusedOutlineColourId, accent);
 
-    setColour(juce::PopupMenu::backgroundColourId, container);
+    setColour(juce::PopupMenu::backgroundColourId, Colors::container);
     setColour(juce::PopupMenu::textColourId, text);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, accent.withAlpha(0.18f));
-    setColour(juce::PopupMenu::highlightedTextColourId, text);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, Contrast::enabled ? accent : accent.withAlpha(0.18f));
+    setColour(juce::PopupMenu::highlightedTextColourId, selectedText);
 
-    setColour(juce::TextEditor::backgroundColourId, elevated);
+    setColour(juce::TextEditor::backgroundColourId, Colors::elevated);
     setColour(juce::TextEditor::textColourId, text);
     setColour(juce::TextEditor::outlineColourId, border);
     setColour(juce::TextEditor::focusedOutlineColourId, accent);
-    setColour(juce::TextEditor::highlightColourId, accent.withAlpha(0.28f));
-    setColour(juce::TextEditor::highlightedTextColourId, text);
+    setColour(juce::TextEditor::highlightColourId, Contrast::enabled ? accent : accent.withAlpha(0.28f));
+    setColour(juce::TextEditor::highlightedTextColourId, selectedText);
     setColour(juce::CaretComponent::caretColourId, accent);
 
     setColour(juce::ScrollBar::thumbColourId, accent);
-    setColour(juce::ScrollBar::trackColourId, container);
+    setColour(juce::ScrollBar::trackColourId, Colors::container);
 
-    setColour(juce::TooltipWindow::backgroundColourId, tooltip);
+    setColour(juce::TooltipWindow::backgroundColourId, Colors::tooltip);
     setColour(juce::TooltipWindow::textColourId, juce::Colours::white);
     setColour(juce::TooltipWindow::outlineColourId, juce::Colours::transparentBlack);
-    setColour(juce::BubbleComponent::backgroundColourId, tooltip);
+    setColour(juce::BubbleComponent::backgroundColourId, Colors::tooltip);
     setColour(juce::BubbleComponent::outlineColourId, juce::Colours::transparentBlack);
+}
+
+void CustomLookAndFeel::refreshTheme(juce::Component& root) {
+    applyColourScheme();
+    const auto refresh = [this](auto&& self, juce::Component& component) -> void {
+        // TextEditor caches character colours, so update existing text as well
+        // as its LookAndFeel. Preserve explicit overrides for the normal theme.
+        if (auto* editor = dynamic_cast<juce::TextEditor*>(&component)) {
+            for (const int id : {juce::TextEditor::textColourId,
+                                 juce::TextEditor::highlightColourId,
+                                 juce::TextEditor::highlightedTextColourId}) {
+                const juce::Identifier key("normalThemeColour" + juce::String(id));
+                auto& properties = editor->getProperties();
+                if (ProfilerStyle::Contrast::enabled) {
+                    if (!properties.contains(key)) {
+                        properties.set(key, editor->isColourSpecified(id)
+                                                ? juce::var(static_cast<juce::int64>(editor->findColour(id).getARGB()))
+                                                : juce::var());
+                    }
+                    editor->setColour(id, findColour(id));
+                } else if (properties.contains(key)) {
+                    const auto original = properties[key];
+                    if (original.isVoid()) {
+                        editor->removeColour(id);
+                    } else {
+                        editor->setColour(id, juce::Colour(static_cast<juce::uint32>(static_cast<juce::int64>(original))));
+                    }
+                    properties.remove(key);
+                }
+            }
+            editor->applyColourToAllText(editor->findColour(juce::TextEditor::textColourId));
+        }
+        if (auto* scroll = dynamic_cast<juce::ScrollBar*>(&component)) {
+            // Existing viewports specify the normal accent locally.
+            scroll->setColour(juce::ScrollBar::thumbColourId, ProfilerStyle::Contrast::accent());
+        }
+        for (int i = 0; i < component.getNumChildComponents(); ++i) {
+            self(self, *component.getChildComponent(i));
+        }
+        component.repaint();
+    };
+    refresh(refresh, root);
+    root.sendLookAndFeelChange();
+}
+
+void CustomLookAndFeel::fillTextEditorBackground(juce::Graphics& g, int width, int height, juce::TextEditor& editor) {
+    if (!ProfilerStyle::Contrast::enabled) {
+        juce::LookAndFeel_V4::fillTextEditorBackground(g, width, height, editor);
+        return;
+    }
+    g.fillAll(juce::Colours::black);
+}
+
+void CustomLookAndFeel::drawTextEditorOutline(juce::Graphics& g, int width, int height, juce::TextEditor& editor) {
+    if (!ProfilerStyle::Contrast::enabled) {
+        juce::LookAndFeel_V4::drawTextEditorOutline(g, width, height, editor);
+        return;
+    }
+    g.setColour(editor.hasKeyboardFocus(true) ? ProfilerStyle::Contrast::accent() : juce::Colours::white);
+    g.drawRect(0, 0, width, height, 2);
 }
 
 juce::Font CustomLookAndFeel::getUiFont(float height, juce::Font::FontStyleFlags style) const {
@@ -187,7 +252,7 @@ juce::Font CustomLookAndFeel::getTabButtonFont(juce::TabBarButton&, float height
 
 void CustomLookAndFeel::drawAccentGlow(juce::Graphics& g, juce::Rectangle<float> bounds, float intensity,
                                        juce::Colour colour) const {
-    if (intensity <= 0.0f) {
+    if (intensity <= 0.0f || ProfilerStyle::Contrast::enabled) {
         return;
     }
 
@@ -233,6 +298,14 @@ void CustomLookAndFeel::paintFlatButtonBackground(juce::Graphics& g,
                                                   bool isOn,
                                                   bool outlineVisible,
                                                   juce::Colour outlineColour) const {
+    if (ProfilerStyle::Contrast::enabled) {
+        const bool selected = isOn || isButtonDown;
+        g.setColour(selected ? ProfilerStyle::Contrast::accent() : juce::Colours::black);
+        g.fillRoundedRectangle(bounds, kButtonCorner);
+        g.setColour(isMouseOver || selected ? ProfilerStyle::Contrast::accent() : juce::Colours::white);
+        g.drawRoundedRectangle(bounds.reduced(1.0f), kButtonCorner, 2.0f);
+        return;
+    }
     auto fillBounds = outlineVisible ? bounds.reduced(1.5f) : bounds;
     auto fill = backgroundColour;
 
@@ -249,12 +322,12 @@ void CustomLookAndFeel::paintFlatButtonBackground(juce::Graphics& g,
     g.fillRoundedRectangle(fillBounds, kButtonCorner);
 
     if (glowIntensity > 0.0f) {
-        g.setColour(ProfilerStyle::Colors::accent.withAlpha(0.1f * glowIntensity));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::accent.withAlpha(0.1f * glowIntensity)));
         g.fillRoundedRectangle(fillBounds, kButtonCorner);
-        g.setColour(ProfilerStyle::Colors::accent.withAlpha(0.55f * glowIntensity));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::accent.withAlpha(0.55f * glowIntensity)));
         g.drawRoundedRectangle(fillBounds.reduced(0.5f), kButtonCorner, 1.0f);
     } else {
-        g.setColour(ProfilerStyle::Colors::border);
+        g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border));
         g.drawRoundedRectangle(fillBounds.reduced(0.5f), kButtonCorner, 1.0f);
     }
 
@@ -278,14 +351,21 @@ void CustomLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
                               getPropertyFlag(button, ProfilerStyle::Properties::outlineVisible, false),
                               getStoredColour(button, ProfilerStyle::Properties::outlineColour,
                                               ProfilerStyle::Colors::lightestGrey));
+    if (ProfilerStyle::Contrast::enabled && button.hasKeyboardFocus(true)) {
+        g.setColour(ProfilerStyle::Contrast::accent());
+        g.drawRoundedRectangle(button.getLocalBounds().toFloat().reduced(3.0f), kButtonCorner, 2.0f);
+    }
 }
 
 void CustomLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button,
                                        bool /*isMouseOverButton*/, bool /*isButtonDown*/) {
-    const auto alpha = button.isEnabled() ? 1.0f : 0.45f;
-    g.setColour(button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
+    const auto alpha = button.isEnabled() ? 1.0f : ProfilerStyle::Contrast::disabledAlpha();
+    const auto normal = button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
                                                           : juce::TextButton::textColourOffId)
-                    .withMultipliedAlpha(alpha));
+                    .withMultipliedAlpha(alpha);
+    g.setColour(ProfilerStyle::Contrast::enabled
+                    ? (button.getToggleState() || button.isDown() ? juce::Colours::black : juce::Colours::white).withAlpha(alpha)
+                    : normal);
     g.setFont(getTextButtonFont(button, button.getHeight()));
     g.drawText(button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, true);
 }
@@ -298,17 +378,17 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
     auto knobArea = bounds.withSizeKeepingCentre(side, side);
     const auto centre = knobArea.getCentre();
     const auto radius = side * 0.5f;
-    const auto enabledAlpha = slider.isEnabled() ? 1.0f : 0.35f;
+    const auto enabledAlpha = slider.isEnabled() ? 1.0f : ProfilerStyle::Contrast::disabledAlpha(0.35f);
     const auto toAngle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
     const auto lineW = juce::jlimit(1.5f, 2.4f, radius * 0.08f);
     const auto arcRadius = radius - lineW * 1.2f;
     const auto isActive = slider.isEnabled() && (slider.isMouseOverOrDragging() || slider.hasKeyboardFocus(true));
-    const auto accent = slider.findColour(juce::Slider::rotarySliderFillColourId);
+    const auto accent = ProfilerStyle::Contrast::accent(slider.findColour(juce::Slider::rotarySliderFillColourId));
 
     juce::Path backgroundArc;
     backgroundArc.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                                 rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour(ProfilerStyle::Colors::border.withAlpha(enabledAlpha));
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.withAlpha(enabledAlpha)));
     g.strokePath(backgroundArc, juce::PathStrokeType(lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     if (slider.isEnabled()) {
@@ -329,7 +409,7 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
         const auto valueText = slider.getTextFromValue(slider.getValue()).trim();
         const auto fontHeight = juce::jlimit(9.0f, 10.0f, radius * 0.32f);
         g.setFont(ProfilerStyle::Fonts::medium(fontHeight));
-        g.setColour(ProfilerStyle::Colors::text.withAlpha(enabledAlpha));
+        g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text.withAlpha(enabledAlpha)));
         g.drawFittedText(valueText,
                          knobArea.reduced(radius * 0.28f).toNearestInt(),
                          juce::Justification::centred,
@@ -348,7 +428,7 @@ void CustomLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
     }
 
     const auto isVertical = style == juce::Slider::LinearVertical || style == juce::Slider::LinearBarVertical;
-    const auto enabledAlpha = slider.isEnabled() ? 1.0f : 0.35f;
+    const auto enabledAlpha = slider.isEnabled() ? 1.0f : ProfilerStyle::Contrast::disabledAlpha(0.35f);
     const auto trackThickness = 4.0f;
     const auto isActive = slider.isEnabled() && (slider.isMouseOverOrDragging() || slider.hasKeyboardFocus(true));
 
@@ -356,7 +436,7 @@ void CustomLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
                                              ? bounds.withSizeKeepingCentre(trackThickness, bounds.getHeight())
                                              : bounds.withSizeKeepingCentre(bounds.getWidth(), trackThickness);
 
-    g.setColour(ProfilerStyle::Colors::border.withAlpha(enabledAlpha));
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.withAlpha(enabledAlpha)));
     g.fillRoundedRectangle(trackBounds, trackThickness * 0.5f);
 
     const auto clampedSliderPos = isVertical
@@ -371,10 +451,10 @@ void CustomLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
                                                                           clampedSliderPos - trackBounds.getX(), trackBounds.getHeight());
 
         if (!valueBounds.isEmpty()) {
-            g.setColour(ProfilerStyle::Colors::accent.withAlpha(isActive ? 0.22f : 0.12f));
+            g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::accent.withAlpha(isActive ? 0.22f : 0.12f)));
             g.fillRoundedRectangle(valueBounds.expanded(isVertical ? 2.0f : 0.0f, isVertical ? 0.0f : 2.0f),
                                    trackThickness * 0.5f);
-            g.setColour(ProfilerStyle::Colors::accent);
+            g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::accent));
             g.fillRoundedRectangle(valueBounds, trackThickness * 0.5f);
         }
     }
@@ -392,7 +472,7 @@ void CustomLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
 
     g.setColour(ProfilerStyle::Colors::elevated.withAlpha(enabledAlpha));
     g.fillEllipse(thumbBounds);
-    g.setColour(ProfilerStyle::Colors::accent.withAlpha(enabledAlpha));
+    g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::accent.withAlpha(enabledAlpha)));
     g.drawEllipse(thumbBounds.reduced(0.5f), 1.4f);
 }
 
@@ -408,6 +488,17 @@ void CustomLookAndFeel::drawSwitch(juce::Graphics& g, juce::Rectangle<float> are
     const auto trackW = juce::jmin(area.getWidth() * 0.86f, trackH * 1.9f);
     auto trackRect = area.withSizeKeepingCentre(trackW, trackH);
     const auto cornerSize = trackH * 0.5f;
+    if (ProfilerStyle::Contrast::enabled) {
+        g.setColour(ticked ? ProfilerStyle::Contrast::accent() : juce::Colours::black);
+        g.fillRoundedRectangle(trackRect, cornerSize);
+        g.setColour(juce::Colours::white);
+        g.drawRoundedRectangle(trackRect, cornerSize, 2.0f);
+        const auto thumbSize = trackH - 4.0f;
+        const auto thumbX = ticked ? trackRect.getRight() - thumbSize - 2.0f : trackRect.getX() + 2.0f;
+        g.setColour((ticked ? juce::Colours::black : juce::Colours::white).withAlpha(isEnabled ? 1.0f : 0.65f));
+        g.fillEllipse(thumbX, trackRect.getCentreY() - thumbSize * 0.5f, thumbSize, thumbSize);
+        return;
+    }
     auto trackColour = ticked ? ProfilerStyle::Colors::accent : ProfilerStyle::Colors::border;
 
     if (isMouseOver) {
@@ -434,7 +525,7 @@ void CustomLookAndFeel::drawSwitch(juce::Graphics& g, juce::Rectangle<float> are
                                : trackRect.getX() + thumbPadding;
     auto thumbRect = juce::Rectangle<float>(thumbX, trackRect.getCentreY() - thumbSize * 0.5f, thumbSize, thumbSize);
 
-    g.setColour(ProfilerStyle::Colors::text.withAlpha(enabledAlpha));
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text.withAlpha(enabledAlpha)));
     g.fillEllipse(thumbRect);
 }
 
@@ -470,7 +561,7 @@ void CustomLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
                                      int, int, int, int, juce::ComboBox& box) {
     auto area = juce::Rectangle<int>(0, 0, width, height).toFloat().reduced(1.0f);
     paintFlatButtonBackground(g, area, box.findColour(juce::ComboBox::backgroundColourId),
-                              box.isMouseOver(), isButtonDown, false);
+                              box.isMouseOver(), isButtonDown && !ProfilerStyle::Contrast::enabled, false);
 
     auto arrowZone = juce::Rectangle<float>(static_cast<float>(width) - 24.0f, 0.0f, 18.0f, static_cast<float>(height));
     juce::Path path;
@@ -478,8 +569,13 @@ void CustomLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
                      arrowZone.getCentreX() + 4.0f, arrowZone.getCentreY() - 2.0f,
                      arrowZone.getCentreX(), arrowZone.getCentreY() + 4.0f);
 
-    g.setColour(box.findColour(juce::ComboBox::arrowColourId).withAlpha(box.isEnabled() ? 0.85f : 0.4f));
+    g.setColour(ProfilerStyle::Contrast::foreground(box.findColour(juce::ComboBox::arrowColourId))
+                    .withAlpha(box.isEnabled() ? 1.0f : ProfilerStyle::Contrast::disabledAlpha(0.4f)));
     g.fillPath(path);
+    if (ProfilerStyle::Contrast::enabled && box.hasKeyboardFocus(true)) {
+        g.setColour(ProfilerStyle::Contrast::accent());
+        g.drawRoundedRectangle(area.reduced(3.0f), kButtonCorner, 2.0f);
+    }
 }
 
 void CustomLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label) {
@@ -490,7 +586,7 @@ void CustomLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& l
 
 void CustomLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height) {
     g.fillAll(ProfilerStyle::Colors::container);
-    g.setColour(ProfilerStyle::Colors::border);
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border));
     g.drawRect(0, 0, width, height, 1);
 }
 
@@ -501,7 +597,7 @@ void CustomLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
                                           const juce::String& /*shortcutKeyText*/,
                                           const juce::Drawable* /*icon*/, const juce::Colour* textColourToUse) {
     if (isSeparator) {
-        g.setColour(ProfilerStyle::Colors::border);
+        g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border));
         g.fillRect(area.reduced(8, 0).withHeight(1).withY(area.getCentreY()));
         return;
     }
@@ -509,7 +605,7 @@ void CustomLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
     auto r = area.toFloat().reduced(3.0f, 1.0f);
 
     if (isHighlighted && isActive) {
-        g.setColour(ProfilerStyle::Colors::accent.withAlpha(0.16f));
+        g.setColour(ProfilerStyle::Contrast::enabled ? ProfilerStyle::Contrast::accent() : ProfilerStyle::Colors::accent.withAlpha(0.16f));
         g.fillRoundedRectangle(r, 3.0f);
     }
 
@@ -517,6 +613,11 @@ void CustomLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
                                                  : ProfilerStyle::Colors::text.withAlpha(isActive ? 1.0f : 0.45f);
     if (isHighlighted && isActive) {
         textColour = ProfilerStyle::Colors::text;
+    }
+
+    if (ProfilerStyle::Contrast::enabled) {
+        textColour = (isHighlighted && isActive ? juce::Colours::black : juce::Colours::white)
+                         .withAlpha(isActive ? 1.0f : 0.65f);
     }
 
     g.setColour(textColour);
@@ -528,7 +629,7 @@ void CustomLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
         auto indicatorRect = juce::Rectangle<float>(r.getRight() - 18.0f,
                                                     r.getCentreY() - indicatorSize * 0.5f,
                                                     indicatorSize, indicatorSize);
-        g.setColour(ProfilerStyle::Colors::accent);
+        g.setColour(ProfilerStyle::Contrast::enabled && isHighlighted ? juce::Colours::black : ProfilerStyle::Contrast::accent());
         g.fillEllipse(indicatorRect);
     }
 }
@@ -559,11 +660,11 @@ void CustomLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics
 
     if (isFront) {
         auto indicator = area.removeFromBottom(2.0f).reduced(8.0f, 0.0f);
-        g.setColour(ProfilerStyle::Colors::accent.withAlpha(0.7f));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::accent.withAlpha(0.7f)));
         g.fillRoundedRectangle(indicator, 1.0f);
     }
 
-    g.setColour(isFront ? ProfilerStyle::Colors::text : ProfilerStyle::Colors::textMuted);
+    g.setColour(ProfilerStyle::Contrast::foreground(isFront ? ProfilerStyle::Colors::text : ProfilerStyle::Colors::textMuted));
     g.setFont(ProfilerStyle::Fonts::medium(12.0f));
     g.drawText(button.getButtonText(), button.getLocalBounds().toFloat().reduced(2.0f),
                juce::Justification::centred);
@@ -581,7 +682,11 @@ void CustomLookAndFeel::drawLabel(juce::Graphics& g, juce::Label& label) {
 
     if (!label.isBeingEdited()) {
         const auto font = getLabelFont(label);
-        g.setColour(label.findColour(juce::Label::textColourId).withMultipliedAlpha(label.isEnabled() ? 1.0f : 0.45f));
+        // JUCE's standalone feedback warning uses black text on a yellow panel.
+        const auto normalColour = label.findColour(juce::Label::textColourId);
+        const auto textColour = normalColour == juce::Colours::black ? normalColour : ProfilerStyle::Contrast::foreground(normalColour);
+        g.setColour(textColour
+                        .withMultipliedAlpha(label.isEnabled() ? 1.0f : ProfilerStyle::Contrast::disabledAlpha()));
         g.setFont(font);
         g.drawText(label.getText(), label.getLocalBounds(), label.getJustificationType(), false);
     }
@@ -606,6 +711,10 @@ void CustomLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text,
     auto bounds = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
     g.setColour(ProfilerStyle::Colors::tooltip);
     g.fillRoundedRectangle(bounds, 4.0f);
+    if (ProfilerStyle::Contrast::enabled) {
+        g.setColour(juce::Colours::white);
+        g.drawRoundedRectangle(bounds.reduced(1.0f), 4.0f, 2.0f);
+    }
     g.setColour(juce::Colours::white);
     g.setFont(getTooltipFont());
     g.drawFittedText(text, bounds.reduced(8.0f, 3.0f).toNearestInt(), juce::Justification::centredLeft, 3);
@@ -637,6 +746,23 @@ void CustomLookAndFeel::drawSignalChainBlock(juce::Graphics& g,
                                              bool isActive,
                                              bool isMouseOver,
                                              bool ledOn) const {
+    if (ProfilerStyle::Contrast::enabled) {
+        g.setColour(juce::Colours::black);
+        g.fillRoundedRectangle(bounds, 6.0f);
+        g.setColour(isActive || isMouseOver ? ProfilerStyle::Contrast::accent() : juce::Colours::white);
+        g.drawRoundedRectangle(bounds.reduced(1.5f), 6.0f, isActive ? 3.0f : 2.0f);
+        const auto led = getSignalChainLedBounds(bounds);
+        if (ledOn) {
+            g.setColour(ProfilerStyle::Contrast::accent());
+            g.fillEllipse(led);
+        } else {
+            g.setColour(juce::Colours::white);
+            g.drawEllipse(led, 1.5f);
+        }
+        const auto size = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
+        drawRigIcon(g, bounds.withSizeKeepingCentre(size, size), icon, ProfilerStyle::Contrast::accent());
+        return;
+    }
     const auto borderAlpha = isActive ? 1.0f : (isMouseOver ? 0.92f : 0.72f);
     const auto borderWidth = isActive ? 2.0f : 1.0f;
     const auto glow = isActive ? 0.48f : (isMouseOver ? 0.28f : 0.12f);
@@ -653,7 +779,7 @@ void CustomLookAndFeel::drawSignalChainBlock(juce::Graphics& g,
         juce::DropShadow(categoryColour.withAlpha(0.35f), 3, {}).drawForRectangle(g, led.toNearestInt());
         g.setColour(categoryColour);
     } else {
-        g.setColour(ProfilerStyle::Colors::border.brighter(0.12f));
+        g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.brighter(0.12f)));
     }
     g.fillEllipse(led);
 
@@ -693,7 +819,7 @@ void CustomLookAndFeel::drawSignalIoNode(juce::Graphics& g,
     const auto level = juce::jlimit(0.0f, 1.0f, signalLevel);
 
     if (isActive || isMouseOver) {
-        g.setColour(colour.withAlpha(isActive ? 0.22f : 0.12f));
+        g.setColour(ProfilerStyle::Contrast::enabled ? ProfilerStyle::Contrast::accent() : colour.withAlpha(isActive ? 0.22f : 0.12f));
         g.drawEllipse(ring.expanded(2.2f), 3.0f);
     }
 
@@ -725,7 +851,7 @@ void CustomLookAndFeel::drawSignalIoNode(juce::Graphics& g,
         g.fillEllipse(centre.x - coreRadius, centre.y - coreRadius, coreRadius * 2.0f, coreRadius * 2.0f);
     }
 
-    g.setColour(colour.withAlpha(ledOn ? alpha : 0.32f));
+    g.setColour(ProfilerStyle::Contrast::foreground(colour.withAlpha(ledOn ? alpha : 0.32f)));
     g.drawEllipse(ring, kSignalBusCoreWidth);
 
     if (!showLed) {
@@ -736,7 +862,7 @@ void CustomLookAndFeel::drawSignalIoNode(juce::Graphics& g,
     if (ledOn) {
         g.setColour(colour);
     } else {
-        g.setColour(ProfilerStyle::Colors::border.brighter(0.12f));
+        g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.brighter(0.12f)));
     }
     g.fillEllipse(led);
 }
@@ -752,11 +878,12 @@ void CustomLookAndFeel::drawSignalBus(juce::Graphics& g, juce::Point<float> from
 void CustomLookAndFeel::drawEmptySignalSlot(juce::Graphics& g, juce::Rectangle<float> bounds) const {
     const auto side = juce::jmin(bounds.getWidth(), bounds.getHeight()) / 2.5f;
     auto outline = bounds.withSizeKeepingCentre(side, side);
-    g.setColour(ProfilerStyle::Colors::slotBorder);
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::slotBorder));
     g.drawRoundedRectangle(outline, 6.0f, 1.0f);
 }
 
 void CustomLookAndFeel::drawRigIcon(juce::Graphics& g, juce::Rectangle<float> bounds, RigIcon icon, juce::Colour colour) const {
+    colour = ProfilerStyle::Contrast::accent(colour);
     g.setColour(colour);
     const auto strokeW = juce::jlimit(1.1f, 1.8f, juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.05f);
     const auto stroke = juce::PathStrokeType(strokeW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
@@ -914,7 +1041,7 @@ void CustomLookAndFeel::drawSignalCable(juce::Graphics& g,
                                         juce::Point<float> from,
                                         juce::Point<float> to,
                                         bool isEnergized) const {
-    const auto colour = isEnergized ? juce::Colour(0xffC5C5CE) : ProfilerStyle::Colors::border.brighter(0.2f);
+    const auto colour = ProfilerStyle::Contrast::outline(isEnergized ? juce::Colour(0xffC5C5CE) : ProfilerStyle::Colors::border.brighter(0.2f));
     const auto span = juce::jmax(8.0f, from.getDistanceFrom(to));
     const auto glowW = juce::jlimit(2.2f, 3.4f, span * 0.22f);
     const auto coreW = juce::jlimit(1.0f, 1.4f, span * 0.09f);
@@ -945,8 +1072,9 @@ void CustomLookAndFeel::drawDropZone(juce::Graphics& g,
     g.setColour(ProfilerStyle::Colors::blockFill);
     g.fillRoundedRectangle(bounds, kPanelCorner);
 
-    g.setColour(isDragOver ? categoryColour
-                           : (isLoaded ? categoryColour.withAlpha(0.55f) : ProfilerStyle::Colors::border));
+    g.setColour(ProfilerStyle::Contrast::enabled
+                    ? (isDragOver ? ProfilerStyle::Contrast::accent() : juce::Colours::white)
+                    : (isDragOver ? categoryColour : (isLoaded ? categoryColour.withAlpha(0.55f) : ProfilerStyle::Colors::border)));
     g.drawRoundedRectangle(bounds.reduced(0.5f), kPanelCorner, 1.0f);
 
     if (isDragOver) {
@@ -969,7 +1097,7 @@ void CustomLookAndFeel::drawDropZone(juce::Graphics& g,
     drawRigIcon(g, iconBounds, icon, isDragOver || isLoaded ? categoryColour : ProfilerStyle::Colors::caption);
 
     const auto titleSize = juce::jlimit(12.0f, 14.0f, bounds.getHeight() * 0.14f);
-    g.setColour(ProfilerStyle::Colors::caption);
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::caption));
     g.setFont(ProfilerStyle::Fonts::moduleTitle());
     auto titleBounds = content.removeFromTop(titleSize + 4.0f);
     g.drawFittedText(title, titleBounds.toNearestInt(), juce::Justification::centred, 1);
@@ -977,14 +1105,14 @@ void CustomLookAndFeel::drawDropZone(juce::Graphics& g,
     const auto detailSize = juce::jlimit(isLoaded ? 14.0f : 12.0f, 16.0f, bounds.getHeight() * 0.16f);
     const auto detailFont = isLoaded ? ProfilerStyle::Fonts::bold(detailSize) : ProfilerStyle::Fonts::medium(detailSize);
     g.setFont(detailFont);
-    g.setColour(isLoaded ? ProfilerStyle::Colors::text : ProfilerStyle::Colors::caption);
+    g.setColour(ProfilerStyle::Contrast::foreground(isLoaded ? ProfilerStyle::Colors::text : ProfilerStyle::Colors::caption));
     g.drawText(ellipsize(detailFont, detail, content.getWidth()),
                content.toNearestInt(),
                juce::Justification::centred,
                false);
 
     g.setFont(ProfilerStyle::Fonts::medium(hintSize));
-    g.setColour(ProfilerStyle::Colors::caption.withAlpha(0.85f));
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::caption.withAlpha(0.85f)));
     g.drawFittedText("Left click / Drag & Drop to load  •  Right click to unload",
                      hintBounds.toNearestInt(),
                      juce::Justification::centred,

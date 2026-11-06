@@ -154,11 +154,11 @@ void FxEditPanel::paint(juce::Graphics& g) {
 
 void FxEditPanel::paintStrobe(juce::Graphics& g, juce::Rectangle<int> area) const {
     auto bar = area.removeFromTop(28).toFloat();
-    g.setColour(ProfilerStyle::Colors::border);
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border));
     g.fillRoundedRectangle(bar, 4.0f);
     const float x = bar.getCentreX() + std::sin(_tuner.strobe) * bar.getWidth() * 0.42f;
     const bool locked = _tuner.count > 0 && std::abs(_tuner.cents[0]) < 1.2f;
-    g.setColour(locked ? juce::Colour(0xff34D399) : ProfilerStyle::Colors::accent);
+    g.setColour(ProfilerStyle::Contrast::accent(locked ? juce::Colour(0xff34D399) : ProfilerStyle::Colors::accent));
     g.fillRoundedRectangle(juce::Rectangle<float>(4.0f, bar.getHeight() - 8.0f).withCentre({x, bar.getCentreY()}), 2.0f);
 }
 
