@@ -15,12 +15,15 @@
 *.LSOverride
 *.xcuserdata
 *.xcschememanagement.plist
-build-*
+build-*/
 ipch/*
 Icon?
 .DS_Stor*
 build
+dist
 .cache
+__pycache__/
+*.pyc
 JuceLibraryCode
 .vscode
 Libs/JUCE

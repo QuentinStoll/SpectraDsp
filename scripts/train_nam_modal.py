@@ -194,7 +194,7 @@ web_image = modal.Image.debian_slim(python_version="3.12").pip_install("fastapi"
 @app.function(image=web_image, timeout=60)
 @modal.fastapi_endpoint(method="POST", label="profiler-nam-train", requires_proxy_auth=True)
 def start(payload: dict):
-    """Spawn GPU training. Only profiler.audio calls this, with Modal proxy auth."""
+    """Spawn GPU training. Only spectradsp.com calls this, with Modal proxy auth."""
     required = ("name", "keyHex", "inputUrl", "outputUrl", "uploadUrl", "completeUrl", "jobToken")
     if not isinstance(payload, dict) or any(not payload.get(key) for key in required):
         return {"error": "Missing training fields."}

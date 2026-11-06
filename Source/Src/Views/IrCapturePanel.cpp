@@ -76,7 +76,7 @@ void IrCapturePanel::refreshAccountState() {
         return;
     }
 
-    _body.setText("The sweep is saved as a profile in this app. The sealed copy is also sent to My creations on profiler.audio.",
+    _body.setText("The sweep is saved as a profile in this app. The sealed copy is also sent to My creations on spectradsp.com.",
                   juce::dontSendNotification);
     _cloneButton.setEnabled(signedIn && !_busy);
     if (!signedIn) {

@@ -1,0 +1,3 @@
+In ProfilerMarketplace app/page.tsx, change the Get the rig subtitle:
+
+  The standalone player and the plugin, for Mac, Windows, and Linux. Same engine either way.
