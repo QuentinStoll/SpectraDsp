@@ -247,6 +247,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install OpenCppCoverage
+        shell: cmd
+        run: choco install opencppcoverage --no-progress -y
+
       - name: Run tests with coverage
         shell: cmd
         run: install.bat test --coverage
