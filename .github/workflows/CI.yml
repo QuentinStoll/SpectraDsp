@@ -403,8 +403,8 @@ jobs:
     name: Publish Release
     needs: [tests, coverage, build]
     # Manual only. Merging to main runs the checks above and does not publish.
-    # Coverage may fail independently (instrumented Debug realtime); installers still ship.
-    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main') && needs.tests.result == 'success' && needs.build.result == 'success'
+    # always() is required so a coverage failure does not skip this job.
+    if: always() && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main') && needs.tests.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
