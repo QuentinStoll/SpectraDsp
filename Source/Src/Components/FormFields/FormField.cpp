@@ -1,4 +1,5 @@
 #include "Components/FormFields/FormField.h"
+#include "ActionFeedback.h"
 
 #include "Stylesheet.h"
 
@@ -52,7 +53,8 @@ void FormField::resized() {
     resizedControl(row);
 }
 
-void FormField::notifyValueChanged() {
+void FormField::notifyValueChanged(const juce::String& statusMessage) {
+    ActionFeedback::post(*this, statusMessage.isNotEmpty() ? statusMessage : getLabelText() + " updated.");
     if (onValueChanged) {
         onValueChanged(*this);
     }

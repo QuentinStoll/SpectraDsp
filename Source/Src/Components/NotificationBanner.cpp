@@ -1,6 +1,7 @@
 #include "Components/NotificationBanner.h"
 
 #include "BinaryData.h"
+#include "ActionFeedback.h"
 
 namespace {
 int getTextWidth(const juce::Font& font, const juce::String& text) {
@@ -39,6 +40,7 @@ void NotificationBanner::showMessage(const juce::String& message,
                                      int timeoutMs) {
     _message = message;
     _type = type;
+    ActionFeedback::post(*this, message, type == Type::Error);
 
     if (timeoutMs > 0)
         startTimer(timeoutMs);

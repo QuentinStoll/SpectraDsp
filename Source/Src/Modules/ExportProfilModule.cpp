@@ -1,4 +1,5 @@
 #include "Modules/ExportProfilModule.h"
+#include "ActionFeedback.h"
 
 #include "BinaryData.h"
 #include "ProfileManager.h"
@@ -110,6 +111,7 @@ void ExportProfilModule::setExportValues(const juce::NamedValueSet& values,
 }
 
 void ExportProfilModule::exportProfil() {
+    ActionFeedback::post(*this, "Choose where to export the profile.");
     const auto values = getEditedValues();
 
     const auto initialFile = getDefaultExportFileForName(_profileNameEditor.getText());
@@ -130,6 +132,8 @@ void ExportProfilModule::exportProfil() {
                                   const auto file = chooser.getResult();
                                   if (file.getFullPathName().isNotEmpty() && safeThis->onExportClicked) {
                                       safeThis->onExportClicked(values, file);
+                                  } else if (file.getFullPathName().isEmpty()) {
+                                      ActionFeedback::post(*safeThis, "Profile export cancelled.");
                                   }
 
                                   safeThis->_fileChooser.reset();

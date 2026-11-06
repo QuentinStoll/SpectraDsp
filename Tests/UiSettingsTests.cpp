@@ -99,6 +99,7 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadHardwareInfoSetting(), 1);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 100);
         expect(!UiSettings::loadHighContrastEnabled());
+        expect(!UiSettings::loadActionStatusEnabled());
         for (const int percent : {100, 125, 150, 175, 200}) {
             expectEquals(UiSettings::normaliseInterfaceScalePercent(percent), percent);
         }
@@ -116,6 +117,7 @@ class UiSettingsUnitTests : public juce::UnitTest {
 
         UiSettings::saveBackgroundColourPreset(4);
         UiSettings::saveHighContrastEnabled(true);
+        UiSettings::saveActionStatusEnabled(true);
         UiSettings::saveInterfaceScalePercent(175);
         UiSettings::saveTroubleshootingSetting(2);
         UiSettings::saveHardwareInfoSetting(2);
@@ -125,6 +127,7 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadHardwareInfoSetting(), 2);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 175);
         expect(UiSettings::loadHighContrastEnabled());
+        expect(UiSettings::loadActionStatusEnabled());
 
         UiSettings::saveInterfaceScalePercent(150);
         expectEquals(UiSettings::loadBackgroundColourPreset(), 4);
@@ -133,6 +136,9 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadInterfaceScalePercent(), 150);
         expect(UiSettings::loadHighContrastEnabled());
         UiSettings::saveHighContrastEnabled(false);
+        expect(UiSettings::loadActionStatusEnabled());
+        UiSettings::saveActionStatusEnabled(false);
+        expect(!UiSettings::loadActionStatusEnabled());
         expect(!UiSettings::loadHighContrastEnabled());
         expectEquals(UiSettings::loadInterfaceScalePercent(), 150);
         expectEquals(UiSettings::loadBackgroundColourPreset(), 4);
@@ -158,6 +164,9 @@ class UiSettingsUnitTests : public juce::UnitTest {
         expectEquals(UiSettings::loadHardwareInfoSetting(), 1);
         expectEquals(UiSettings::loadInterfaceScalePercent(), 100);
         expect(!UiSettings::loadHighContrastEnabled());
+        expect(!UiSettings::loadActionStatusEnabled());
+        expect(settings.file.replaceWithText("{\"actionStatusEnabled\":99}"));
+        expect(!UiSettings::loadActionStatusEnabled());
         expect(settings.file.replaceWithText("{\"highContrastEnabled\":99}"));
         expect(!UiSettings::loadHighContrastEnabled());
     }

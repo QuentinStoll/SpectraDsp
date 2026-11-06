@@ -1,6 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "ActionFeedback.h"
+#include "Components/ActionStatusBar.h"
 
 #include "Components/BlockPickerPage.h"
 #include "Components/CustomLookAndFeel.h"
@@ -17,6 +19,7 @@
 #include "Views/SettingsView.h"
 
 class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                     public ActionFeedback::Sink,
                                      private juce::ChangeListener,
                                      private juce::AudioProcessorValueTreeState::Listener,
                                      private juce::ValueTree::Listener,
@@ -32,6 +35,7 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void broughtToFront() override;
     void mouseDown(const juce::MouseEvent& event) override;
     bool keyPressed(const juce::KeyPress& key) override;
+    void reportAction(const juce::String& message, bool error = false) override;
 
    private:
     enum class OverlayMode {
@@ -42,6 +46,10 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     };
 
     ProfilerAudioProcessor& _audioProcessor;
+    ActionFeedback::ParameterChanges _parameterFeedback;
+    ActionStatusBar _actionStatusBar;
+    bool _actionStatusEnabled = false;
+    int _interfaceScalePercent = 100;
     CustomLookAndFeel _customLookAndFeel;
     ScalableViewport _contentViewport{editorWidth, editorHeight};
     juce::Component& _content = _contentViewport.getContent();

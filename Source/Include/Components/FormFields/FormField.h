@@ -22,7 +22,7 @@ class FormField : public juce::Component {
     std::function<void(FormField&)> onValueChanged;
 
    protected:
-    void notifyValueChanged();
+    void notifyValueChanged(const juce::String& statusMessage = {});
     virtual void resizedControl(juce::Rectangle<int> controlArea) = 0;
 
    private:

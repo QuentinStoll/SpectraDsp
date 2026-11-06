@@ -8,6 +8,7 @@ set(PROFILER_TEST_SOURCES
     NotificationBannerTests.cpp
     UiSettingsTests.cpp
     HighContrastTests.cpp
+    ActionFeedbackTests.cpp
     MarketplaceClientTests.cpp
     SpectraEngineTests.cpp
     FxQualityTests.cpp
@@ -18,6 +19,8 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ${PROFILER_TEST_SOURCES}
     ../Source/Src/Components/NotificationBanner.cpp
     ../Source/Src/Components/CustomLookAndFeel.cpp
+    ../Source/Src/ActionFeedback.cpp
+    ../Source/Src/Components/ActionStatusBar.cpp
     ../Source/Src/Logging.cpp
     ../Source/Src/AmpCapture.cpp
     ../Source/Src/PluginProcessor.cpp
@@ -232,6 +235,7 @@ add_profiler_ui_settings_test(Persistence "ui settings persistence")
 add_profiler_ui_settings_test(InvalidJson "ui settings invalid JSON")
 add_profiler_ui_settings_test(InterfaceScaling "interface scaling keeps controls reachable")
 add_profiler_ui_settings_test(HighContrast "high contrast colours and theme restoration")
+add_profiler_ui_settings_test(ActionFeedback "action feedback routing and user gestures")
 
 function(add_profiler_notification_banner_test test_name case_name)
     add_test(NAME ProfilerTests.NotificationBanner.${test_name}

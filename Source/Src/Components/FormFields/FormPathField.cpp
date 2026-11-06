@@ -1,4 +1,5 @@
 #include "Components/FormFields/FormPathField.h"
+#include "ActionFeedback.h"
 
 FormPathField::FormPathField(const juce::Identifier& fieldId,
                              const juce::String& labelText,
@@ -70,6 +71,7 @@ void FormPathField::resizedControl(juce::Rectangle<int> controlArea) {
 }
 
 void FormPathField::browseForPath() {
+    ActionFeedback::post(*this, "Choose a file for " + getLabelText() + ".");
     _fileChooser = std::make_unique<juce::FileChooser>("Select " + getLabelText(), juce::File{}, _filePatterns);
     const juce::Component::SafePointer<FormPathField> safeThis(this);
     _fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
@@ -85,6 +87,8 @@ void FormPathField::browseForPath() {
                                       if (safeThis->onFileSelected) {
                                           safeThis->onFileSelected(file);
                                       }
+                                  } else {
+                                      ActionFeedback::post(*safeThis, safeThis->getLabelText() + " file selection cancelled.");
                                   }
 
                                   safeThis->_fileChooser.reset();

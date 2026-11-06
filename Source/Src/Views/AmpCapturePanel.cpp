@@ -1,4 +1,5 @@
 #include "Views/AmpCapturePanel.h"
+#include "ActionFeedback.h"
 
 #include <cstdlib>
 
@@ -163,11 +164,13 @@ AmpCapturePanel::AmpCapturePanel(ProfilerAudioProcessor& processor)
         _auto = false;
         _stopRequested = true;
         _processor.stopAmpCapture();
+        ActionFeedback::post(*this, "Amp capture stop requested.");
     };
     _folderButton.onClick = [this]() {
         const auto folder = _lastFolder.isDirectory() ? _lastFolder : capturesFolder();
         folder.createDirectory();
-        folder.startAsProcess();
+        const bool opened = folder.startAsProcess();
+        ActionFeedback::post(*this, opened ? "Capture folder opened." : "Could not open the capture folder.", !opened);
     };
     for (auto* button : {&_chooseButton, &_roundTripButton, &_captureButton, &_stopButton, &_folderButton}) {
         addAndMakeVisible(button);
@@ -251,12 +254,16 @@ void AmpCapturePanel::refreshButtons() {
 }
 
 void AmpCapturePanel::chooseReamp() {
+    ActionFeedback::post(*this, "Choose the input WAV file for amp capture.");
     _chooser = std::make_unique<juce::FileChooser>("Choose NAM's input.wav", _reampFile, "*.wav");
     _chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this](const juce::FileChooser& chooser) {
                               const auto file = chooser.getResult();
                               if (file.existsAsFile()) {
                                   _reampFile = file;
+                                  ActionFeedback::post(*this, "Amp capture input selected: " + file.getFileName());
+                              } else {
+                                  ActionFeedback::post(*this, "Amp capture input selection cancelled.");
                               }
                               refreshButtons();
                           });
@@ -582,6 +589,7 @@ void AmpCapturePanel::pollCloud() {
 }
 
 void AmpCapturePanel::setStatus(const juce::String& text) {
+    ActionFeedback::post(*this, text);
     _status.setText(text, false);
 }
 

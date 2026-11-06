@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "Stylesheet.h"
+#include "ActionFeedback.h"
 
 namespace {
 struct TileSpec {
@@ -151,8 +152,10 @@ BlockPickerPage::BlockPickerPage() {
 
     _backButton.onClick = [this]() {
         showCategories();
+        ActionFeedback::post(*this, "Block categories opened.");
     };
     _closeButton.onClick = [this]() {
+        ActionFeedback::post(*this, "Block picker closed.");
         close();
     };
     _removeButton.onClick = [this]() {
@@ -246,6 +249,7 @@ void BlockPickerPage::showItems(int category) {
     _backButton.setEnabled(true);
     const auto& spec = kCategories[category];
     _title.setText(juce::String(spec.title).toUpperCase(), juce::dontSendNotification);
+    ActionFeedback::post(*this, juce::String(spec.title) + " block options opened.");
 
     for (int index = 0; index < static_cast<int>(_tiles.size()); ++index) {
         auto& tile = _tiles[static_cast<size_t>(index)];

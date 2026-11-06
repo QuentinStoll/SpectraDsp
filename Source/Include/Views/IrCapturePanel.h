@@ -34,6 +34,7 @@ class IrCapturePanel : public juce::Component,
     juce::Label _status;
 
     void refreshAccountState();
+    void setStatus(const juce::String& message);
     void startCapture();
     void sealAndUpload();
     void timerCallback() override;

@@ -124,6 +124,7 @@ juce::Point<int> standaloneMaxSize() {
 ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcessor& p)
     : AudioProcessorEditor(&p),
       _audioProcessor(p),
+      _parameterFeedback(p.getParameters()),
       _topBar(p),
       _inputGatePanel(p._apvts),
       _ampPanel(p),
@@ -135,6 +136,10 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
       _libraryView(p),
       _settingsView(p) {
     SettingsView::applySavedBackgroundColour();
+    _actionStatusEnabled = UiSettings::loadActionStatusEnabled();
+    _interfaceScalePercent = UiSettings::loadInterfaceScalePercent();
+    _parameterFeedback.setEnabled(_actionStatusEnabled);
+    addChildComponent(_actionStatusBar);
     ProfilerStyle::Contrast::setEnabled(UiSettings::loadHighContrastEnabled());
     setLookAndFeel(&_customLookAndFeel);
     _customLookAndFeel.applyColourScheme();
@@ -158,8 +163,15 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     addAndMakeVisible(_contentViewport);
     _contentViewport.setScalePercent(UiSettings::loadInterfaceScalePercent());
     _settingsView.onInterfaceScaleChanged = [this](int percent) {
+        _interfaceScalePercent = percent;
         _contentViewport.setScalePercent(percent);
         resized();
+    };
+    _settingsView.onActionStatusChanged = [this](bool enabled) {
+        _actionStatusEnabled = enabled;
+        _parameterFeedback.setEnabled(enabled);
+        resized();
+        if (enabled) reportAction("Action status messages enabled. Ready for your next action.");
     };
     _content.addAndMakeVisible(_topBar);
     _content.addAndMakeVisible(_signalChain);
@@ -239,6 +251,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _fxPanel.onEnabledChanged = setBlockEnabled;
     _signalChain.onSlotsSwapped = [this](int fromSlot, int toSlot) {
         _audioProcessor.swapChainSlots(fromSlot, toSlot);
+        reportAction("Moved block from slot " + juce::String(fromSlot + 1) + " to slot " + juce::String(toSlot + 1) + ".");
     };
     _signalChain.onBlockPickerRequested = [this](int slot) {
         openBlockPicker(slot);
@@ -248,6 +261,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         closeBlockPicker();
         _signalChain.setLayout(_audioProcessor.getChainLayout());
         updateChainStatus();
+        reportAction("All signal-chain blocks cleared.");
     };
     _blockPicker.onBlockChosen = [this](int slot, SignalChain::Stage stage) {
         placeChosenBlock(slot, stage);
@@ -256,6 +270,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         _audioProcessor.clearChainSlot(slot);
         _signalChain.setLayout(_audioProcessor.getChainLayout());
         updateChainStatus();
+        reportAction("Block removed from slot " + juce::String(slot + 1) + ".");
     };
     _blockPicker.onBlockRemoved = _signalChain.onBlockRemoved;
     _audioProcessor._apvts.state.addListener(this);
@@ -269,6 +284,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     };
     _exportModule.onCancelClicked = [this]() {
         showStudio();
+        reportAction("Profile export cancelled.");
     };
 
     _audioProcessor.getProfileManager().addChangeListener(this);
@@ -417,7 +433,15 @@ void ProfilerAudioProcessorEditor::openStandaloneFullscreen() {
 }
 
 void ProfilerAudioProcessorEditor::resized() {
-    _contentViewport.setBounds(getLocalBounds());
+    auto viewportBounds = getLocalBounds();
+    _actionStatusBar.setVisible(_actionStatusEnabled);
+    if (_actionStatusEnabled) {
+        const float scale = _interfaceScalePercent / 100.0f;
+        const auto footer = viewportBounds.removeFromBottom(juce::jmin(juce::roundToInt(64.0f * scale), getHeight() / 2));
+        _actionStatusBar.setTransform(juce::AffineTransform::scale(scale).translated(0.0f, static_cast<float>(footer.getY())));
+        _actionStatusBar.setBounds(0, 0, juce::roundToInt(footer.getWidth() / scale), juce::roundToInt(footer.getHeight() / scale));
+    }
+    _contentViewport.setBounds(viewportBounds);
 
     auto area = _content.getLocalBounds();
     _topBar.setBounds(area.removeFromTop(48));
@@ -478,6 +502,7 @@ void ProfilerAudioProcessorEditor::showStudio() {
     grabKeyboardFocus();
     resized();
     repaint();
+    reportAction("Studio opened.");
 }
 
 void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
@@ -509,6 +534,8 @@ void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
     _closeOverlayButton.setVisible(true);
     resized();
     repaint();
+    reportAction(mode == OverlayMode::Settings ? "Settings opened."
+                 : mode == OverlayMode::Library ? "Profile library opened." : "Profile export opened.");
 }
 
 void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId blockId) {
@@ -525,6 +552,14 @@ void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId block
                           _signalChain.getSelectedChainSlot());
     }
     updateChainStatus();
+    const auto name = blockId == SignalChainStrip::BlockId::InputGate ? juce::String("Input / Gate")
+                      : blockId == SignalChainStrip::BlockId::MasterVolume ? juce::String("Master volume")
+                      : blockId == SignalChainStrip::BlockId::AmpProfiler ? juce::String("Amp")
+                      : blockId == SignalChainStrip::BlockId::CabinetIr ? juce::String("Cabinet / IR")
+                      : blockId == SignalChainStrip::BlockId::EqPostFx ? juce::String("EQ")
+                      : blockId == SignalChainStrip::BlockId::PedalDrive ? juce::String("Overdrive")
+                      : juce::String(Fx::captionFor(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot())));
+    reportAction((name.isNotEmpty() ? name : juce::String("Amp")) + " controls opened.");
 }
 
 void ProfilerAudioProcessorEditor::openBlockPicker(int slot) {
@@ -533,11 +568,13 @@ void ProfilerAudioProcessorEditor::openBlockPicker(int slot) {
     }
 
     _blockPicker.open(slot, _audioProcessor.getChainLayout());
+    reportAction("Choose a block for slot " + juce::String(slot + 1) + ".");
 }
 
 void ProfilerAudioProcessorEditor::closeBlockPicker() {
     if (_blockPicker.isVisible()) {
         _blockPicker.setVisible(false);
+        reportAction("Block picker closed.");
     }
 }
 
@@ -546,6 +583,7 @@ void ProfilerAudioProcessorEditor::placeChosenBlock(int slot, SignalChain::Stage
     _signalChain.setLayout(_audioProcessor.getChainLayout());
     _signalChain.selectSlot(slot);
     updateChainStatus();
+    reportAction(juce::String(Fx::captionFor(stage)) + " added to slot " + juce::String(slot + 1) + ".");
 }
 
 void ProfilerAudioProcessorEditor::updateChainStatus() {
@@ -620,6 +658,8 @@ void ProfilerAudioProcessorEditor::toggleBlockBypass(SignalChainStrip::BlockId b
         case SignalChainStrip::BlockId::InputGate:
             toggle("isGateEnabled");
             _inputGatePanel.refreshBypassState();
+            reportAction(_audioProcessor._apvts.getRawParameterValue("isGateEnabled")->load() > 0.5f
+                             ? "Input gate enabled." : "Input gate bypassed.");
             break;
         case SignalChainStrip::BlockId::AmpProfiler:
         case SignalChainStrip::BlockId::CabinetIr:
@@ -658,6 +698,17 @@ void ProfilerAudioProcessorEditor::setSelectedBlockEnabled(bool enabled) {
         }
     }
     updateChainStatus();
+    const auto stage = _audioProcessor.getChainLayout().atSlot(slot);
+    auto message = juce::String(Fx::captionFor(stage)) + (enabled ? " block enabled." : " block bypassed.");
+    if (enabled && stage == SignalChain::Stage::Amp && !_audioProcessor.isAmpFileLoaded()) message += " Load an amp model to hear it.";
+    if (enabled && stage == SignalChain::Stage::Cab && !_audioProcessor.isIRLoaded()) message += " Load an impulse response to hear it.";
+    reportAction(message);
+}
+
+void ProfilerAudioProcessorEditor::reportAction(const juce::String& message, bool error) {
+    if (!_actionStatusEnabled || message.trim().isEmpty()) return;
+    _parameterFeedback.discardPending();
+    _actionStatusBar.showMessage(message, error);
 }
 
 void ProfilerAudioProcessorEditor::showStatus(const juce::String& message, bool success) {
@@ -749,6 +800,8 @@ void ProfilerAudioProcessorEditor::parameterChanged(const juce::String& paramete
 }
 
 void ProfilerAudioProcessorEditor::timerCallback() {
+    const auto changes = _parameterFeedback.takeMessages();
+    if (!changes.isEmpty()) reportAction(changes.joinIntoString("; "));
     _signalChain.setIoMeterLevels(_audioProcessor.getRmsLevelInput(), _audioProcessor.getRmsLevelOutput());
     updateChainStatus();
     if (_hostChromePasses < kHostChromeRetryLimit) {

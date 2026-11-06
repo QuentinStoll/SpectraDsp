@@ -3,6 +3,7 @@
 #include "Components/CustomLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
+#include "ActionFeedback.h"
 
 StudioTopBar::IconButton::IconButton(const juce::String& name, Icon icon)
     : juce::Button(name),
@@ -165,6 +166,7 @@ void StudioTopBar::selectProfileFromMenu() {
         resetParametersToDefaults();
         resetLoadedFiles();
         profileManager.clearCurrentProfile();
+        ActionFeedback::post(*this, "Default chain selected.");
         return;
     }
 
@@ -173,9 +175,11 @@ void StudioTopBar::selectProfileFromMenu() {
     if (_audioProcessor.applyProfile(profileIndex, &errorMessage)) {
         if (const auto* profile = profileManager.getProfile(profileIndex)) {
             profileManager.setCurrentProfileId(profile->id);
+            ActionFeedback::post(*this, "Profile loaded: " + profile->name);
         }
     } else {
         refreshProfileMenu();
+        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Could not load the selected profile.", true);
     }
 }
 

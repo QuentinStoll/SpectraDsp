@@ -3,6 +3,9 @@
 #include <JuceHeader.h>
 
 namespace UiSettings {
+bool loadActionStatusEnabled();
+void saveActionStatusEnabled(bool enabled);
+
 bool loadHighContrastEnabled();
 void saveHighContrastEnabled(bool enabled);
 

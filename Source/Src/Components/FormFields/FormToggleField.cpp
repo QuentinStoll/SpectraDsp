@@ -6,7 +6,7 @@ FormToggleField::FormToggleField(const juce::Identifier& fieldId, const juce::St
 
     _toggleButton.setLabelVisible(false);
     _toggleButton.onClick = [this]() {
-        notifyValueChanged();
+        notifyValueChanged(getLabelText() + (getToggleState() ? ": On" : ": Off"));
     };
 }
 
