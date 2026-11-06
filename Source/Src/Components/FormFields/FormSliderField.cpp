@@ -17,7 +17,7 @@ FormSliderField::FormSliderField(const juce::Identifier& fieldId,
     setTextValueSuffix(suffix);
 
     _slider.onValueChange = [this]() {
-        notifyValueChanged();
+        notifyValueChanged(getLabelText() + ": " + _slider.getTextFromValue(_slider.getValue()));
     };
 }
 

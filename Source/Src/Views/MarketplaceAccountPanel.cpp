@@ -1,5 +1,6 @@
 #include "Views/MarketplaceAccountPanel.h"
 
+#include "ActionFeedback.h"
 #include "SettingsPath.h"
 #include "Stylesheet.h"
 
@@ -105,6 +106,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
     addAndMakeVisible(_codeEditor);
 
     _submitButton.onClick = [this]() {
+        ActionFeedback::post(*this, _mode == Mode::Code ? "Checking verification code..." : "Signing in...");
         if (_busy) {
             return;
         }
@@ -112,7 +114,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         if (_mode == Mode::Code) {
             const auto code = _codeEditor.getText().trim();
             if (!Marketplace::Client::isSixDigitCode(code)) {
-                _statusLabel.setText("Enter the 6-digit code.", juce::dontSendNotification);
+                setStatus("Enter the 6-digit code.");
                 return;
             }
 
@@ -137,7 +139,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         const auto email = _emailEditor.getText().trim();
         const auto password = _passwordEditor.getText();
         if (email.isEmpty() || password.isEmpty()) {
-            _statusLabel.setText("Enter your marketplace email and password.", juce::dontSendNotification);
+            setStatus("Enter your marketplace email and password.");
             return;
         }
 
@@ -161,6 +163,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         _challenge = {};
         _codeEditor.clear();
         showLogin({});
+        ActionFeedback::post(*this, "Sign-in form opened.");
     };
     addAndMakeVisible(_backButton);
 
@@ -170,6 +173,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         _challenge = {};
         _items.clear();
         showLogin({});
+        ActionFeedback::post(*this, "Signed out of the marketplace.");
     };
     addAndMakeVisible(_signOutButton);
 
@@ -288,7 +292,7 @@ void MarketplaceAccountPanel::setBusy(bool busy) {
 void MarketplaceAccountPanel::showLogin(const juce::String& message) {
     _mode = Mode::Login;
     _submitButton.setButtonText("Sign in");
-    _statusLabel.setText(message, juce::dontSendNotification);
+    setStatus(message);
     setBusy(false);
     notifyLayout();
 }
@@ -297,8 +301,7 @@ void MarketplaceAccountPanel::showCodeEntry() {
     _mode = Mode::Code;
     _codeEditor.clear();
     _submitButton.setButtonText("Confirm");
-    _statusLabel.setText("Enter the 6-digit code from your authenticator. It expires in 5 minutes.",
-                         juce::dontSendNotification);
+    setStatus("Enter the 6-digit code from your authenticator. It expires in 5 minutes.");
     setBusy(false);
     notifyLayout();
 }
@@ -337,7 +340,7 @@ void MarketplaceAccountPanel::applyLoginResult(const Marketplace::LoginResult& r
         return;
     }
 
-    _statusLabel.setText(result.message, juce::dontSendNotification);
+    setStatus(result.message);
     setBusy(false);
 }
 
@@ -398,7 +401,7 @@ void MarketplaceAccountPanel::loadLibrary() {
             }
 
             if (result.status != Marketplace::Status::Success) {
-                safeThis->_statusLabel.setText(result.message, juce::dontSendNotification);
+                safeThis->setStatus(result.message);
                 safeThis->setBusy(false);
                 return;
             }
@@ -411,10 +414,9 @@ void MarketplaceAccountPanel::loadLibrary() {
             if (result.email.isNotEmpty()) {
                 safeThis->_session.email = result.email;
             }
-            safeThis->_statusLabel.setText(safeThis->_items.empty()
-                                               ? "No packs on this account yet. Profiles you create here stay on this computer."
-                                               : juce::String(safeThis->_items.size()) + " on this account.",
-                                           juce::dontSendNotification);
+            safeThis->setStatus(safeThis->_items.empty()
+                                    ? "No packs on this account yet. Profiles you create here stay on this computer."
+                                    : juce::String(safeThis->_items.size()) + " on this account.");
             safeThis->showLibrary();
         });
     });
@@ -434,7 +436,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     const auto listedAmount = _items[static_cast<size_t>(index)].conditionAmount;
     if (kind == "amp") {
         setBusy(true);
-        _statusLabel.setText("Opening " + title + "...", juce::dontSendNotification);
+        setStatus("Opening " + title + "...");
         juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
         _jobs.addJob([safeThis, packId, session, title, listedProfile, listedAmount]() {
             auto directory = getSettingsFolder().getChildFile("Spectra");
@@ -496,7 +498,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                     Marketplace::saveSession(Marketplace::defaultSessionFile(), safeThis->_session);
                 }
                 if (error.isNotEmpty()) {
-                    safeThis->_statusLabel.setText(error, juce::dontSendNotification);
+                    safeThis->setStatus(error);
                     safeThis->setBusy(false);
                     return;
                 }
@@ -509,14 +511,14 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                     loaded = juce::String("Amp loaded · ") + names[juce::jlimit(0, 3, conditionProfile)] + " " +
                              juce::String(juce::roundToInt(conditionAmount)) + "%.";
                 }
-                safeThis->_statusLabel.setText(played ? loaded : playError, juce::dontSendNotification);
+                safeThis->setStatus(played ? loaded : playError);
                 safeThis->setBusy(false);
             });
         });
         return;
     }
     setBusy(true);
-    _statusLabel.setText("Downloading " + title + "...", juce::dontSendNotification);
+    setStatus("Downloading " + title + "...");
 
     juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
     _jobs.addJob([safeThis, packId, entitlementId, session]() {
@@ -570,32 +572,32 @@ void MarketplaceAccountPanel::downloadPack(int index) {
             }
 
             if (library.status != Marketplace::Status::Success) {
-                safeThis->_statusLabel.setText(library.message, juce::dontSendNotification);
+                safeThis->setStatus(library.message);
                 safeThis->setBusy(false);
                 return;
             }
 
             if (profileUrl.isEmpty()) {
-                safeThis->_statusLabel.setText("This pack has no file to download.", juce::dontSendNotification);
+                safeThis->setStatus("This pack has no file to download.");
                 safeThis->setBusy(false);
                 return;
             }
 
             if (profile.status != Marketplace::Status::Success) {
-                safeThis->_statusLabel.setText(profile.message, juce::dontSendNotification);
+                safeThis->setStatus(profile.message);
                 safeThis->setBusy(false);
                 return;
             }
 
             if (irUrl.isNotEmpty() && impulse.status != Marketplace::Status::Success) {
-                safeThis->_statusLabel.setText(impulse.message, juce::dontSendNotification);
+                safeThis->setStatus(impulse.message);
                 safeThis->setBusy(false);
                 return;
             }
 
             const auto directory = safeThis->marketplaceDirectory();
             if (!directory.isDirectory() && !directory.createDirectory().wasOk()) {
-                safeThis->_statusLabel.setText("Could not create the marketplace download folder.", juce::dontSendNotification);
+                safeThis->setStatus("Could not create the marketplace download folder.");
                 safeThis->setBusy(false);
                 return;
             }
@@ -603,7 +605,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
             const auto stem = safeFileStem(packId);
             const auto profileFile = directory.getChildFile(stem + ".model");
             if (!profileFile.replaceWithData(profile.body.getData(), profile.body.getSize())) {
-                safeThis->_statusLabel.setText("Could not save the profile file.", juce::dontSendNotification);
+                safeThis->setStatus("Could not save the profile file.");
                 safeThis->setBusy(false);
                 return;
             }
@@ -612,7 +614,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
             if (irUrl.isNotEmpty()) {
                 irFile = directory.getChildFile(stem + ".wav");
                 if (!irFile.replaceWithData(impulse.body.getData(), impulse.body.getSize())) {
-                    safeThis->_statusLabel.setText("Could not save the impulse response.", juce::dontSendNotification);
+                    safeThis->setStatus("Could not save the impulse response.");
                     safeThis->setBusy(false);
                     return;
                 }
@@ -621,8 +623,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
             juce::String errorMessage;
             const auto installed = safeThis->onInstallPack != nullptr &&
                                    safeThis->onInstallPack(profileFile, irFile, hasIntegratedIr, &errorMessage);
-            safeThis->_statusLabel.setText(installed ? "Pack added to your library." : errorMessage,
-                                           juce::dontSendNotification);
+            safeThis->setStatus(installed ? "Pack added to your library." : errorMessage);
             safeThis->setBusy(false);
         });
     });
@@ -652,4 +653,10 @@ void MarketplaceAccountPanel::notifyLayout() {
 
 juce::File MarketplaceAccountPanel::marketplaceDirectory() const {
     return getSettingsFolder().getChildFile("Marketplace");
+}
+
+void MarketplaceAccountPanel::setStatus(const juce::String& message) {
+    const bool changed = _statusLabel.getText() != message;
+    _statusLabel.setText(message, juce::dontSendNotification);
+    if (changed) ActionFeedback::post(*this, message);
 }

@@ -1,5 +1,6 @@
 #include "Views/SettingsView.h"
 
+#include "ActionFeedback.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 #include "UiSettings.h"
@@ -54,14 +55,17 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
     _generalTab.onClick = [this]() {
         _page = Page::General;
         resized();
+        ActionFeedback::post(*this, "General settings opened.");
     };
     _captureTab.onClick = [this]() {
         _page = Page::CloneIr;
         resized();
+        ActionFeedback::post(*this, "IR capture settings opened.");
     };
     _ampTab.onClick = [this]() {
         _page = Page::CloneAmp;
         resized();
+        ActionFeedback::post(*this, "Amp capture settings opened.");
     };
     addAndMakeVisible(_generalTab);
     addAndMakeVisible(_captureTab);
@@ -93,9 +97,60 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
 
     _backgroundMenu.onChange = [this]() {
         applyBackgroundColour();
+        ActionFeedback::post(*this, "Background colour: " + _backgroundMenu.getText());
     };
 
     addAndMakeVisible(_backgroundMenu);
+
+    _interfaceScaleLabel.setText("Interface scale", juce::dontSendNotification);
+    _interfaceScaleLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
+    addAndMakeVisible(_interfaceScaleLabel);
+    _interfaceScaleMenu.setTitle("Interface scale");
+    _interfaceScaleMenu.setTooltip("Enlarge text and controls. Scroll to reach content that does not fit the window.");
+    for (int percent = 100; percent <= 200; percent += 25) {
+        _interfaceScaleMenu.addItem(juce::String(percent) + "%", percent);
+    }
+    _interfaceScaleMenu.setSelectedId(UiSettings::loadInterfaceScalePercent(), juce::dontSendNotification);
+    _interfaceScaleMenu.onChange = [this]() {
+        const int percent = _interfaceScaleMenu.getSelectedId();
+        UiSettings::saveInterfaceScalePercent(percent);
+        if (onInterfaceScaleChanged) {
+            onInterfaceScaleChanged(percent);
+        }
+        ActionFeedback::post(*this, "Interface scale: " + juce::String(percent) + "%");
+    };
+    addAndMakeVisible(_interfaceScaleMenu);
+
+    _contrastLabel.setText("High contrast", juce::dontSendNotification);
+    addAndMakeVisible(_contrastLabel);
+    _contrastMenu.setTitle("High contrast");
+    _contrastMenu.setTooltip("Use bright text and outlines on black backgrounds.");
+    _contrastMenu.addItem("Off", 1);
+    _contrastMenu.addItem("On", 2);
+    _contrastMenu.setSelectedId(UiSettings::loadHighContrastEnabled() ? 2 : 1, juce::dontSendNotification);
+    _contrastMenu.onChange = [this]() {
+        const bool enabled = _contrastMenu.getSelectedId() == 2;
+        UiSettings::saveHighContrastEnabled(enabled);
+        ProfilerStyle::Contrast::setEnabled(enabled);
+        refreshContrastSetting();
+        refreshColours();
+        ActionFeedback::post(*this, enabled ? "High contrast enabled." : "High contrast disabled.");
+    };
+    addAndMakeVisible(_contrastMenu);
+
+    _actionStatusLabel.setText("Action status messages", juce::dontSendNotification);
+    addAndMakeVisible(_actionStatusLabel);
+    _actionStatusMenu.setTitle("Action status messages");
+    _actionStatusMenu.setTooltip("Keep readable feedback for your latest action at the bottom of the window.");
+    _actionStatusMenu.addItem("Off", 1);
+    _actionStatusMenu.addItem("On", 2);
+    _actionStatusMenu.setSelectedId(UiSettings::loadActionStatusEnabled() ? 2 : 1, juce::dontSendNotification);
+    _actionStatusMenu.onChange = [this]() {
+        const bool enabled = _actionStatusMenu.getSelectedId() == 2;
+        UiSettings::saveActionStatusEnabled(enabled);
+        if (onActionStatusChanged) onActionStatusChanged(enabled);
+    };
+    addAndMakeVisible(_actionStatusMenu);
 
     _troubleshootingLabel.setText("Allow troubleshooting logs", juce::dontSendNotification);
     _troubleshootingLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
@@ -107,6 +162,7 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
                                        juce::dontSendNotification);
     _troubleshootingMenu.onChange = [this]() {
         UiSettings::saveTroubleshootingSetting(_troubleshootingMenu.getSelectedId());
+        ActionFeedback::post(*this, "Troubleshooting logs: " + _troubleshootingMenu.getText());
     };
     addAndMakeVisible(_troubleshootingMenu);
 
@@ -120,6 +176,7 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
                                     juce::dontSendNotification);
     _hardwareInfoMenu.onChange = [this]() {
         UiSettings::saveHardwareInfoSetting(_hardwareInfoMenu.getSelectedId());
+        ActionFeedback::post(*this, "Hardware info in logs: " + _hardwareInfoMenu.getText());
     };
     addAndMakeVisible(_hardwareInfoMenu);
 }
@@ -130,6 +187,11 @@ void SettingsView::applySavedBackgroundColour() {
 
 void SettingsView::paint(juce::Graphics& g) {
     ProfilerStyle::Surfaces::fillPanel(g, getLocalBounds().toFloat());
+}
+
+void SettingsView::refreshContrastSetting() {
+    _contrastMenu.setSelectedId(ProfilerStyle::Contrast::enabled ? 2 : 1, juce::dontSendNotification);
+    _backgroundMenu.setEnabled(!ProfilerStyle::Contrast::enabled);
 }
 
 void SettingsView::resized() {
@@ -146,6 +208,12 @@ void SettingsView::resized() {
     _titleLabel.setVisible(showGeneral);
     _backgroundLabel.setVisible(showGeneral);
     _backgroundMenu.setVisible(showGeneral);
+    _interfaceScaleLabel.setVisible(showGeneral);
+    _interfaceScaleMenu.setVisible(showGeneral);
+    _contrastLabel.setVisible(showGeneral);
+    _contrastMenu.setVisible(showGeneral);
+    _actionStatusLabel.setVisible(showGeneral);
+    _actionStatusMenu.setVisible(showGeneral);
     _troubleshootingLabel.setVisible(showGeneral);
     _troubleshootingMenu.setVisible(showGeneral);
     _hardwareInfoLabel.setVisible(showGeneral);
@@ -159,11 +227,11 @@ void SettingsView::resized() {
         }
     }
 
-    _titleLabel.setBounds(area.removeFromTop(50));
+    _titleLabel.setBounds(area.removeFromTop(30));
 
-    area.removeFromTop(30);
+    area.removeFromTop(8);
 
-    auto settingLine = area.removeFromTop(40);
+    auto settingLine = area.removeFromTop(32);
 
     _backgroundLabel.setBounds(settingLine.removeFromLeft(180));
 
@@ -171,9 +239,28 @@ void SettingsView::resized() {
 
     _backgroundMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(20);
+    area.removeFromTop(8);
 
-    settingLine = area.removeFromTop(40);
+    settingLine = area.removeFromTop(32);
+    _interfaceScaleLabel.setBounds(settingLine.removeFromLeft(180));
+    settingLine.removeFromLeft(20);
+    _interfaceScaleMenu.setBounds(settingLine.removeFromLeft(220));
+
+    area.removeFromTop(8);
+
+    settingLine = area.removeFromTop(32);
+    _contrastLabel.setBounds(settingLine.removeFromLeft(180));
+    settingLine.removeFromLeft(20);
+    _contrastMenu.setBounds(settingLine.removeFromLeft(220));
+    area.removeFromTop(8);
+
+    settingLine = area.removeFromTop(32);
+    _actionStatusLabel.setBounds(settingLine.removeFromLeft(180));
+    settingLine.removeFromLeft(20);
+    _actionStatusMenu.setBounds(settingLine.removeFromLeft(220));
+    area.removeFromTop(8);
+
+    settingLine = area.removeFromTop(32);
 
     _troubleshootingLabel.setBounds(settingLine.removeFromLeft(180));
 
@@ -181,9 +268,9 @@ void SettingsView::resized() {
 
     _troubleshootingMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(20);
+    area.removeFromTop(8);
 
-    settingLine = area.removeFromTop(40);
+    settingLine = area.removeFromTop(32);
 
     _hardwareInfoLabel.setBounds(settingLine.removeFromLeft(180));
 

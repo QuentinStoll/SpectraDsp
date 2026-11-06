@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "ActionFeedback.h"
 #include "Stylesheet.h"
 
 namespace {
@@ -103,7 +104,11 @@ void BlockPickerPage::TileButton::paintButton(juce::Graphics& g, bool isMouseOve
     auto bounds = getLocalBounds().toFloat().reduced(2.0f);
     auto* laf = dynamic_cast<CustomLookAndFeel*>(&getLookAndFeel());
     const auto fill = juce::Colours::black;
-    const auto border = _colour.withAlpha(isButtonDown ? 1.0f : (isMouseOverButton ? 0.95f : 0.72f));
+    const auto border = ProfilerStyle::Contrast::enabled
+                            ? (isMouseOverButton || getToggleState() || hasKeyboardFocus(true)
+                                   ? ProfilerStyle::Contrast::accent()
+                                   : juce::Colours::white)
+                            : _colour.withAlpha(isButtonDown ? 1.0f : (isMouseOverButton ? 0.95f : 0.72f));
 
     g.setColour(fill);
     g.fillRoundedRectangle(bounds, 8.0f);
@@ -117,12 +122,12 @@ void BlockPickerPage::TileButton::paintButton(juce::Graphics& g, bool isMouseOve
         laf->drawRigIcon(g, iconBounds, _icon, _colour);
     }
 
-    g.setColour(ProfilerStyle::Colors::text);
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text));
     g.setFont(ProfilerStyle::Fonts::medium(13.0f));
     g.drawFittedText(_title, content.toNearestInt(), juce::Justification::centred, 1);
 
     if (_inUse) {
-        g.setColour(_colour.withAlpha(0.9f));
+        g.setColour(ProfilerStyle::Contrast::accent(_colour.withAlpha(0.9f)));
         g.fillEllipse(bounds.getRight() - 14.0f, bounds.getY() + 8.0f, 6.0f, 6.0f);
     }
 }
@@ -148,8 +153,10 @@ BlockPickerPage::BlockPickerPage() {
 
     _backButton.onClick = [this]() {
         showCategories();
+        ActionFeedback::post(*this, "Block categories opened.");
     };
     _closeButton.onClick = [this]() {
+        ActionFeedback::post(*this, "Block picker closed.");
         close();
     };
     _removeButton.onClick = [this]() {
@@ -166,7 +173,7 @@ BlockPickerPage::BlockPickerPage() {
 
 void BlockPickerPage::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
-    g.setColour(ProfilerStyle::Colors::border);
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border));
     g.drawRect(getLocalBounds(), 1);
 }
 
@@ -243,6 +250,7 @@ void BlockPickerPage::showItems(int category) {
     _backButton.setEnabled(true);
     const auto& spec = kCategories[category];
     _title.setText(juce::String(spec.title).toUpperCase(), juce::dontSendNotification);
+    ActionFeedback::post(*this, juce::String(spec.title) + " block options opened.");
 
     for (int index = 0; index < static_cast<int>(_tiles.size()); ++index) {
         auto& tile = _tiles[static_cast<size_t>(index)];

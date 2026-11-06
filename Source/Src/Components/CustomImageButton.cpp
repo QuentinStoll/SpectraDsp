@@ -92,13 +92,23 @@ void CustomImageButton::paintButton(juce::Graphics& g, bool isMouseOverButton, b
 
     if (hasText) {
         g.setFont(font);
-        g.setColour(_textColour.withMultipliedAlpha(alpha));
+        g.setColour(ProfilerStyle::Contrast::enabled
+                        ? (isButtonDown || getToggleState() ? juce::Colours::black : juce::Colours::white)
+                        : _textColour.withMultipliedAlpha(alpha));
         g.drawText(buttonText, textArea, juce::Justification::centred, true);
     }
 }
 
 void CustomImageButton::drawImageContent(juce::Graphics& g, juce::Rectangle<float> imageArea, float alpha) {
     if (_drawable != nullptr) {
+        if (ProfilerStyle::Contrast::enabled) {
+            auto copy = _drawable->createCopy();
+            const auto colour = isDown() || getToggleState() ? juce::Colours::black : juce::Colours::white;
+            copy->replaceColour(ProfilerStyle::Colors::white, colour);
+            copy->replaceColour(juce::Colours::white, colour);
+            copy->drawWithin(g, imageArea, juce::RectanglePlacement::centred, 1.0f);
+            return;
+        }
         _drawable->drawWithin(g,
                               imageArea,
                               juce::RectanglePlacement::centred,

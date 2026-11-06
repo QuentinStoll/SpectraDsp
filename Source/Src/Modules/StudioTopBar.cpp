@@ -1,5 +1,6 @@
 #include "Modules/StudioTopBar.h"
 
+#include "ActionFeedback.h"
 #include "Components/CustomLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
@@ -21,7 +22,9 @@ void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverBu
                                        isMouseOverButton,
                                        isButtonDown,
                                        getToggleState());
-        const auto iconColour = ProfilerStyle::Colors::text.withAlpha(isMouseOverButton ? 1.0f : 0.86f);
+        const auto iconColour = ProfilerStyle::Contrast::enabled
+                                    ? (isButtonDown || getToggleState() ? juce::Colours::black : juce::Colours::white)
+                                    : ProfilerStyle::Colors::text.withAlpha(isMouseOverButton ? 1.0f : 0.86f);
         if (_icon == Icon::Gear) {
             laf->drawGearIcon(g, bounds.reduced(7.0f), iconColour);
         } else {
@@ -163,6 +166,7 @@ void StudioTopBar::selectProfileFromMenu() {
         resetParametersToDefaults();
         resetLoadedFiles();
         profileManager.clearCurrentProfile();
+        ActionFeedback::post(*this, "Default chain selected.");
         return;
     }
 
@@ -171,9 +175,11 @@ void StudioTopBar::selectProfileFromMenu() {
     if (_audioProcessor.applyProfile(profileIndex, &errorMessage)) {
         if (const auto* profile = profileManager.getProfile(profileIndex)) {
             profileManager.setCurrentProfileId(profile->id);
+            ActionFeedback::post(*this, "Profile loaded: " + profile->name);
         }
     } else {
         refreshProfileMenu();
+        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Could not load the selected profile.", true);
     }
 }
 

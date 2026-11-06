@@ -1,5 +1,6 @@
 #include "Components/NotificationBanner.h"
 
+#include "ActionFeedback.h"
 #include "BinaryData.h"
 
 namespace {
@@ -39,6 +40,7 @@ void NotificationBanner::showMessage(const juce::String& message,
                                      int timeoutMs) {
     _message = message;
     _type = type;
+    ActionFeedback::post(*this, message, type == Type::Error);
 
     if (timeoutMs > 0)
         startTimer(timeoutMs);
@@ -106,7 +108,7 @@ void NotificationBanner::paint(juce::Graphics& g) {
     g.setColour(accent);
     g.fillRoundedRectangle(bounds.withWidth(3.0f), 1.5f);
 
-    g.setColour(accent.withAlpha(0.28f));
+    g.setColour(ProfilerStyle::Contrast::outline(accent.withAlpha(0.28f)));
     g.drawRoundedRectangle(bounds.reduced(0.5f), ProfilerStyle::Surfaces::controlCorner, 1.0f);
 
     auto dotBounds = juce::Rectangle<float>(0.0f, 0.0f, 8.0f, 8.0f)
@@ -115,7 +117,7 @@ void NotificationBanner::paint(juce::Graphics& g) {
     g.fillEllipse(dotBounds);
 
     g.setFont(ProfilerStyle::Fonts::regular(14.0f));
-    g.setColour(ProfilerStyle::Colors::text);
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text));
     g.drawFittedText(_message, _messageBounds.withTrimmedLeft(18),
                      juce::Justification::centredLeft, 1);
 
@@ -127,7 +129,7 @@ void NotificationBanner::paint(juce::Graphics& g) {
         g.fillRoundedRectangle(_actionBounds.toFloat(), ProfilerStyle::Surfaces::controlCorner);
 
         g.setFont(ProfilerStyle::Fonts::regular(13.0f));
-        g.setColour(ProfilerStyle::Colors::text.withAlpha(isActionHovered ? 1.0f : 0.86f));
+        g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text.withAlpha(isActionHovered ? 1.0f : 0.86f)));
         g.drawFittedText(_actionLabel, _actionBounds,
                          juce::Justification::centred, 1);
     }

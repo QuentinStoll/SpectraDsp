@@ -12,6 +12,24 @@
 namespace {
 constexpr int kHostChromeRetryLimit = 10;
 
+const char* enableParameterFor(SignalChain::Stage stage) {
+    switch (stage) {
+        case SignalChain::Stage::Amp:
+            return "isAmpEnabled";
+        case SignalChain::Stage::Cab:
+            return "isCabEnabled";
+        case SignalChain::Stage::Eq:
+            return "isEqEnabled";
+        case SignalChain::Stage::Pedal:
+            return "isPedalEnabled";
+        default:
+            if (const auto* module = Fx::moduleFor(stage)) {
+                return module->bypassId();
+            }
+            return "";
+    }
+}
+
 #if JUCE_WINDOWS
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -110,6 +128,7 @@ juce::Point<int> standaloneMaxSize() {
 ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcessor& p)
     : AudioProcessorEditor(&p),
       _audioProcessor(p),
+      _parameterFeedback(p.getParameters()),
       _topBar(p),
       _inputGatePanel(p._apvts),
       _ampPanel(p),
@@ -121,7 +140,15 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
       _libraryView(p),
       _settingsView(p) {
     SettingsView::applySavedBackgroundColour();
+    _actionStatusEnabled = UiSettings::loadActionStatusEnabled();
+    _interfaceScalePercent = UiSettings::loadInterfaceScalePercent();
+    _parameterFeedback.setEnabled(_actionStatusEnabled);
+    addChildComponent(_actionStatusBar);
+    ProfilerStyle::Contrast::setEnabled(UiSettings::loadHighContrastEnabled());
     setLookAndFeel(&_customLookAndFeel);
+    _customLookAndFeel.applyColourScheme();
+    _settingsView.refreshContrastSetting();
+    ProfilerStyle::Contrast::changes().addChangeListener(this);
     setOpaque(true);
     setColour(juce::ResizableWindow::backgroundColourId, juce::Colours::black);
 
@@ -131,13 +158,25 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         setResizeLimits(editorWidth, editorHeight, maxSize.x, maxSize.y);
         setSize(editorWidth, editorHeight);
     } else {
-        setResizeLimits(editorMinWidth, editorMinHeight, editorWidth, editorHeight);
+        setResizeLimits(editorMinWidth, editorMinHeight, editorWidth * 2, editorHeight * 2);
         getConstrainer()->setFixedAspectRatio(editorWidth / static_cast<double>(editorHeight));
         setSize(editorWidth, editorHeight);
     }
     setBroughtToFrontOnMouseClick(true);
 
-    addAndMakeVisible(_content);
+    addAndMakeVisible(_contentViewport);
+    _contentViewport.setScalePercent(UiSettings::loadInterfaceScalePercent());
+    _settingsView.onInterfaceScaleChanged = [this](int percent) {
+        _interfaceScalePercent = percent;
+        _contentViewport.setScalePercent(percent);
+        resized();
+    };
+    _settingsView.onActionStatusChanged = [this](bool enabled) {
+        _actionStatusEnabled = enabled;
+        _parameterFeedback.setEnabled(enabled);
+        resized();
+        if (enabled) reportAction("Action status messages enabled. Ready for your next action.");
+    };
     _content.addAndMakeVisible(_topBar);
     _content.addAndMakeVisible(_signalChain);
     _content.addAndMakeVisible(_editHost);
@@ -208,8 +247,15 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _signalChain.onBlockBypassToggled = [this](SignalChainStrip::BlockId blockId) {
         toggleBlockBypass(blockId);
     };
+    auto setBlockEnabled = [this](bool enabled) { setSelectedBlockEnabled(enabled); };
+    _ampPanel.onEnabledChanged = setBlockEnabled;
+    _cabinetPanel.onEnabledChanged = setBlockEnabled;
+    _eqPanel.onEnabledChanged = setBlockEnabled;
+    _pedalPanel.onEnabledChanged = setBlockEnabled;
+    _fxPanel.onEnabledChanged = setBlockEnabled;
     _signalChain.onSlotsSwapped = [this](int fromSlot, int toSlot) {
         _audioProcessor.swapChainSlots(fromSlot, toSlot);
+        reportAction("Moved block from slot " + juce::String(fromSlot + 1) + " to slot " + juce::String(toSlot + 1) + ".");
     };
     _signalChain.onBlockPickerRequested = [this](int slot) {
         openBlockPicker(slot);
@@ -219,15 +265,18 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         closeBlockPicker();
         _signalChain.setLayout(_audioProcessor.getChainLayout());
         updateChainStatus();
+        reportAction("All signal-chain blocks cleared.");
     };
     _blockPicker.onBlockChosen = [this](int slot, SignalChain::Stage stage) {
         placeChosenBlock(slot, stage);
     };
-    _blockPicker.onBlockRemoved = [this](int slot) {
+    _signalChain.onBlockRemoved = [this](int slot) {
         _audioProcessor.clearChainSlot(slot);
         _signalChain.setLayout(_audioProcessor.getChainLayout());
         updateChainStatus();
+        reportAction("Block removed from slot " + juce::String(slot + 1) + ".");
     };
+    _blockPicker.onBlockRemoved = _signalChain.onBlockRemoved;
     _audioProcessor._apvts.state.addListener(this);
     _signalChain.setLayout(_audioProcessor.getChainLayout());
 
@@ -239,6 +288,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     };
     _exportModule.onCancelClicked = [this]() {
         showStudio();
+        reportAction("Profile export cancelled.");
     };
 
     _audioProcessor.getProfileManager().addChangeListener(this);
@@ -252,6 +302,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     showEditPanel(SignalChainStrip::BlockId::AmpProfiler);
     updateChainStatus();
     setWantsKeyboardFocus(true);
+    _customLookAndFeel.refreshTheme(*this);
     startTimerHz(30);
     resized();
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this)]() {
@@ -263,6 +314,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
 
 ProfilerAudioProcessorEditor::~ProfilerAudioProcessorEditor() {
     stopTimer();
+    ProfilerStyle::Contrast::changes().removeChangeListener(this);
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>()) {
         window->setLookAndFeel(nullptr);
     }
@@ -385,8 +437,15 @@ void ProfilerAudioProcessorEditor::openStandaloneFullscreen() {
 }
 
 void ProfilerAudioProcessorEditor::resized() {
-    _content.setTransform({});
-    _content.setBounds(getLocalBounds());
+    auto viewportBounds = getLocalBounds();
+    _actionStatusBar.setVisible(_actionStatusEnabled);
+    if (_actionStatusEnabled) {
+        const float scale = _interfaceScalePercent / 100.0f;
+        const auto footer = viewportBounds.removeFromBottom(juce::jmin(juce::roundToInt(64.0f * scale), getHeight() / 2));
+        _actionStatusBar.setTransform(juce::AffineTransform::scale(scale).translated(0.0f, static_cast<float>(footer.getY())));
+        _actionStatusBar.setBounds(0, 0, juce::roundToInt(footer.getWidth() / scale), juce::roundToInt(footer.getHeight() / scale));
+    }
+    _contentViewport.setBounds(viewportBounds);
 
     auto area = _content.getLocalBounds();
     _topBar.setBounds(area.removeFromTop(48));
@@ -447,6 +506,7 @@ void ProfilerAudioProcessorEditor::showStudio() {
     grabKeyboardFocus();
     resized();
     repaint();
+    reportAction("Studio opened.");
 }
 
 void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
@@ -478,6 +538,9 @@ void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
     _closeOverlayButton.setVisible(true);
     resized();
     repaint();
+    reportAction(mode == OverlayMode::Settings  ? "Settings opened."
+                 : mode == OverlayMode::Library ? "Profile library opened."
+                                                : "Profile export opened.");
 }
 
 void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId blockId) {
@@ -493,6 +556,15 @@ void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId block
         _fxPanel.setStage(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot()),
                           _signalChain.getSelectedChainSlot());
     }
+    updateChainStatus();
+    const auto name = blockId == SignalChainStrip::BlockId::InputGate      ? juce::String("Input / Gate")
+                      : blockId == SignalChainStrip::BlockId::MasterVolume ? juce::String("Master volume")
+                      : blockId == SignalChainStrip::BlockId::AmpProfiler  ? juce::String("Amp")
+                      : blockId == SignalChainStrip::BlockId::CabinetIr    ? juce::String("Cabinet / IR")
+                      : blockId == SignalChainStrip::BlockId::EqPostFx     ? juce::String("EQ")
+                      : blockId == SignalChainStrip::BlockId::PedalDrive   ? juce::String("Overdrive")
+                                                                           : juce::String(Fx::captionFor(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot())));
+    reportAction((name.isNotEmpty() ? name : juce::String("Amp")) + " controls opened.");
 }
 
 void ProfilerAudioProcessorEditor::openBlockPicker(int slot) {
@@ -501,11 +573,13 @@ void ProfilerAudioProcessorEditor::openBlockPicker(int slot) {
     }
 
     _blockPicker.open(slot, _audioProcessor.getChainLayout());
+    reportAction("Choose a block for slot " + juce::String(slot + 1) + ".");
 }
 
 void ProfilerAudioProcessorEditor::closeBlockPicker() {
     if (_blockPicker.isVisible()) {
         _blockPicker.setVisible(false);
+        reportAction("Block picker closed.");
     }
 }
 
@@ -514,6 +588,7 @@ void ProfilerAudioProcessorEditor::placeChosenBlock(int slot, SignalChain::Stage
     _signalChain.setLayout(_audioProcessor.getChainLayout());
     _signalChain.selectSlot(slot);
     updateChainStatus();
+    reportAction(juce::String(Fx::captionFor(stage)) + " added to slot " + juce::String(slot + 1) + ".");
 }
 
 void ProfilerAudioProcessorEditor::updateChainStatus() {
@@ -523,8 +598,7 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
         const auto* value = _audioProcessor._apvts.getRawParameterValue(parameterId);
         return (value != nullptr ? value->load() : fallback) > 0.5f;
     };
-    const auto noise = _audioProcessor._apvts.getRawParameterValue("noise");
-    const auto gateOn = isEnabled("isGateEnabled") && (noise == nullptr || noise->load() > 0.0f);
+    const auto gateOn = isEnabled("isGateEnabled");
     const auto ampOn = ampLoaded && isEnabled("isAmpEnabled");
     const auto cabOn = irLoaded && isEnabled("isCabEnabled");
     const auto eqOn = isEnabled("isEqEnabled");
@@ -555,9 +629,29 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
                 typeOn = pedalOn;
                 break;
             default:
+                typeOn = isEnabled(enableParameterFor(stage));
                 break;
         }
-        _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
+        const bool enabled = typeOn && !_audioProcessor.isChainSlotBypassed(slot);
+        _signalChain.setSlotLed(slot, enabled);
+        if (slot == _signalChain.getSelectedChainSlot()) {
+            switch (stage) {
+                case SignalChain::Stage::Amp:
+                    _ampPanel.setBlockEnabled(enabled);
+                    break;
+                case SignalChain::Stage::Cab:
+                    _cabinetPanel.setBlockEnabled(enabled);
+                    break;
+                case SignalChain::Stage::Eq:
+                    _eqPanel.setBlockEnabled(enabled);
+                    break;
+                case SignalChain::Stage::Pedal:
+                    _pedalPanel.setBlockEnabled(enabled);
+                    break;
+                default:
+                    break;
+            }
+        }
     }
     _fxPanel.refreshBypass();
 }
@@ -578,20 +672,56 @@ void ProfilerAudioProcessorEditor::toggleBlockBypass(SignalChainStrip::BlockId b
         case SignalChainStrip::BlockId::InputGate:
             toggle("isGateEnabled");
             _inputGatePanel.refreshBypassState();
+            reportAction(_audioProcessor._apvts.getRawParameterValue("isGateEnabled")->load() > 0.5f
+                             ? "Input gate enabled."
+                             : "Input gate bypassed.");
             break;
         case SignalChainStrip::BlockId::AmpProfiler:
         case SignalChainStrip::BlockId::CabinetIr:
         case SignalChainStrip::BlockId::EqPostFx:
         case SignalChainStrip::BlockId::PedalDrive:
-        case SignalChainStrip::BlockId::Fx:
-            _audioProcessor.toggleChainSlotBypass(_signalChain.getSelectedChainSlot());
-            _fxPanel.refreshBypass();
+        case SignalChainStrip::BlockId::Fx: {
+            const auto slot = _signalChain.getSelectedChainSlot();
+            const auto* parameter = _audioProcessor._apvts.getRawParameterValue(
+                enableParameterFor(_audioProcessor.getChainLayout().atSlot(slot)));
+            const bool enabled = !_audioProcessor.isChainSlotBypassed(slot) && (parameter == nullptr || parameter->load() > 0.5f);
+            setSelectedBlockEnabled(!enabled);
             break;
+        }
         case SignalChainStrip::BlockId::MasterVolume:
             break;
     }
 
     updateChainStatus();
+}
+
+void ProfilerAudioProcessorEditor::setSelectedBlockEnabled(bool enabled) {
+    const auto slot = _signalChain.getSelectedChainSlot();
+    if (!SignalChain::isMovableSlot(slot)) {
+        return;
+    }
+    _audioProcessor.setChainSlotBypassed(slot, !enabled);
+    if (enabled) {
+        auto* parameter = _audioProcessor._apvts.getParameter(
+            enableParameterFor(_audioProcessor.getChainLayout().atSlot(slot)));
+        if (parameter != nullptr && parameter->getValue() < 0.5f) {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(1.0f);
+            parameter->endChangeGesture();
+        }
+    }
+    updateChainStatus();
+    const auto stage = _audioProcessor.getChainLayout().atSlot(slot);
+    auto message = juce::String(Fx::captionFor(stage)) + (enabled ? " block enabled." : " block bypassed.");
+    if (enabled && stage == SignalChain::Stage::Amp && !_audioProcessor.isAmpFileLoaded()) message += " Load an amp model to hear it.";
+    if (enabled && stage == SignalChain::Stage::Cab && !_audioProcessor.isIRLoaded()) message += " Load an impulse response to hear it.";
+    reportAction(message);
+}
+
+void ProfilerAudioProcessorEditor::reportAction(const juce::String& message, bool error) {
+    if (!_actionStatusEnabled || message.trim().isEmpty()) return;
+    _parameterFeedback.discardPending();
+    _actionStatusBar.showMessage(message, error);
 }
 
 void ProfilerAudioProcessorEditor::showStatus(const juce::String& message, bool success) {
@@ -644,6 +774,11 @@ juce::File ProfilerAudioProcessorEditor::getDefaultExportFile(const juce::String
 }
 
 void ProfilerAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster* source) {
+    if (source == &ProfilerStyle::Contrast::changes()) {
+        _customLookAndFeel.refreshTheme(*this);
+        _settingsView.refreshContrastSetting();
+        return;
+    }
     if (source == &_audioProcessor.getProfileManager()) {
         _ampPanel.refreshAssets();
         _cabinetPanel.refreshAssets();
@@ -678,6 +813,8 @@ void ProfilerAudioProcessorEditor::parameterChanged(const juce::String& paramete
 }
 
 void ProfilerAudioProcessorEditor::timerCallback() {
+    const auto changes = _parameterFeedback.takeMessages();
+    if (!changes.isEmpty()) reportAction(changes.joinIntoString("; "));
     _signalChain.setIoMeterLevels(_audioProcessor.getRmsLevelInput(), _audioProcessor.getRmsLevelOutput());
     updateChainStatus();
     if (_hostChromePasses < kHostChromeRetryLimit) {

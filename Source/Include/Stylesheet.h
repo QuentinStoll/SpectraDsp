@@ -53,6 +53,44 @@ inline const juce::Colour orange = accent;
 inline juce::Colour appBackground = background;
 }  // namespace Colors
 
+// A UI-wide preference, shared by open plugin editors. Resolve colours when
+// painting so components created before a theme change update immediately.
+namespace Contrast {
+inline bool enabled = false;
+
+inline juce::ChangeBroadcaster& changes() {
+    static juce::ChangeBroadcaster broadcaster;
+    return broadcaster;
+}
+
+inline void setEnabled(bool value) {
+    if (enabled != value) {
+        enabled = value;
+        changes().sendChangeMessage();
+    }
+}
+
+inline juce::Colour foreground(juce::Colour normal = Colors::text) {
+    return enabled ? juce::Colours::white : normal;
+}
+
+inline juce::Colour outline(juce::Colour normal = Colors::border) {
+    return enabled ? juce::Colours::white : normal;
+}
+
+inline juce::Colour accent(juce::Colour normal = Colors::accent) {
+    return enabled ? juce::Colour(0xffffff00) : normal;
+}
+
+inline juce::Colour surface(juce::Colour normal = Colors::background) {
+    return enabled ? juce::Colours::black : normal;
+}
+
+inline float disabledAlpha(float normal = 0.45f) {
+    return enabled ? 0.65f : normal;
+}
+}  // namespace Contrast
+
 namespace Properties {
 inline const juce::Identifier outlineVisible{"outlineVisible"};
 inline const juce::Identifier outlineColour{"outlineColour"};
@@ -189,14 +227,14 @@ inline constexpr float panelCorner = 6.0f;
 inline constexpr float controlCorner = 6.0f;
 
 inline void fillWindow(juce::Graphics& g, juce::Rectangle<float> area) {
-    g.setColour(Colors::appBackground);
+    g.setColour(Contrast::surface(Colors::appBackground));
     g.fillRect(area);
 }
 
 inline void fillPanel(juce::Graphics& g, juce::Rectangle<float> area, float cornerRadius = panelCorner) {
     g.setColour(Colors::elevated);
     g.fillRoundedRectangle(area, cornerRadius);
-    g.setColour(Colors::border);
+    g.setColour(Contrast::outline());
     g.drawRoundedRectangle(area.reduced(0.5f), cornerRadius, 1.0f);
 }
 
@@ -206,7 +244,7 @@ inline void fillBar(juce::Graphics& g, juce::Rectangle<float> area) {
 }
 
 inline void drawHairline(juce::Graphics& g, juce::Rectangle<float> line) {
-    g.setColour(Colors::border);
+    g.setColour(Contrast::outline());
     g.fillRect(line);
 }
 }  // namespace Surfaces

@@ -1,5 +1,6 @@
 #include "Views/ProfilView.h"
 
+#include "ActionFeedback.h"
 #include "Modules/AddProfilModule.h"
 #include "Modules/DeleteProfileConfirmationModule.h"
 #include "Stylesheet.h"
@@ -69,6 +70,7 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
     };
     _createProfilModule.onCancelClicked = [this]() {
         showProfileGrid();
+        ActionFeedback::post(*this, "Profile creation cancelled.");
     };
     _editProfilModule.onSaveClicked = [this](int profileNumber, const juce::NamedValueSet& values) {
         juce::String errorMessage;
@@ -100,16 +102,21 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
     };
     _editProfilModule.onBackClicked = [this]() {
         showProfileGrid();
+        ActionFeedback::post(*this, "Returned to the profile library.");
     };
 
     _grid.onAddProfileClicked = [this]() {
         showAddProfileModal();
+        ActionFeedback::post(*this, "Choose whether to create or import a profile.");
     };
 
     _grid.onProfileClicked = [this](int profileNumber) {
         _notificationBanner.clearAction();
         _notificationBanner.dismiss();
         showEditProfilModule(profileNumber);
+        if (const auto* profile = _audioProcessor.getProfileManager().getProfile(profileNumber - 1)) {
+            ActionFeedback::post(*this, "Editing profile: " + profile->name);
+        }
     };
 
     addChildComponent(_modalOverlay);
@@ -170,6 +177,7 @@ void ProfilView::showAddProfileModal() {
         _notificationBanner.clearAction();
         _notificationBanner.dismiss();
         showCreateProfilModule();
+        ActionFeedback::post(*this, "New profile form opened.");
     };
     addProfilModule->onImportProfilClicked = [this]() {
         _modalOverlay.dismiss();
@@ -194,10 +202,12 @@ void ProfilView::showDeleteProfileModal(int profileNumber) {
 
     confirmationModule->onCancel = [this]() {
         _modalOverlay.dismiss();
+        ActionFeedback::post(*this, "Profile deletion cancelled.");
     };
 
     _modalOverlay.show(std::move(confirmationModule),
                        juce::Rectangle<int>(0, 0, 296, 108));
+    ActionFeedback::post(*this, "Confirm deletion of " + profileName + ".");
 }
 
 void ProfilView::deleteProfile(int profileNumber) {
@@ -272,6 +282,7 @@ void ProfilView::showEditProfilModule(int profileNumber) {
 }
 
 void ProfilView::importProfil() {
+    ActionFeedback::post(*this, "Choose a profile file to import.");
     auto& profileManager = _audioProcessor.getProfileManager();
     _profileFileChooser = std::make_unique<juce::FileChooser>(
         "Import a profile",
@@ -301,6 +312,8 @@ void ProfilView::importProfil() {
                                                                                            NotificationBanner::Type::Error,
                                                                                            5000);
                                              }
+                                         } else {
+                                             ActionFeedback::post(*safeThis, "Profile import cancelled.");
                                          }
 
                                          safeThis->_profileFileChooser.reset();

@@ -95,6 +95,8 @@ class AmpProfilerPanel : public juce::Component {
     ~AmpProfilerPanel() override = default;
 
     void refreshAssets();
+    void setBlockEnabled(bool enabled);
+    std::function<void(bool)> onEnabledChanged;
 
     std::function<void(const juce::String&, bool)> onStatusMessage;
     std::function<void()> onAssetsChanged;
@@ -108,7 +110,6 @@ class AmpProfilerPanel : public juce::Component {
     CustomToggleButton _ampEnabled{"Amp Enabled"};
     FileDropZone _ampDrop;
     CustomKnob _outputKnob{"Gain", -12.0f, 12.0f, 0.0f, "dB"};
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _ampEnabledAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _outputAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AmpProfilerPanel)
@@ -120,6 +121,8 @@ class CabinetIrPanel : public juce::Component {
     ~CabinetIrPanel() override = default;
 
     void refreshAssets();
+    void setBlockEnabled(bool enabled);
+    std::function<void(bool)> onEnabledChanged;
 
     std::function<void(const juce::String&, bool)> onStatusMessage;
     std::function<void()> onAssetsChanged;
@@ -133,7 +136,6 @@ class CabinetIrPanel : public juce::Component {
     CustomToggleButton _cabEnabled{"Cab Enabled"};
     FileDropZone _irDrop;
     CustomKnob _lowCutKnob{"Low Cut", 20.0f, 250.0f, 80.0f, "Hz", 1.0f};
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _cabEnabledAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _lowCutAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CabinetIrPanel)
@@ -147,6 +149,8 @@ class EqPostFxPanel : public juce::Component {
     void paint(juce::Graphics& g) override;
     void resized() override;
     void refreshBypassState();
+    void setBlockEnabled(bool enabled);
+    std::function<void(bool)> onEnabledChanged;
 
    private:
     juce::Label _title{"", "EQ / Post-FX"};
@@ -154,7 +158,6 @@ class EqPostFxPanel : public juce::Component {
     CustomToggleButton _eqEnabled{"EQ Enabled"};
     EqResponseDisplay _eqDisplay;
     BasicEqModule _eqModule;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _eqAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EqPostFxPanel)
 };
@@ -167,6 +170,8 @@ class PedalDrivePanel : public juce::Component {
     void paint(juce::Graphics& g) override;
     void resized() override;
     void refreshBypassState();
+    void setBlockEnabled(bool enabled);
+    std::function<void(bool)> onEnabledChanged;
 
    private:
     juce::Label _title{"", "Overdrive"};
@@ -176,7 +181,6 @@ class PedalDrivePanel : public juce::Component {
     CustomKnob _driveKnob{"Drive", 0.0f, 10.0f, 4.0f, ""};
     CustomKnob _toneKnob{"Tone", 0.0f, 100.0f, 65.0f, "%", 1.0f};
     CustomKnob _levelKnob{"Level", -12.0f, 12.0f, 0.0f, "dB"};
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _enabledAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> _modelAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _driveAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _toneAttachment;
