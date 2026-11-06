@@ -1,8 +1,11 @@
 #pragma once
 
+#include <functional>
+
 #include <JuceHeader.h>
 
 #include "Components/CustomComboBox.h"
+#include "Components/CustomTextButton.h"
 #include "Views/AmpCapturePanel.h"
 #include "Views/IrCapturePanel.h"
 
@@ -13,6 +16,8 @@ class SettingsView : public juce::Component {
     explicit SettingsView(ProfilerAudioProcessor& processor);
 
     static void applySavedBackgroundColour();
+
+    std::function<void()> onCheckForUpdates;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -38,6 +43,8 @@ class SettingsView : public juce::Component {
     CustomComboBox _troubleshootingMenu;
     juce::Label _hardwareInfoLabel;
     CustomComboBox _hardwareInfoMenu;
+    juce::Label _versionLabel;
+    CustomTextButton _updateButton{"Check for updates"};
 
     void applyBackgroundColour();
     void refreshColours();

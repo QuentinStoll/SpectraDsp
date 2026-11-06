@@ -44,8 +44,17 @@ SolidCompression=yes
 PrivilegesRequired=admin
 MinVersion=10.0
 UninstallDisplayName=Spectra
+UninstallDisplayIcon={app}\Spectra.ico
 SetupIconFile={#SetupIcon}
 WizardStyle=modern
+AppMutex=SpectraStandaloneMutex
+SetupMutex=SpectraSetupMutex
+CloseApplications=yes
+RestartApplications=no
+SetupLogging=yes
+UninstallLogging=yes
+UninstallFilesDir={app}
+UsePreviousAppDir=yes
 #if Arch == "arm64"
 ArchitecturesAllowed=arm64
 ArchitecturesInstallIn64BitMode=arm64
@@ -65,16 +74,35 @@ Name: "custom"; Description: "Choose components"; Flags: iscustom
 Name: "standalone"; Description: "Standalone application"; Types: full custom; Flags: checkablealone
 Name: "vst3"; Description: "VST3 plugin"; Types: full custom; Flags: checkablealone
 
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked; Components: standalone
+
+[Dirs]
+Name: "{app}"; Flags: uninsalwaysuninstall
+Name: "{commoncf64}\VST3\Spectra.vst3"; Flags: uninsalwaysuninstall; Components: vst3
+
 [Files]
-Source: "{#StandaloneDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: standalone
-Source: "{#Vst3Dir}\*"; DestDir: "{commoncf64}\VST3\Spectra.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: vst3
+Source: "{#SetupIcon}"; DestDir: "{app}"; DestName: "Spectra.ico"; Flags: ignoreversion uninsrestartdelete
+Source: "{#StandaloneDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs uninsrestartdelete; Components: standalone
+Source: "{#Vst3Dir}\*"; DestDir: "{commoncf64}\VST3\Spectra.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs uninsrestartdelete; Components: vst3
 
 [Icons]
 Name: "{autoprograms}\Spectra"; Filename: "{app}\Spectra.exe"; Components: standalone
 Name: "{autodesktop}\Spectra"; Filename: "{app}\Spectra.exe"; Components: standalone; Tasks: desktopicon
 
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked; Components: standalone
+[InstallDelete]
+Type: files; Name: "{app}\Profiler.exe"
+Type: files; Name: "{app}\Profiler.bin"
+Type: filesandordirs; Name: "{commoncf64}\VST3\Profiler.vst3"
+Type: files; Name: "{autoprograms}\Profiler.lnk"
+Type: files; Name: "{autodesktop}\Profiler.lnk"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"
+Type: filesandordirs; Name: "{commoncf64}\VST3\Spectra.vst3"
+Type: filesandordirs; Name: "{commoncf64}\VST3\Profiler.vst3"
+Type: files; Name: "{autoprograms}\Spectra.lnk"
+Type: files; Name: "{autodesktop}\Spectra.lnk"
 
 [Run]
 Filename: "{app}\Spectra.exe"; Description: "Launch Spectra"; Flags: nowait postinstall skipifsilent; Components: standalone

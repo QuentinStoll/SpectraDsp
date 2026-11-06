@@ -8,6 +8,7 @@ set(PROFILER_TEST_SOURCES
     NotificationBannerTests.cpp
     UiSettingsTests.cpp
     MarketplaceClientTests.cpp
+    AppUpdateTests.cpp
     SpectraEngineTests.cpp
     FxQualityTests.cpp
     AmpConditionTests.cpp
@@ -27,6 +28,7 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/ProfileManager.cpp
     ../Source/Src/UiSettings.cpp
     ../Source/Src/MarketplaceClient.cpp
+    ../Source/Src/AppUpdate.cpp
     ../Source/Src/SpectraEngine.cpp
     ../Source/Src/SpectraAmp.cpp
     ../Source/Src/AmpCondition.cpp
@@ -48,6 +50,7 @@ target_compile_definitions(ProfilerTests PRIVATE
     JucePlugin_ProducesMidiOutput=0
     JucePlugin_IsMidiEffect=0
     JucePlugin_Name="Spectra"
+    SPECTRA_RELEASE_TAG="v2026.11.06-100"
     PROFILER_TEST_TEMP_ROOT="${CMAKE_CURRENT_BINARY_DIR}/tmp"
 )
 
@@ -266,3 +269,11 @@ add_profiler_marketplace_test(Mfa "marketplace mfa")
 add_profiler_marketplace_test(Library "marketplace library")
 add_profiler_marketplace_test(Session "marketplace session file")
 add_profiler_marketplace_test(IrCapture "marketplace ir capture")
+
+function(add_profiler_app_update_test test_name case_name)
+    add_test(NAME ProfilerTests.AppUpdate.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_app_update_test(TagOrder "app update tag order")
+add_profiler_app_update_test(ParseLatest "app update parse latest")

@@ -303,6 +303,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set Spectra release tag
+        shell: bash
+        run: echo "SPECTRA_RELEASE_TAG=v$(date -u +'%Y.%m.%d')-${{ github.run_number }}" >> "$GITHUB_ENV"
+
       - name: Fetch SpectraDsp
         id: spectra
         shell: bash
