@@ -103,7 +103,7 @@ class AmpProfilerPanel : public juce::Component {
     void resized() override;
 
    private:
-    juce::Label _title{"", "Amp Profiler"};
+    juce::Label _title{"", "Amp"};
     juce::Label _bypassLabel{"", "No model loaded"};
     CustomToggleButton _ampEnabled{"Amp Enabled"};
     FileDropZone _ampDrop;

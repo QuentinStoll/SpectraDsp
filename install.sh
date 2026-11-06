@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ================================================
-#  Profiler - compilation script (Linux and macOS)
+#  Spectra - compilation script (Linux and macOS)
 #  Epitech Paris - EIP 2025-2026
 # ================================================
 

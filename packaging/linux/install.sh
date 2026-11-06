@@ -120,21 +120,31 @@ install_standalone() {
     fi
     mkdir -p "$PREFIX"
     cp -a "$src"/. "$PREFIX/"
-    if [[ -f "$SCRIPT_DIR/profiler.png" ]]; then
-        cp -a "$SCRIPT_DIR/profiler.png" "$PREFIX/profiler.png"
+    if [[ -f "$SCRIPT_DIR/spectra.png" ]]; then
+        cp -a "$SCRIPT_DIR/spectra.png" "$PREFIX/spectra.png"
+    elif [[ -f "$SCRIPT_DIR/profiler.png" ]]; then
+        cp -a "$SCRIPT_DIR/profiler.png" "$PREFIX/spectra.png"
     fi
-    if [[ -f "$PREFIX/Profiler" && ! -f "$PREFIX/Profiler.bin" ]]; then
+
+    local app_name=""
+    for candidate in Spectra Profiler; do
+        if [[ -f "$PREFIX/$candidate" ]]; then
+            app_name="$candidate"
+            break
+        fi
+    done
+    if [[ -n "$app_name" && ! -f "$PREFIX/${app_name}.bin" ]]; then
         if compgen -G "$PREFIX/*.so*" >/dev/null; then
-            mv "$PREFIX/Profiler" "$PREFIX/Profiler.bin"
-            cat > "$PREFIX/Profiler" <<'WRAP'
+            mv "$PREFIX/$app_name" "$PREFIX/${app_name}.bin"
+            cat > "$PREFIX/$app_name" <<WRAP
 #!/usr/bin/env bash
-DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-export LD_LIBRARY_PATH="$DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec "$DIR/Profiler.bin" "$@"
+DIR="\$(cd "\$(dirname "\$(readlink -f "\$0")")" && pwd)"
+export LD_LIBRARY_PATH="\$DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "\$DIR/${app_name}.bin" "\$@"
 WRAP
-            chmod +x "$PREFIX/Profiler"
+            chmod +x "$PREFIX/$app_name"
         else
-            chmod +x "$PREFIX/Profiler"
+            chmod +x "$PREFIX/$app_name"
         fi
     fi
 
@@ -151,8 +161,8 @@ Version=1.0
 Type=Application
 Name=Spectra
 Comment=Guitar amplifier simulator
-Exec=${PREFIX}/Profiler
-Icon=${PREFIX}/profiler.png
+Exec=${PREFIX}/${app_name:-Spectra}
+Icon=${PREFIX}/spectra.png
 Terminal=false
 Categories=AudioVideo;Audio;
 StartupNotify=true
@@ -161,15 +171,23 @@ EOF
 }
 
 install_vst3() {
-    local src="$SCRIPT_DIR/vst3/Profiler.vst3"
-    if [[ ! -d "$src" && ! -f "$src" ]]; then
+    local src=""
+    for candidate in "$SCRIPT_DIR/vst3/Spectra.vst3" "$SCRIPT_DIR/vst3/Profiler.vst3"; do
+        if [[ -d "$candidate" || -f "$candidate" ]]; then
+            src="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$src" ]]; then
         echo "VST3 payload missing." >&2
         exit 1
     fi
+    local dest_name
+    dest_name="$(basename "$src")"
     mkdir -p "$VST3_DIR"
-    rm -rf "$VST3_DIR/Profiler.vst3"
-    cp -a "$src" "$VST3_DIR/Profiler.vst3"
-    echo "Installed VST3 to $VST3_DIR/Profiler.vst3"
+    rm -rf "$VST3_DIR/$dest_name"
+    cp -a "$src" "$VST3_DIR/$dest_name"
+    echo "Installed VST3 to $VST3_DIR/$dest_name"
 }
 
 if [[ "$WANT_STANDALONE" -eq 1 ]]; then

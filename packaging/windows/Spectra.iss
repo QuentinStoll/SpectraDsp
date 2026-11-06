@@ -11,7 +11,10 @@
   #define StandaloneDir "..\..\build\bin\Standalone"
 #endif
 #ifndef Vst3Dir
-  #define Vst3Dir "..\..\build\bin\lib\VST3\Profiler.vst3"
+  #define Vst3Dir "..\..\build\bin\lib\VST3\Spectra.vst3"
+#endif
+#ifndef SetupIcon
+  #define SetupIcon "..\..\Source\Assets\png\SpectraIcon.ico"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\dist"
@@ -41,6 +44,7 @@ SolidCompression=yes
 PrivilegesRequired=admin
 MinVersion=10.0
 UninstallDisplayName=Spectra
+SetupIconFile={#SetupIcon}
 WizardStyle=modern
 #if Arch == "arm64"
 ArchitecturesAllowed=arm64
@@ -63,14 +67,14 @@ Name: "vst3"; Description: "VST3 plugin"; Types: full custom; Flags: checkableal
 
 [Files]
 Source: "{#StandaloneDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: standalone
-Source: "{#Vst3Dir}\*"; DestDir: "{commoncf64}\VST3\Profiler.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: vst3
+Source: "{#Vst3Dir}\*"; DestDir: "{commoncf64}\VST3\Spectra.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: vst3
 
 [Icons]
-Name: "{autoprograms}\Spectra"; Filename: "{app}\Profiler.exe"; Components: standalone
-Name: "{autodesktop}\Spectra"; Filename: "{app}\Profiler.exe"; Components: standalone; Tasks: desktopicon
+Name: "{autoprograms}\Spectra"; Filename: "{app}\Spectra.exe"; Components: standalone
+Name: "{autodesktop}\Spectra"; Filename: "{app}\Spectra.exe"; Components: standalone; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked; Components: standalone
 
 [Run]
-Filename: "{app}\Profiler.exe"; Description: "Launch Spectra"; Flags: nowait postinstall skipifsilent; Components: standalone
+Filename: "{app}\Spectra.exe"; Description: "Launch Spectra"; Flags: nowait postinstall skipifsilent; Components: standalone

@@ -22,11 +22,11 @@ class FindBinariesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             (root / "Standalone").mkdir()
-            (root / "Standalone" / "Profiler").write_text("elf\n")
-            (root / "lib" / "VST3" / "Profiler.vst3" / "Contents").mkdir(parents=True)
-            (root / "lib" / "VST3" / "Profiler.vst3" / "Contents" / "Profiler.so").write_text("so\n")
-            self.assertEqual(build_installer.find_standalone(root), root / "Standalone" / "Profiler")
-            self.assertEqual(build_installer.find_vst3(root), root / "lib" / "VST3" / "Profiler.vst3")
+            (root / "Standalone" / "Spectra").write_text("elf\n")
+            (root / "lib" / "VST3" / "Spectra.vst3" / "Contents").mkdir(parents=True)
+            (root / "lib" / "VST3" / "Spectra.vst3" / "Contents" / "Spectra.so").write_text("so\n")
+            self.assertEqual(build_installer.find_standalone(root), root / "Standalone" / "Spectra")
+            self.assertEqual(build_installer.find_vst3(root), root / "lib" / "VST3" / "Spectra.vst3")
 
 
 class LinuxInstallerTests(unittest.TestCase):
@@ -35,12 +35,12 @@ class LinuxInstallerTests(unittest.TestCase):
             root = Path(raw)
             plugin_root = root / "bin"
             (plugin_root / "Standalone").mkdir(parents=True)
-            binary = plugin_root / "Standalone" / "Profiler"
+            binary = plugin_root / "Standalone" / "Spectra"
             binary.write_text("#!/bin/sh\necho spectra\n")
             binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-            vst3 = plugin_root / "lib" / "VST3" / "Profiler.vst3" / "Contents"
+            vst3 = plugin_root / "lib" / "VST3" / "Spectra.vst3" / "Contents"
             vst3.mkdir(parents=True)
-            (vst3 / "Profiler.so").write_text("plugin\n")
+            (vst3 / "Spectra.so").write_text("plugin\n")
 
             output_dir = root / "dist"
             dest = root / "install"
@@ -84,8 +84,8 @@ class LinuxInstallerTests(unittest.TestCase):
                 check=True,
                 env=env,
             )
-            self.assertTrue((prefix / "Profiler").exists())
-            self.assertTrue((vst3_dir / "Profiler.vst3" / "Contents" / "Profiler.so").is_file())
+            self.assertTrue((prefix / "Spectra").exists())
+            self.assertTrue((vst3_dir / "Spectra.vst3" / "Contents" / "Spectra.so").is_file())
             self.assertTrue((xdg / "applications" / "spectra.desktop").is_file())
 
 

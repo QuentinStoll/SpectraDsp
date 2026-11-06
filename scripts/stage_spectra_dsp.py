@@ -23,7 +23,7 @@ def stage(library, plugin_root):
     for current, _dirs, files in os.walk(plugin_root):
         if os.path.basename(current) not in BUNDLE_DIR_NAMES:
             continue
-        if not any(name.startswith("Profiler") for name in files):
+        if not any(name.startswith(("Spectra", "Profiler")) for name in files):
             continue
         shutil.copy2(library, os.path.join(current, runtime_name))
         if os.path.isfile(version_file):
@@ -31,7 +31,7 @@ def stage(library, plugin_root):
         copied += 1
         print(f"Staged {runtime_name} in {current}", file=sys.stderr)
     if copied == 0:
-        print(f"No Profiler bundle found under {plugin_root}", file=sys.stderr)
+        print(f"No Spectra bundle found under {plugin_root}", file=sys.stderr)
         return 1
     return 0
 
