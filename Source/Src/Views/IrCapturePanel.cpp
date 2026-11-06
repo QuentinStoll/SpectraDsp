@@ -65,7 +65,7 @@ void IrCapturePanel::resized() {
     _status.setBounds(area.removeFromTop(juce::jmax(20, area.getHeight())));
 }
 
-void IrCapturePanel::refreshAccountState() {
+void IrCapturePanel::refreshAccountState(bool updateStatus) {
     const auto standalone = _processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
     Marketplace::Session session;
     const auto signedIn = Marketplace::loadSession(Marketplace::defaultSessionFile(), session) && session.accessToken.isNotEmpty();
@@ -73,13 +73,16 @@ void IrCapturePanel::refreshAccountState() {
         _body.setText("IR capture plays a sweep and records the return. Use the standalone, which owns the audio device.",
                       juce::dontSendNotification);
         _cloneButton.setEnabled(false);
-        setStatus("Open Profiler standalone to clone an IR.");
+        if (updateStatus) setStatus("Open Profiler standalone to clone an IR.");
         return;
     }
 
     _body.setText("The sweep is saved as a profile in this app. The sealed copy is also sent to My creations on profiler.audio.",
                   juce::dontSendNotification);
     _cloneButton.setEnabled(signedIn && !_busy);
+    if (!updateStatus) {
+        return;
+    }
     if (!signedIn) {
         setStatus("Sign in on the Library page to clone an IR.");
     } else if (!_busy) {
@@ -126,14 +129,14 @@ void IrCapturePanel::sealAndUpload() {
     if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
         _busy = false;
         setStatus("Sign in on the Library page to clone an IR.");
-        refreshAccountState();
+        refreshAccountState(false);
         return;
     }
 
     if (!_processor.unlockSpectraSession(session.accessToken)) {
         _busy = false;
         setStatus("Could not open a capture session.");
-        refreshAccountState();
+        refreshAccountState(false);
         return;
     }
 
@@ -149,7 +152,7 @@ void IrCapturePanel::sealAndUpload() {
         sealed.fillWith(0);
         _busy = false;
         setStatus(error);
-        refreshAccountState();
+        refreshAccountState(false);
         return;
     }
 
@@ -169,7 +172,7 @@ void IrCapturePanel::sealAndUpload() {
             }
             safeThis->_busy = false;
             safeThis->setStatus(localMessage + result.message);
-            safeThis->refreshAccountState();
+            safeThis->refreshAccountState(false);
         });
     });
     wipeKey(key);

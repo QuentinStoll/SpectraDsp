@@ -700,18 +700,23 @@ void ProfilerAudioProcessorEditor::setSelectedBlockEnabled(bool enabled) {
     if (!SignalChain::isMovableSlot(slot)) {
         return;
     }
-    _audioProcessor.setChainSlotBypassed(slot, !enabled);
-    if (enabled) {
+    const auto stage = _audioProcessor.getChainLayout().atSlot(slot);
+    const bool parameterBacked = stage == SignalChain::Stage::Amp || stage == SignalChain::Stage::Cab ||
+                                 stage == SignalChain::Stage::Eq || stage == SignalChain::Stage::Pedal;
+    // These switches retain their existing host automation parameters. A slot mask
+    // must not prevent subsequent parameter automation from enabling the block.
+    _audioProcessor.setChainSlotBypassed(slot, parameterBacked ? false : !enabled);
+    if (parameterBacked || enabled) {
         auto* parameter = _audioProcessor._apvts.getParameter(
-            enableParameterFor(_audioProcessor.getChainLayout().atSlot(slot)));
-        if (parameter != nullptr && parameter->getValue() < 0.5f) {
+            enableParameterFor(stage));
+        const float value = enabled ? 1.0f : 0.0f;
+        if (parameter != nullptr && parameter->getValue() != value) {
             parameter->beginChangeGesture();
-            parameter->setValueNotifyingHost(1.0f);
+            parameter->setValueNotifyingHost(value);
             parameter->endChangeGesture();
         }
     }
     updateChainStatus();
-    const auto stage = _audioProcessor.getChainLayout().atSlot(slot);
     auto message = juce::String(Fx::captionFor(stage)) + (enabled ? " block enabled." : " block bypassed.");
     if (enabled && stage == SignalChain::Stage::Amp && !_audioProcessor.isAmpFileLoaded()) message += " Load an amp model to hear it.";
     if (enabled && stage == SignalChain::Stage::Cab && !_audioProcessor.isIRLoaded()) message += " Load an impulse response to hear it.";
