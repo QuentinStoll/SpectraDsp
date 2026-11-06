@@ -2,15 +2,15 @@
 
 #include <thread>
 
+#if JUCE_WINDOWS
+#include <dwmapi.h>
+#include <windows.h>
+#endif
+
 #include "Fx/FxCatalog.h"
 #include "ProfileManager.h"
 #include "ProfilerConstantValues.h"
 #include "Stylesheet.h"
-
-#if JUCE_WINDOWS
-#include <windows.h>
-#include <dwmapi.h>
-#endif
 
 namespace {
 constexpr int kHostChromeRetryLimit = 10;
