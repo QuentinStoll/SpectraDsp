@@ -342,7 +342,9 @@ jobs:
       - name: Build project (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: install.bat build
+        run: |
+          call install.bat config
+          cmake --build build --config Release --parallel 8
 
       - name: Build project (Linux and macOS)
         if: runner.os != 'Windows'
