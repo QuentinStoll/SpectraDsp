@@ -97,6 +97,24 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
 
     addAndMakeVisible(_backgroundMenu);
 
+    _interfaceScaleLabel.setText("Interface scale", juce::dontSendNotification);
+    _interfaceScaleLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
+    addAndMakeVisible(_interfaceScaleLabel);
+    _interfaceScaleMenu.setTitle("Interface scale");
+    _interfaceScaleMenu.setTooltip("Enlarge text and controls. Scroll to reach content that does not fit the window.");
+    for (int percent = 100; percent <= 200; percent += 25) {
+        _interfaceScaleMenu.addItem(juce::String(percent) + "%", percent);
+    }
+    _interfaceScaleMenu.setSelectedId(UiSettings::loadInterfaceScalePercent(), juce::dontSendNotification);
+    _interfaceScaleMenu.onChange = [this]() {
+        const int percent = _interfaceScaleMenu.getSelectedId();
+        UiSettings::saveInterfaceScalePercent(percent);
+        if (onInterfaceScaleChanged) {
+            onInterfaceScaleChanged(percent);
+        }
+    };
+    addAndMakeVisible(_interfaceScaleMenu);
+
     _troubleshootingLabel.setText("Allow troubleshooting logs", juce::dontSendNotification);
     _troubleshootingLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     addAndMakeVisible(_troubleshootingLabel);
@@ -146,6 +164,8 @@ void SettingsView::resized() {
     _titleLabel.setVisible(showGeneral);
     _backgroundLabel.setVisible(showGeneral);
     _backgroundMenu.setVisible(showGeneral);
+    _interfaceScaleLabel.setVisible(showGeneral);
+    _interfaceScaleMenu.setVisible(showGeneral);
     _troubleshootingLabel.setVisible(showGeneral);
     _troubleshootingMenu.setVisible(showGeneral);
     _hardwareInfoLabel.setVisible(showGeneral);
@@ -161,7 +181,7 @@ void SettingsView::resized() {
 
     _titleLabel.setBounds(area.removeFromTop(50));
 
-    area.removeFromTop(30);
+    area.removeFromTop(16);
 
     auto settingLine = area.removeFromTop(40);
 
@@ -171,7 +191,14 @@ void SettingsView::resized() {
 
     _backgroundMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(20);
+    area.removeFromTop(12);
+
+    settingLine = area.removeFromTop(40);
+    _interfaceScaleLabel.setBounds(settingLine.removeFromLeft(180));
+    settingLine.removeFromLeft(20);
+    _interfaceScaleMenu.setBounds(settingLine.removeFromLeft(220));
+
+    area.removeFromTop(12);
 
     settingLine = area.removeFromTop(40);
 
@@ -181,7 +208,7 @@ void SettingsView::resized() {
 
     _troubleshootingMenu.setBounds(settingLine.removeFromLeft(220));
 
-    area.removeFromTop(20);
+    area.removeFromTop(12);
 
     settingLine = area.removeFromTop(40);
 

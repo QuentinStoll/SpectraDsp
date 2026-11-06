@@ -13,6 +13,7 @@ class SettingsView : public juce::Component {
     explicit SettingsView(ProfilerAudioProcessor& processor);
 
     static void applySavedBackgroundColour();
+    std::function<void(int)> onInterfaceScaleChanged;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -34,6 +35,8 @@ class SettingsView : public juce::Component {
     juce::Label _titleLabel;
     juce::Label _backgroundLabel;
     CustomComboBox _backgroundMenu;
+    juce::Label _interfaceScaleLabel;
+    CustomComboBox _interfaceScaleMenu;
     juce::Label _troubleshootingLabel;
     CustomComboBox _troubleshootingMenu;
     juce::Label _hardwareInfoLabel;

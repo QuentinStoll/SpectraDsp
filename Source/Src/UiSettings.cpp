@@ -7,6 +7,7 @@ const juce::String uiSettingsFileName{"ui_settings.json"};
 const juce::Identifier backgroundColourPresetId{"backgroundColourPreset"};
 const juce::Identifier troubleshootingSettingId{"troubleshootingSetting"};
 const juce::Identifier hardwareInfoSettingId{"hardwareInfoSetting"};
+const juce::Identifier interfaceScalePercentId{"interfaceScalePercent"};
 
 constexpr int defaultBackgroundColourPreset = 1;
 constexpr int firstBackgroundColourPreset = 1;
@@ -56,6 +57,7 @@ void saveUiSettingsObject(const juce::DynamicObject& settingsObject) {
     appendProperty(backgroundColourPresetId);
     appendProperty(troubleshootingSettingId);
     appendProperty(hardwareInfoSettingId);
+    appendProperty(interfaceScalePercentId);
 
     json << "}";
     getUiSettingsFile().replaceWithText(json);
@@ -81,6 +83,22 @@ int loadIntSetting(const juce::DynamicObject& settingsObject,
 }  // namespace
 
 namespace UiSettings {
+int normaliseInterfaceScalePercent(int percent) {
+    return percent >= 100 && percent <= 200 && percent % 25 == 0 ? percent : 100;
+}
+
+int loadInterfaceScalePercent() {
+    const auto settingsObject = loadUiSettingsObject();
+    return normaliseInterfaceScalePercent(
+        loadIntSetting(settingsObject, interfaceScalePercentId, 100));
+}
+
+void saveInterfaceScalePercent(int percent) {
+    auto settingsObject = loadUiSettingsObject();
+    settingsObject.setProperty(interfaceScalePercentId, normaliseInterfaceScalePercent(percent));
+    saveUiSettingsObject(settingsObject);
+}
+
 int normaliseBackgroundColourPreset(int presetId) {
     if (presetId < firstBackgroundColourPreset || presetId > lastBackgroundColourPreset) {
         return defaultBackgroundColourPreset;

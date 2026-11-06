@@ -5,12 +5,14 @@
 #include "Components/BlockPickerPage.h"
 #include "Components/CustomLookAndFeel.h"
 #include "Components/NotificationBanner.h"
+#include "Components/ScalableViewport.h"
 #include "Components/SignalChainStrip.h"
 #include "Modules/ExportProfilModule.h"
 #include "Modules/FxEditPanel.h"
 #include "Modules/StudioEditPanels.h"
 #include "Modules/StudioTopBar.h"
 #include "PluginProcessor.h"
+#include "ProfilerConstantValues.h"
 #include "Views/ProfilView.h"
 #include "Views/SettingsView.h"
 
@@ -41,7 +43,8 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
 
     ProfilerAudioProcessor& _audioProcessor;
     CustomLookAndFeel _customLookAndFeel;
-    juce::Component _content;
+    ScalableViewport _contentViewport{editorWidth, editorHeight};
+    juce::Component& _content = _contentViewport.getContent();
 
     StudioTopBar _topBar;
     SignalChainStrip _signalChain;

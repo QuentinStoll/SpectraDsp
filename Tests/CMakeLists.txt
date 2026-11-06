@@ -228,6 +228,7 @@ endfunction()
 add_profiler_ui_settings_test(DefaultsAndNormalisation "ui settings defaults and normalisation")
 add_profiler_ui_settings_test(Persistence "ui settings persistence")
 add_profiler_ui_settings_test(InvalidJson "ui settings invalid JSON")
+add_profiler_ui_settings_test(InterfaceScaling "interface scaling keeps controls reachable")
 
 function(add_profiler_notification_banner_test test_name case_name)
     add_test(NAME ProfilerTests.NotificationBanner.${test_name}

@@ -145,13 +145,18 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         setResizeLimits(editorWidth, editorHeight, maxSize.x, maxSize.y);
         setSize(editorWidth, editorHeight);
     } else {
-        setResizeLimits(editorMinWidth, editorMinHeight, editorWidth, editorHeight);
+        setResizeLimits(editorMinWidth, editorMinHeight, editorWidth * 2, editorHeight * 2);
         getConstrainer()->setFixedAspectRatio(editorWidth / static_cast<double>(editorHeight));
         setSize(editorWidth, editorHeight);
     }
     setBroughtToFrontOnMouseClick(true);
 
-    addAndMakeVisible(_content);
+    addAndMakeVisible(_contentViewport);
+    _contentViewport.setScalePercent(UiSettings::loadInterfaceScalePercent());
+    _settingsView.onInterfaceScaleChanged = [this](int percent) {
+        _contentViewport.setScalePercent(percent);
+        resized();
+    };
     _content.addAndMakeVisible(_topBar);
     _content.addAndMakeVisible(_signalChain);
     _content.addAndMakeVisible(_editHost);
@@ -406,8 +411,7 @@ void ProfilerAudioProcessorEditor::openStandaloneFullscreen() {
 }
 
 void ProfilerAudioProcessorEditor::resized() {
-    _content.setTransform({});
-    _content.setBounds(getLocalBounds());
+    _contentViewport.setBounds(getLocalBounds());
 
     auto area = _content.getLocalBounds();
     _topBar.setBounds(area.removeFromTop(48));
