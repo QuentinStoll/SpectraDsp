@@ -32,13 +32,22 @@ class AppUpdateTests : public juce::UnitTest {
         expect(!AppUpdate::isNewer("v2026.11.06-100", "v2026.11.06-178"));
         expect(!AppUpdate::isNewer("v2026.11.06-100", "v2026.11.06-100"));
         expect(!AppUpdate::isNewer("not-a-tag", "v2026.11.06-100"));
+        expect(AppUpdate::isNewer("v2026.11.09-1", "v2026.11.06-999"));
+        expect(AppUpdate::isNewer("v1.2.0", "v1.1.9"));
+        expect(!AppUpdate::isNewer("v1.2.0", "v1.2.0"));
+        expect(AppUpdate::isNewer("v1.0.0", "v2026.11.06-185"));
+        expectEquals(AppUpdate::installerFileName("macos", "arm64"), juce::String("Spectra-macos-arm64.pkg"));
+        expectEquals(AppUpdate::installerFileName("windows", "x64"), juce::String("Spectra-windows-x64.exe"));
+        expectEquals(AppUpdate::installerFileName("linux", "x64"), juce::String("Spectra-linux-x64.run"));
         expectEquals(AppUpdate::currentTag(), juce::String("v2026.11.06-100"));
+        expect(AppUpdate::isInstalledRelease());
     }
 
     void testParseLatest() {
         const auto json = juce::String(
             R"({"tag_name":"v2026.11.06-178","assets":[)"
             R"({"name":"Spectra-windows-x64.exe","browser_download_url":"https://example.com/win.exe"},)"
+            R"({"name":"Spectra-macos-arm64.pkg","browser_download_url":"https://example.com/mac.pkg"},)"
             R"({"name":"Spectra-linux-x64.run","browser_download_url":"https://example.com/linux.run"}]})");
 
         const auto update = AppUpdate::parseLatestJson(json, "Spectra-windows-x64.exe", "v2026.11.06-100");
@@ -50,7 +59,11 @@ class AppUpdateTests : public juce::UnitTest {
         expect(!current.available);
         expect(current.message.containsIgnoreCase("up to date"));
 
-        const auto missing = AppUpdate::parseLatestJson(json, "Spectra-macos-arm64.pkg", "v2026.11.06-100");
+        const auto mac = AppUpdate::parseLatestJson(json, "Spectra-macos-arm64.pkg", "v2026.11.06-100");
+        expect(mac.available);
+        expectEquals(mac.installerUrl, juce::String("https://example.com/mac.pkg"));
+
+        const auto missing = AppUpdate::parseLatestJson(json, "Spectra-macos-x64.pkg", "v2026.11.06-100");
         expect(!missing.available);
         expect(missing.message.containsIgnoreCase("No installer"));
     }
