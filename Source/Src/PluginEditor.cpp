@@ -669,6 +669,30 @@ void ProfilerAudioProcessorEditor::presentAppUpdate(const AppUpdate::Offer& offe
     });
     _notificationBanner.showMessage(offer.message, NotificationBanner::Type::Info, 0);
     resized();
+    _notificationBanner.toFront(false);
+
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::InfoIcon)
+            .withTitle("Update Spectra")
+            .withMessage(offer.message + "\n\nInstall it now?")
+            .withButton("Install")
+            .withButton("Later")
+            .withParentComponent(this),
+        [safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this), offer](int result) {
+            if (safeThis == nullptr || safeThis->_updateInProgress) {
+                return;
+            }
+            if (result == 1) {
+                safeThis->_notificationBanner.onDismissed = nullptr;
+                safeThis->_notificationBanner.dismiss();
+                safeThis->applyAppUpdate(offer);
+                return;
+            }
+            AppUpdate::rememberSkippedTag(offer.latestTag);
+            safeThis->_notificationBanner.onDismissed = nullptr;
+            safeThis->_notificationBanner.dismiss();
+        });
 }
 
 void ProfilerAudioProcessorEditor::applyAppUpdate(const AppUpdate::Offer& offer) {
