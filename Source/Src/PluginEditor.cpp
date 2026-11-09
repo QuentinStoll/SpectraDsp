@@ -613,6 +613,7 @@ void ProfilerAudioProcessorEditor::toggleBlockBypass(SignalChainStrip::BlockId b
 }
 
 void ProfilerAudioProcessorEditor::showStatus(const juce::String& message, bool success) {
+    _notificationBanner.onDismissed = nullptr;
     _notificationBanner.clearAction();
     _notificationBanner.showMessage(message,
                                     success ? NotificationBanner::Type::Success : NotificationBanner::Type::Error,
@@ -621,7 +622,13 @@ void ProfilerAudioProcessorEditor::showStatus(const juce::String& message, bool 
 }
 
 void ProfilerAudioProcessorEditor::checkForAppUpdate(bool userRequested) {
-    if (!userRequested && AppUpdate::runNumberFromTag(AppUpdate::currentTag()) <= 0) {
+    if (_updateInProgress) {
+        if (userRequested) {
+            showStatus("An update is already in progress.", true);
+        }
+        return;
+    }
+    if (!userRequested && !AppUpdate::isInstalledRelease()) {
         return;
     }
     if (_updateAlive == nullptr) {
@@ -649,8 +656,15 @@ void ProfilerAudioProcessorEditor::presentAppUpdate(const AppUpdate::Offer& offe
         }
         return;
     }
+    if (!userRequested && AppUpdate::skippedTag() == offer.latestTag) {
+        return;
+    }
 
-    _notificationBanner.setAction("Update", [this, offer]() {
+    _notificationBanner.onDismissed = [tag = offer.latestTag]() {
+        AppUpdate::rememberSkippedTag(tag);
+    };
+    _notificationBanner.setAction("Install", [this, offer]() {
+        _notificationBanner.onDismissed = nullptr;
         applyAppUpdate(offer);
     });
     _notificationBanner.showMessage(offer.message, NotificationBanner::Type::Info, 0);
@@ -663,28 +677,32 @@ void ProfilerAudioProcessorEditor::applyAppUpdate(const AppUpdate::Offer& offer)
     }
     _updateInProgress = true;
 
-    if (_audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Standalone) {
-        juce::URL("https://spectradsp.com/downloads/" +
-                  juce::String(AppUpdate::expectedInstallerName().contains("macos")
-                                   ? "macos"
-                                   : (AppUpdate::expectedInstallerName().contains("linux") ? "linux" : "windows")))
-            .launchInDefaultBrowser();
-        showStatus("Download the installer, then close the DAW before installing.", true);
-        _updateInProgress = false;
-        return;
-    }
-
+    _notificationBanner.onDismissed = nullptr;
     _notificationBanner.clearAction();
-    _notificationBanner.showMessage("Downloading Spectra " + offer.latestTag + "...",
-                                    NotificationBanner::Type::Info, 0);
+    _notificationBanner.showMessage("Downloading Spectra...", NotificationBanner::Type::Info, 0);
     resized();
 
+    const auto standalone = _audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
     const auto live = _updateAlive;
-    std::thread([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this), live, offer]() {
+    std::thread([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this), live, offer, standalone]() {
         const auto dest = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile(offer.installerName);
         juce::String error;
-        const auto downloaded = AppUpdate::downloadInstaller(offer.installerUrl, dest, &error);
-        juce::MessageManager::callAsync([safeThis, live, dest, downloaded, error]() {
+        int lastPercent = -1;
+        const auto downloaded = AppUpdate::downloadInstaller(offer.installerUrl, dest, &error, [&](float fraction) {
+            const auto percent = juce::roundToInt(juce::jlimit(0.0f, 1.0f, fraction) * 100.0f);
+            if (percent < lastPercent + 5 && percent < 100) {
+                return;
+            }
+            lastPercent = percent;
+            juce::MessageManager::callAsync([safeThis, live, percent]() {
+                if (!live->load() || safeThis == nullptr) {
+                    return;
+                }
+                safeThis->_notificationBanner.showMessage("Downloading Spectra... " + juce::String(percent) + "%",
+                                                          NotificationBanner::Type::Info, 0);
+            });
+        });
+        juce::MessageManager::callAsync([safeThis, live, dest, downloaded, error, standalone]() {
             if (!live->load() || safeThis == nullptr) {
                 return;
             }
@@ -699,7 +717,12 @@ void ProfilerAudioProcessorEditor::applyAppUpdate(const AppUpdate::Offer& offer)
                 safeThis->showStatus(launchError, false);
                 return;
             }
-            juce::JUCEApplicationBase::quit();
+            if (standalone) {
+                juce::JUCEApplicationBase::quit();
+                return;
+            }
+            safeThis->_updateInProgress = false;
+            safeThis->showStatus("Installer opened. Quit the DAW, then finish the installation.", true);
         });
     }).detach();
 }
