@@ -197,6 +197,7 @@ LibraryItem parseItem(const juce::var& item) {
     libraryItem.fileUrl = jsonString(item, "fileUrl");
     libraryItem.irFileUrl = jsonString(item, "irFileUrl");
     libraryItem.hasIntegratedIr = jsonBool(item, "hasIntegratedIr", false);
+    libraryItem.hasSeparateIr = libraryItem.irFileUrl.isNotEmpty();
     libraryItem.kind = jsonString(item, "kind");
     const auto conditionProfile = jsonString(item, "conditionProfile");
     if (conditionProfile.isNotEmpty()) {

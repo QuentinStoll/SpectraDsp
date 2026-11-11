@@ -52,6 +52,7 @@ struct LibraryItem {
     juce::String irFileUrl;
     juce::String kind;
     bool hasIntegratedIr = false;
+    bool hasSeparateIr = false;
     juce::String conditionProfile{"off"};
     float conditionAmount = 0.0f;
 };

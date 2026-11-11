@@ -104,6 +104,10 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         runCase("audio processor condition stays on the amp", [this] {
             testConditionStaysOnTheAmp();
         });
+
+        runCase("audio processor parallel route", [this] {
+            testParallelRoute();
+        });
     }
 
    private:
@@ -243,7 +247,7 @@ class AudioProcessorUnitTests : public juce::UnitTest {
     void testParameterDefaults() {
         ProfilerAudioProcessor processor;
 
-        expect(processor.getParameters().size() == 30 + Fx::parameterCount(),
+        expect(processor.getParameters().size() == 38 + Fx::parameterCount(),
                "Unexpected processor parameter count.");
         expectClose(getParameterValue(processor, "master"), 50.0f, "master default");
         expectClose(getParameterValue(processor, "gain"), 0.0f, "gain default");
@@ -1139,6 +1143,96 @@ class AudioProcessorUnitTests : public juce::UnitTest {
             expect(allSamplesFinite(buffer), "Spectra amp sine should stay finite.");
         }
         return getMaximumRmsLevel(buffer);
+    }
+
+    void testParallelRoute() {
+        ProfilerAudioProcessor source;
+        SignalChain::ParallelRoute route;
+        route.splitAfter = 1;
+        route.mergeAfter = 4;
+        route.placePathB(SignalChain::Stage::Amp, 0);
+        route.placePathB(SignalChain::Stage::Cab, 2);
+        source.setParallelRoute(route);
+
+        juce::MemoryBlock state;
+        source.getStateInformation(state);
+        ProfilerAudioProcessor restored;
+        restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        const auto back = restored.getParallelRoute();
+        expect(back.active(), "A saved split should restore as an active route.");
+        expect(back.splitAfter == 1, "Split point should round-trip.");
+        expect(back.mergeAfter == 4, "Merge point should round-trip.");
+        expect(back.pathBAt(0) == SignalChain::Stage::Amp, "Path B amp should round-trip.");
+        expect(back.pathBAt(2) == SignalChain::Stage::Cab, "Path B cab should round-trip.");
+
+        constexpr double sampleRate = 48000.0;
+        constexpr int blockSize = 256;
+        const char* halfModel =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[0.5],"sample_rate":48000})";
+        const char* unityModel =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000})";
+
+        SignalChain::Layout empty;
+        clearMovableSlots(empty);
+
+        ProfilerAudioProcessor dry;
+        silenceOtherStages(dry);
+        dry.setChainLayout(empty);
+        prepareProcessor(dry, sampleRate, blockSize);
+        const auto dryRms = renderSineRms(dry, sampleRate, blockSize, 12);
+        dry.releaseResources();
+        expect(dryRms > 0.05f, "Dry chain should pass the test tone.");
+
+        ProfilerAudioProcessor routed;
+        silenceOtherStages(routed);
+        expect(loadAmpJson(routed, halfModel), "Half-gain model should load on the parallel path.");
+        routed.setChainLayout(empty);
+        SignalChain::ParallelRoute fork;
+        fork.splitAfter = 0;
+        fork.mergeAfter = SignalChain::movableSlotCount - 1;
+        fork.placePathB(SignalChain::Stage::Amp, 0);
+        routed.setParallelRoute(fork);
+        setParameterValue(routed, "isAmpEnabled", 1.0f);
+        setParameterValue(routed, "splitMode", 1.0f);
+        setParameterValue(routed, "splitRoute", 0.0f);
+        prepareProcessor(routed, sampleRate, blockSize);
+        const auto mutedBranch = renderSineRms(routed, sampleRate, blockSize, 12);
+        setParameterValue(routed, "splitRoute", 1.0f);
+        const auto branchOnly = renderSineRms(routed, sampleRate, blockSize, 12);
+        routed.releaseResources();
+
+        expect(std::abs(mutedBranch - dryRms) < dryRms * 0.15f,
+               "A/B fully toward path A should ignore the path B amp. dry " + juce::String(dryRms, 4) + " muted " +
+                   juce::String(mutedBranch, 4));
+        expect(std::abs(branchOnly - dryRms * 0.5f) < dryRms * 0.18f,
+               "A/B fully toward path B should play the half-gain amp. dry " + juce::String(dryRms, 4) + " branch " +
+                   juce::String(branchOnly, 4));
+
+        ProfilerAudioProcessor dual;
+        silenceOtherStages(dual);
+        expect(loadAmpJson(dual, unityModel), "Unity model should load for the dual-amp route.");
+        SignalChain::Layout mainAmp;
+        clearMovableSlots(mainAmp);
+        mainAmp.place(SignalChain::Stage::Amp, SignalChain::chainSlotForMovableIndex(1));
+        dual.setChainLayout(mainAmp);
+        SignalChain::ParallelRoute both;
+        both.splitAfter = 0;
+        both.mergeAfter = 2;
+        both.placePathB(SignalChain::Stage::Amp, 0);
+        dual.setParallelRoute(both);
+        setParameterValue(dual, "isAmpEnabled", 1.0f);
+        setParameterValue(dual, "splitMode", 0.0f);
+        setParameterValue(dual, "routeBPolarity", 1.0f);
+        prepareProcessor(dual, sampleRate, blockSize);
+        const auto cancelled = renderSineRms(dual, sampleRate, blockSize, 12);
+        setParameterValue(dual, "routeBPolarity", 0.0f);
+        const auto summed = renderSineRms(dual, sampleRate, blockSize, 12);
+        dual.releaseResources();
+
+        expect(summed > dryRms * 0.8f, "Two unity amps should stay audible. summed " + juce::String(summed, 4));
+        expect(cancelled < summed * 0.15f,
+               "Inverting path B should cancel the matching amp. cancelled " + juce::String(cancelled, 4) + " summed " +
+                   juce::String(summed, 4));
     }
 
     void testSpectraNeuralAmp() {

@@ -15,19 +15,20 @@ class MarketplaceAccountPanel : public juce::Component,
     ~MarketplaceAccountPanel() override;
 
     std::function<void()> onLayoutChanged;
-    std::function<bool(const juce::File& profileFile,
-                       const juce::File& irFile,
-                       bool hasIntegratedIr,
-                       juce::String* errorMessage)>
-        onInstallPack;
-    std::function<bool(const juce::MemoryBlock& cipher,
+    std::function<void(const std::vector<Marketplace::LibraryItem>& items)> onLibraryChanged;
+    std::function<bool(const juce::String& accessToken,
+                       const juce::String& id,
+                       const juce::String& title,
+                       const juce::String& kind,
+                       const juce::MemoryBlock& cipher,
                        const juce::MemoryBlock& key,
                        int conditionProfile,
                        float conditionAmount,
                        juce::String* errorMessage)>
-        onPlaySpectra;
+        onEncryptedProfile;
 
     void start();
+    void downloadById(const juce::String& id);
     int getPreferredHeight(int width) const;
 
     void resized() override;
@@ -75,7 +76,6 @@ class MarketplaceAccountPanel : public juce::Component,
     void downloadPack(int index);
     void rebuildRows();
     void notifyLayout();
-    juce::File marketplaceDirectory() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MarketplaceAccountPanel)
 };

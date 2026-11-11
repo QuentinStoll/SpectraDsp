@@ -89,22 +89,26 @@ struct FxRack::Impl {
     FxDsp::NoiseGate gate;
     FxDsp::Tuner tuner;
     Seqlock tunerLock;
+    struct Lane {
+        std::vector<float> dryLeft;
+        std::vector<float> dryRight;
+        std::vector<float> scratch;
+    };
+
     std::array<float, 32 * FxDsp::kVoices> wetMix{};
-    std::vector<float> dryLeft;
-    std::vector<float> dryRight;
-    std::vector<float> scratch;
+    std::array<Lane, 2> lanes{};
     double sampleRate = 48000.0;
     double bpm = 120.0;
     int capacity = 0;
     float bypassCoef = 0.1f;
 
-    void blend(size_t slot, float* left, float* right, int numSamples, bool enabledNow) {
+    void blend(size_t slot, float* left, float* right, int numSamples, bool enabledNow, Lane& lane) {
         float mix = slot < wetMix.size() ? wetMix[slot] : (enabledNow ? 1.0f : 0.0f);
         const float target = enabledNow ? 1.0f : 0.0f;
         for (int sample = 0; sample < numSamples; ++sample) {
             mix += bypassCoef * (target - mix);
-            left[sample] = dryLeft[(size_t)sample] + (left[sample] - dryLeft[(size_t)sample]) * mix;
-            right[sample] = dryRight[(size_t)sample] + (right[sample] - dryRight[(size_t)sample]) * mix;
+            left[sample] = lane.dryLeft[(size_t)sample] + (left[sample] - lane.dryLeft[(size_t)sample]) * mix;
+            right[sample] = lane.dryRight[(size_t)sample] + (right[sample] - lane.dryRight[(size_t)sample]) * mix;
         }
         if (slot < wetMix.size()) {
             wetMix[slot] = mix;
@@ -120,9 +124,11 @@ FxRack::~FxRack() = default;
 void FxRack::prepare(double sampleRate, int maxBlock) {
     _impl->sampleRate = juce::jmax(8000.0, sampleRate);
     _impl->capacity = juce::jmax(1, maxBlock);
-    _impl->dryLeft.assign((size_t)_impl->capacity, 0.0f);
-    _impl->dryRight.assign((size_t)_impl->capacity, 0.0f);
-    _impl->scratch.assign((size_t)_impl->capacity, 0.0f);
+    for (auto& lane : _impl->lanes) {
+        lane.dryLeft.assign((size_t)_impl->capacity, 0.0f);
+        lane.dryRight.assign((size_t)_impl->capacity, 0.0f);
+        lane.scratch.assign((size_t)_impl->capacity, 0.0f);
+    }
     _impl->bypassCoef = 1.0f - std::exp(-1.0f / (0.002f * (float)_impl->sampleRate));
     _impl->harmonizer.prepare(_impl->sampleRate, maxBlock);
     _impl->octaver.prepare(_impl->sampleRate, maxBlock);
@@ -217,7 +223,8 @@ void FxRack::process(SignalChain::Stage stage,
                      int numSamples,
                      bool enabled,
                      const float* monitorLeft,
-                     const float* monitorRight) {
+                     const float* monitorRight,
+                     int laneIndex) {
     if (left == nullptr || numSamples <= 0 || moduleFor(stage) == nullptr) {
         return;
     }
@@ -225,12 +232,13 @@ void FxRack::process(SignalChain::Stage stage,
         return;
     }
 
+    auto& lane = _impl->lanes[static_cast<size_t>(juce::jlimit(0, 1, laneIndex))];
     const bool mono = right == nullptr || right == left;
     int offset = 0;
     while (offset < numSamples) {
         const int count = juce::jmin(_impl->capacity, numSamples - offset);
         float* sliceL = left + offset;
-        float* sliceR = mono ? _impl->scratch.data() : right + offset;
+        float* sliceR = mono ? lane.scratch.data() : right + offset;
         if (mono) {
             std::copy(sliceL, sliceL + count, sliceR);
         }
@@ -245,8 +253,8 @@ void FxRack::process(SignalChain::Stage stage,
             continue;
         }
 
-        std::copy(sliceL, sliceL + count, _impl->dryLeft.begin());
-        std::copy(sliceR, sliceR + count, _impl->dryRight.begin());
+        std::copy(sliceL, sliceL + count, lane.dryLeft.begin());
+        std::copy(sliceR, sliceR + count, lane.dryRight.begin());
         auto& fx = *_impl;
         switch (stage) {
             case SignalChain::Stage::PitchHarmonizer:
@@ -406,7 +414,7 @@ void FxRack::process(SignalChain::Stage stage,
                 break;
         }
         if (stage != SignalChain::Stage::Tuner) {
-            fx.blend(mixIndex, sliceL, sliceR, count, active);
+            fx.blend(mixIndex, sliceL, sliceR, count, active, lane);
         }
         if (mono) {
             for (int sample = 0; sample < count; ++sample) {

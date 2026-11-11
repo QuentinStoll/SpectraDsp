@@ -121,6 +121,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
       _pedalPanel(p._apvts),
       _masterPanel(p),
       _fxPanel(p),
+      _routeMixPanel(p._apvts),
       _libraryView(p),
       _settingsView(p) {
     SettingsView::applySavedBackgroundColour();
@@ -152,6 +153,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _editHost.addAndMakeVisible(_pedalPanel);
     _editHost.addAndMakeVisible(_masterPanel);
     _editHost.addAndMakeVisible(_fxPanel);
+    _editHost.addChildComponent(_routeMixPanel);
     _editHost.addChildComponent(_blockPicker);
 
     _settingsHost.addAndMakeVisible(_settingsView);
@@ -173,6 +175,24 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _topBar.onLibraryClicked = [this]() {
         showOverlay(_overlayMode == OverlayMode::Library ? OverlayMode::None : OverlayMode::Library);
     };
+    _topBar.onStatus = [this](const juce::String& message, bool success) { showStatus(message, success); };
+    _topBar.onPresetApplied = [this]() {
+        refreshChainView();
+        _ampPanel.refreshAssets();
+        _cabinetPanel.refreshAssets();
+        _eqPanel.refreshBypassState();
+        _inputGatePanel.refreshBypassState();
+        _pedalPanel.refreshBypassState();
+        updateChainStatus();
+    };
+    _ampPanel.onProfileUnavailable = [this](const juce::String& id) {
+        showOverlay(OverlayMode::Library);
+        _libraryView.downloadAccountProfile(id);
+    };
+    _cabinetPanel.onProfileUnavailable = [this](const juce::String& id) {
+        showOverlay(OverlayMode::Library);
+        _libraryView.downloadAccountProfile(id);
+    };
     _closeOverlayButton.onClick = [this]() {
         showStudio();
     };
@@ -188,7 +208,17 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         updateChainStatus();
     };
     _exportButton.onClick = [this]() {
-        showOverlay(OverlayMode::Export);
+        auto& presets = _audioProcessor.getPresetManager();
+        const auto currentIndex = presets.getCurrentIndex();
+        const auto overwrite = currentIndex >= 0;
+        const auto name = overwrite ? presets.getPreset(currentIndex)->name
+                                    : "Preset " + juce::String(presets.getCount() + 1);
+        juce::String error;
+        if (_audioProcessor.saveCurrentPreset(name, &error, overwrite)) {
+            showStatus(overwrite ? "Preset updated" : "Preset saved", true);
+        } else {
+            showStatus(error.isNotEmpty() ? error : "Could not save the preset.", false);
+        }
     };
 
     _ampPanel.onStatusMessage = [this](const juce::String& message, bool success) {
@@ -220,16 +250,96 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _signalChain.onClearAllBlocks = [this]() {
         _audioProcessor.clearAllChainBlocks();
         closeBlockPicker();
-        _signalChain.setLayout(_audioProcessor.getChainLayout());
-        updateChainStatus();
+        refreshChainView();
     };
+    _signalChain.onBlockDraggedDown = [this](int movableIndex) {
+        auto layout = _audioProcessor.getChainLayout();
+        const auto slot = SignalChain::chainSlotForMovableIndex(movableIndex);
+        const auto stage = layout.atSlot(slot);
+        if (stage == SignalChain::Stage::Empty) {
+            return;
+        }
+        const auto existing = _audioProcessor.getParallelRoute();
+        auto room = false;
+        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+            if (existing.pathBAt(index) == SignalChain::Stage::Empty) {
+                room = true;
+                break;
+            }
+        }
+        if (!room) {
+            return;
+        }
+        layout.clear(slot);
+        _audioProcessor.setChainLayout(layout);
+
+        auto route = _audioProcessor.getParallelRoute();
+        const int rowStart = movableIndex < 6 ? 0 : 6;
+        const int rowEnd = movableIndex < 6 ? 5 : 11;
+        const int regionFirst = route.active() ? juce::jmax(0, route.splitAfter + 1) : -1;
+        const bool sameRow = regionFirst >= rowStart && regionFirst <= rowEnd;
+        auto split = movableIndex - 1;
+        auto merge = movableIndex;
+        if (route.active() && sameRow) {
+            split = juce::jmin(route.splitAfter, split);
+            merge = juce::jmax(route.mergeAfter, merge);
+        }
+        merge = juce::jlimit(rowStart, rowEnd, merge);
+        if (split >= merge) {
+            split = merge - 1;
+        }
+        route.splitAfter = split;
+        route.mergeAfter = merge;
+        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+            if (route.pathBAt(index) == SignalChain::Stage::Empty) {
+                route.placePathB(stage, index);
+                break;
+            }
+        }
+        _audioProcessor.setParallelRoute(route);
+        refreshChainView();
+    };
+    _signalChain.onPathBReturned = [this](int pathBIndex, int chainSlot) {
+        auto route = _audioProcessor.getParallelRoute();
+        const auto stage = route.pathBAt(pathBIndex);
+        if (stage == SignalChain::Stage::Empty || !SignalChain::isMovableSlot(chainSlot)) {
+            return;
+        }
+        route.clearPathB(pathBIndex);
+        auto layout = _audioProcessor.getChainLayout();
+        auto destination = chainSlot;
+        if (layout.atSlot(chainSlot) != SignalChain::Stage::Empty) {
+            destination = -1;
+            const auto begin = juce::jmax(0, route.splitAfter + 1);
+            for (int index = begin; index <= route.mergeAfter && index < SignalChain::movableSlotCount; ++index) {
+                const auto candidate = SignalChain::chainSlotForMovableIndex(index);
+                if (layout.atSlot(candidate) == SignalChain::Stage::Empty) {
+                    destination = candidate;
+                    break;
+                }
+            }
+        }
+        if (destination < 0) {
+            route.placePathB(stage, pathBIndex);
+            return;
+        }
+        layout.place(stage, destination);
+        _audioProcessor.setChainLayout(layout);
+        if (route.occupiedPathB() == 0) {
+            _audioProcessor.clearParallelRoute();
+            _routeMixPanel.setVisible(false);
+        } else {
+            _audioProcessor.setParallelRoute(route);
+        }
+        refreshChainView();
+    };
+    _signalChain.onEditRouteMix = [this]() { showRouteMix(); };
     _blockPicker.onBlockChosen = [this](int slot, SignalChain::Stage stage) {
         placeChosenBlock(slot, stage);
     };
     _blockPicker.onBlockRemoved = [this](int slot) {
         _audioProcessor.clearChainSlot(slot);
-        _signalChain.setLayout(_audioProcessor.getChainLayout());
-        updateChainStatus();
+        refreshChainView();
     };
     _audioProcessor._apvts.state.addListener(this);
     _signalChain.setLayout(_audioProcessor.getChainLayout());
@@ -422,6 +532,7 @@ void ProfilerAudioProcessorEditor::resized() {
         _pedalPanel.setBounds(panelBounds);
         _masterPanel.setBounds(panelBounds);
         _fxPanel.setBounds(panelBounds);
+        _routeMixPanel.setBounds(panelBounds);
         _blockPicker.setBounds(panelBounds);
         _closeOverlayButton.setBounds({});
     } else {
@@ -498,7 +609,26 @@ void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
     repaint();
 }
 
+void ProfilerAudioProcessorEditor::refreshChainView() {
+    _signalChain.setLayout(_audioProcessor.getChainLayout());
+    _signalChain.setRoute(_audioProcessor.getParallelRoute());
+    updateChainStatus();
+}
+
+void ProfilerAudioProcessorEditor::showRouteMix() {
+    _inputGatePanel.setVisible(false);
+    _ampPanel.setVisible(false);
+    _cabinetPanel.setVisible(false);
+    _eqPanel.setVisible(false);
+    _pedalPanel.setVisible(false);
+    _masterPanel.setVisible(false);
+    _fxPanel.setVisible(false);
+    _routeMixPanel.setVisible(true);
+    closeBlockPicker();
+}
+
 void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId blockId) {
+    _routeMixPanel.setVisible(false);
     _inputGatePanel.setVisible(blockId == SignalChainStrip::BlockId::InputGate);
     _ampPanel.setVisible(blockId == SignalChainStrip::BlockId::AmpProfiler);
     _cabinetPanel.setVisible(blockId == SignalChainStrip::BlockId::CabinetIr);
@@ -508,8 +638,7 @@ void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId block
     const bool fx = blockId == SignalChainStrip::BlockId::Fx;
     _fxPanel.setVisible(fx);
     if (fx) {
-        _fxPanel.setStage(_signalChain.getLayout().atSlot(_signalChain.getSelectedChainSlot()),
-                          _signalChain.getSelectedChainSlot());
+        _fxPanel.setStage(_signalChain.selectedStage(), _signalChain.getSelectedChainSlot());
     }
 }
 
@@ -529,13 +658,12 @@ void ProfilerAudioProcessorEditor::closeBlockPicker() {
 
 void ProfilerAudioProcessorEditor::placeChosenBlock(int slot, SignalChain::Stage stage) {
     _audioProcessor.placeChainStage(stage, slot);
-    _signalChain.setLayout(_audioProcessor.getChainLayout());
+    refreshChainView();
     _signalChain.selectSlot(slot);
-    updateChainStatus();
 }
 
 void ProfilerAudioProcessorEditor::updateChainStatus() {
-    const auto ampLoaded = _audioProcessor.isAmpFileLoaded();
+    const auto ampLoaded = _audioProcessor.isAmpModelLoaded();
     const auto irLoaded = _audioProcessor.isIRLoaded();
     auto isEnabled = [this](const juce::String& parameterId, float fallback = 1.0f) {
         const auto* value = _audioProcessor._apvts.getRawParameterValue(parameterId);
@@ -552,6 +680,7 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
     _signalChain.setBlockLed(SignalChainStrip::BlockId::MasterVolume, true);
 
     const auto layout = _audioProcessor.getChainLayout();
+    const auto route = _audioProcessor.getParallelRoute();
     for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
         const auto slot = SignalChain::chainSlotForMovableIndex(index);
         const auto stage = layout.atSlot(slot);
@@ -575,6 +704,31 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
             default:
                 break;
         }
+        _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
+    }
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        const auto stage = route.pathBAt(index);
+        if (stage == SignalChain::Stage::Empty) {
+            continue;
+        }
+        bool typeOn = true;
+        switch (stage) {
+            case SignalChain::Stage::Amp:
+                typeOn = ampOn;
+                break;
+            case SignalChain::Stage::Cab:
+                typeOn = cabOn;
+                break;
+            case SignalChain::Stage::Eq:
+                typeOn = eqOn;
+                break;
+            case SignalChain::Stage::Pedal:
+                typeOn = pedalOn;
+                break;
+            default:
+                break;
+        }
+        const auto slot = SignalChain::pathBSlotForIndex(index);
         _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
     }
     _fxPanel.refreshBypass();
@@ -837,13 +991,22 @@ void ProfilerAudioProcessorEditor::timerCallback() {
 
 void ProfilerAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&,
                                                             const juce::Identifier& property) {
-    if (property != juce::Identifier("chainLayout") && property != juce::Identifier("chainLayoutHigh")) {
+    const bool layoutChanged = property == juce::Identifier("chainLayout") || property == juce::Identifier("chainLayoutHigh");
+    const bool routeChanged = property == juce::Identifier("routeHeader") || property == juce::Identifier("routePathB") ||
+                              property == juce::Identifier("routeBypass");
+    if (!layoutChanged && !routeChanged) {
         return;
     }
 
-    _signalChain.setLayout(_audioProcessor.getChainLayout());
+    if (layoutChanged) {
+        _signalChain.setLayout(_audioProcessor.getChainLayout());
+    }
+    if (routeChanged) {
+        _signalChain.setRoute(_audioProcessor.getParallelRoute());
+    }
 }
 
 void ProfilerAudioProcessorEditor::valueTreeRedirected(juce::ValueTree&) {
     _signalChain.setLayout(_audioProcessor.getChainLayout());
+    _signalChain.setRoute(_audioProcessor.getParallelRoute());
 }

@@ -290,4 +290,110 @@ static_assert(Layout::fromPacked(Layout{}.packed()).slotFor(Stage::Amp) == 2);
 static_assert(Layout::fromPacked(Layout{}.packed()).slotFor(Stage::Cab) == 4);
 static_assert(Layout::fromPacked(Layout{}.packed()).slotFor(Stage::Eq) == 6);
 static_assert(Layout::fromPacked(0xFFFFFFFFu).slotFor(Stage::Amp) == 2);
+
+// One parallel fork beside the serial chain. splitAfter/mergeAfter are movable
+// indices: blocks (splitAfter, mergeAfter] stay on path A, path B runs beside them.
+struct ParallelRoute {
+    static constexpr int pathBCount = 6;
+    static constexpr int pathBBase = 16;
+
+    int splitAfter = -1;
+    int mergeAfter = -1;
+    std::array<Stage, pathBCount> pathB{};
+
+    constexpr bool active() const noexcept {
+        return mergeAfter >= 0 && mergeAfter < movableSlotCount && splitAfter < mergeAfter && splitAfter >= -1;
+    }
+
+    constexpr Stage pathBAt(int index) const noexcept {
+        if (index < 0 || index >= pathBCount) {
+            return Stage::Empty;
+        }
+        return pathB[static_cast<size_t>(index)];
+    }
+
+    int occupiedPathB() const noexcept {
+        int count = 0;
+        for (const auto stage : pathB) {
+            if (stage != Stage::Empty) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    void placePathB(Stage stage, int index) noexcept {
+        if (index < 0 || index >= pathBCount || !isEffectStage(stage)) {
+            return;
+        }
+        pathB[static_cast<size_t>(index)] = stage;
+    }
+
+    void clearPathB(int index) noexcept {
+        if (index < 0 || index >= pathBCount) {
+            return;
+        }
+        pathB[static_cast<size_t>(index)] = Stage::Empty;
+    }
+
+    void clearPathB() noexcept { pathB.fill(Stage::Empty); }
+
+    constexpr std::uint32_t packedHeader() const noexcept {
+        std::uint32_t value = 0;
+        if (splitAfter >= 0) {
+            value |= static_cast<std::uint32_t>(splitAfter + 1) & 0x0Fu;
+        }
+        if (mergeAfter >= 0) {
+            value |= (static_cast<std::uint32_t>(mergeAfter + 1) & 0x0Fu) << 4;
+        }
+        return value;
+    }
+
+    constexpr std::uint32_t packedPathB() const noexcept {
+        std::uint32_t value = 0;
+        for (int index = 0; index < pathBCount; ++index) {
+            value |= (static_cast<std::uint32_t>(pathB[static_cast<size_t>(index)]) & 0x1Fu)
+                     << (5 * index);
+        }
+        return value;
+    }
+
+    static constexpr ParallelRoute fromPacked(std::uint32_t header, std::uint32_t pathBPacked) noexcept {
+        ParallelRoute route;
+        const auto splitCode = header & 0x0Fu;
+        const auto mergeCode = (header >> 4) & 0x0Fu;
+        route.splitAfter = splitCode == 0 ? -1 : static_cast<int>(splitCode) - 1;
+        route.mergeAfter = mergeCode == 0 ? -1 : static_cast<int>(mergeCode) - 1;
+        for (int index = 0; index < pathBCount; ++index) {
+            route.pathB[static_cast<size_t>(index)] =
+                static_cast<Stage>((pathBPacked >> (5 * index)) & 0x1Fu);
+        }
+        if (!route.active()) {
+            route.splitAfter = -1;
+            route.mergeAfter = -1;
+        }
+        for (auto& stage : route.pathB) {
+            if (!isKnownStage(stage) || stage == Stage::DelayTapeExtreme) {
+                stage = Stage::Empty;
+            }
+        }
+        return route;
+    }
+};
+
+inline constexpr bool isPathBSlot(int chainSlot) noexcept {
+    return chainSlot >= ParallelRoute::pathBBase &&
+           chainSlot < ParallelRoute::pathBBase + ParallelRoute::pathBCount;
+}
+
+inline constexpr int pathBIndexForSlot(int chainSlot) noexcept {
+    return isPathBSlot(chainSlot) ? chainSlot - ParallelRoute::pathBBase : -1;
+}
+
+inline constexpr int pathBSlotForIndex(int index) noexcept {
+    if (index < 0 || index >= ParallelRoute::pathBCount) {
+        return -1;
+    }
+    return ParallelRoute::pathBBase + index;
+}
 }  // namespace SignalChain
