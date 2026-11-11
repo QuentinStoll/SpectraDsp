@@ -4,6 +4,7 @@ set(PROFILER_TEST_SOURCES
     AudioProcessorTests.cpp
     ProfileProcessorIntegrationTests.cpp
     ProfileManagerTests.cpp
+    PresetCatalogTests.cpp
     LoggingTests.cpp
     NotificationBannerTests.cpp
     UiSettingsTests.cpp
@@ -26,6 +27,8 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/Fx/FxDsp.cpp
     ../Source/Src/Fx/FxRack.cpp
     ../Source/Src/ProfileManager.cpp
+    ../Source/Src/PresetManager.cpp
+    ../Source/Src/ProfileCatalog.cpp
     ../Source/Src/UiSettings.cpp
     ../Source/Src/MarketplaceClient.cpp
     ../Source/Src/AppUpdate.cpp
@@ -167,6 +170,14 @@ add_profiler_profile_manager_test(SaveCurrentProfileSetting "save current profil
 add_profiler_profile_manager_test(ClearCurrentProfileSetting "clear current profile setting")
 add_profiler_profile_manager_test(CaptureCurrentValues "capture current APVTS values with profile file paths")
 
+function(add_profiler_preset_test test_name case_name)
+    add_test(NAME ProfilerTests.Preset.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_preset_test(RestoreChain "preset restores the chain")
+add_profiler_preset_test(EncryptedCatalog "catalog keeps profiles encrypted")
+
 function(add_profiler_audio_processor_test test_name case_name)
     add_test(NAME ProfilerTests.AudioProcessor.${test_name}
         COMMAND ProfilerTests --case "${case_name}")
@@ -192,6 +203,7 @@ add_profiler_audio_processor_test(NamA2Realtime "audio processor nam a2 realtime
 add_profiler_audio_processor_test(NamCloneQuality "audio processor nam clone quality")
 add_profiler_audio_processor_test(CabinetIrReachesSignal "audio processor cabinet ir reaches the signal")
 add_profiler_audio_processor_test(EffectChain "audio processor effect chain")
+add_profiler_audio_processor_test(ParallelRoute "audio processor parallel route")
 
 function(add_profiler_audio_contract_test test_name case_name)
     add_test(NAME ProfilerTests.AudioContract.${test_name}

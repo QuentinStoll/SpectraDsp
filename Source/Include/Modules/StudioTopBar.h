@@ -18,6 +18,8 @@ class StudioTopBar : public juce::Component,
 
     std::function<void()> onSettingsClicked;
     std::function<void()> onLibraryClicked;
+    std::function<void()> onPresetApplied;
+    std::function<void(const juce::String&, bool)> onStatus;
     std::function<void(const juce::String&)> onResetCompleted;
 
     juce::String restoreDefaults();

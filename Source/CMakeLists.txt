@@ -67,6 +67,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Components/CustomToggleButton.cpp
     Src/Components/FileDropZone.cpp
     Src/Components/BlockPickerPage.cpp
+    Src/Components/RouteMixPanel.cpp
     Src/Components/SignalChainStrip.cpp
     Src/Components/FormFields/FormComboField.cpp
     Src/Components/FormComponent.cpp
@@ -110,6 +111,8 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Views/IrCapturePanel.cpp
     Src/Views/SettingsView.cpp
     Src/ProfileManager.cpp
+    Src/PresetManager.cpp
+    Src/ProfileCatalog.cpp
     Src/UiSettings.cpp
     Src/PluginEditor.cpp
     Src/PluginProcessor.cpp

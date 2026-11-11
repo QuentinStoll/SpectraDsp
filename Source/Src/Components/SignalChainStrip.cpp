@@ -14,6 +14,7 @@ constexpr float kMeterReleaseSeconds = 0.22f;
 constexpr int kDragThresholdPx = 6;
 constexpr int kChangeBlockItem = 1;
 constexpr int kClearAllBlocksItem = 2;
+constexpr int kDragDownThresholdPx = 26;
 
 float meterFromDb(float db) {
     const auto normalised = juce::jmap(juce::jlimit(kMeterFloorDb, kMeterCeilDb, db),
@@ -246,6 +247,16 @@ void SignalChainBlock::paintFlowMark(juce::Graphics& g) const {
     g.strokePath(path, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
+SignalChainStrip::RouteNode::RouteNode() : juce::Button({}) {
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void SignalChainStrip::RouteNode::paintButton(juce::Graphics& g, bool isMouseOverButton, bool) {
+    auto bounds = getLocalBounds().toFloat().reduced(7.0f);
+    g.setColour(isMouseOverButton ? ProfilerStyle::Colors::accent : juce::Colour(0xffF4F4F5));
+    g.fillRoundedRectangle(bounds, 2.0f);
+}
+
 void SignalChainStrip::SignalBusLayer::setRows(juce::Point<float> input,
                                                juce::Point<float> down,
                                                juce::Point<float> join,
@@ -321,6 +332,46 @@ SignalChainStrip::SignalChainStrip() {
         };
     }
 
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        auto& block = _pathB[static_cast<size_t>(index)];
+        addAndMakeVisible(block);
+        block.setVisible(false);
+        block.onClick = [this, index]() { selectChainSlot(SignalChain::pathBSlotForIndex(index)); };
+        block.onLedClicked = [this, index]() {
+            selectChainSlot(SignalChain::pathBSlotForIndex(index));
+            if (onBlockBypassToggled) {
+                onBlockBypassToggled(blockForStage(_route.pathBAt(index)));
+            }
+        };
+        block.onPickerRequested = [this, index]() {
+            showBlockMenu(SignalChain::pathBSlotForIndex(index));
+        };
+        block.onDragBegin = [this, index](const juce::MouseEvent& event) {
+            _dragPathBIndex = index;
+            _dragMovableIndex = -1;
+            _dragChainSlot = -1;
+            _dragTracking = true;
+            _dragActive = false;
+            _dragToPathB = false;
+            _dropSlot = -1;
+            _dragStart = event.getEventRelativeTo(this).getPosition();
+            _dragOrigin = _pathB[static_cast<size_t>(index)].getBounds();
+        };
+        block.onDragMove = [this](const juce::MouseEvent& event) { updateBlockDrag(event); };
+        block.onDragEnd = [this](const juce::MouseEvent& event) { finishBlockDrag(event); };
+    }
+
+    addAndMakeVisible(_splitNode);
+    addAndMakeVisible(_mergeNode);
+    _splitNode.setVisible(false);
+    _mergeNode.setVisible(false);
+    _splitNode.onClick = [this]() {
+        if (onEditRouteMix) {
+            onEditRouteMix();
+        }
+    };
+    _mergeNode.onClick = _splitNode.onClick;
+
     auto addFlowNode = [](SignalChainBlock& block, SignalChainBlock::FlowMark mark) {
         block.setIoNode(true);
         block.setShowsLed(false);
@@ -364,23 +415,71 @@ void SignalChainStrip::paint(juce::Graphics& g) {
         g.setColour(ProfilerStyle::Colors::text.withAlpha(0.72f));
         g.drawRoundedRectangle(dropBounds, 6.0f, 1.6f);
     }
+
+    if (!_route.active() || !_splitNode.isVisible()) {
+        return;
+    }
+
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        if (_route.pathBAt(index) != SignalChain::Stage::Empty) {
+            continue;
+        }
+        const auto bounds = _pathBBounds[static_cast<size_t>(index)];
+        if (bounds.isEmpty()) {
+            continue;
+        }
+        if (laf != nullptr) {
+            laf->drawEmptySignalSlot(g, bounds.toFloat());
+        }
+    }
+
+    const auto split = _splitNode.getBounds().toFloat().getCentre();
+    const auto merge = _mergeNode.getBounds().toFloat().getCentre();
+    const auto laneY = static_cast<float>(_laneTop) + static_cast<float>(_laneSquare) * 0.5f;
+    g.setColour(juce::Colour(0xffF4F4F5).withAlpha(0.9f));
+    g.drawLine(split.x, split.y, split.x, laneY, 1.3f);
+    g.drawLine(split.x, laneY, merge.x, laneY, 1.3f);
+    g.drawLine(merge.x, laneY, merge.x, merge.y, 1.3f);
+}
+
+int SignalChainStrip::parallelRow() const noexcept {
+    if (!_route.active()) {
+        return -1;
+    }
+    const auto first = juce::jmax(0, _route.splitAfter + 1);
+    return SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(first));
 }
 
 void SignalChainStrip::resized() {
     auto area = getLocalBounds().reduced(4, 8);
+    const auto laneRow = parallelRow();
+    const auto bands = laneRow >= 0 ? 3 : SignalChain::rowCount;
     const auto slotWidth = area.getWidth() / static_cast<float>(SignalChain::columnsPerRow);
-    constexpr int kRowGap = 28;
-    const auto squareByWidth = juce::jlimit(48, 88, juce::roundToInt(slotWidth) - 18);
-    const auto squareByHeight = juce::jmax(40, (area.getHeight() - kRowGap) / SignalChain::rowCount);
+    constexpr int kRowGap = 16;
+    const auto squareByWidth = juce::jlimit(44, 78, juce::roundToInt(slotWidth) - 16);
+    const auto squareByHeight = juce::jmax(34, (area.getHeight() - kRowGap * (bands - 1)) / bands);
     const auto square = juce::jmin(squareByWidth, squareByHeight);
-    const auto contentHeight = square * SignalChain::rowCount + kRowGap;
+    const auto contentHeight = square * bands + kRowGap * (bands - 1);
     const auto top = area.getY() + juce::jmax(0, (area.getHeight() - contentHeight) / 2);
+    const auto bandY = [top, square](int band) { return top + band * (square + kRowGap); };
+
+    int serialBand[2] = {0, 1};
+    if (laneRow == 0) {
+        serialBand[1] = 2;
+        _laneTop = bandY(1);
+    } else if (laneRow == 1) {
+        serialBand[1] = 1;
+        _laneTop = bandY(2);
+    } else {
+        _laneTop = 0;
+    }
+    _laneSquare = laneRow >= 0 ? square : 0;
 
     for (int chainSlot = 0; chainSlot < SignalChain::slotCount; ++chainSlot) {
         const auto row = SignalChain::visualRow(chainSlot);
         const auto column = SignalChain::visualColumn(chainSlot);
         const auto centreX = juce::roundToInt(static_cast<float>(area.getX()) + slotWidth * (static_cast<float>(column) + 0.5f));
-        const auto y = top + row * (square + kRowGap);
+        const auto y = bandY(serialBand[row]);
         _slotBounds[static_cast<size_t>(chainSlot)] = {centreX - square / 2, y, square, square};
     }
 
@@ -395,7 +494,11 @@ void SignalChainStrip::mouseUp(const juce::MouseEvent& event) {
     }
 
     const auto slot = slotAtPosition(event.getPosition());
-    if (SignalChain::isMovableSlot(slot)) {
+    if (SignalChain::isMovableSlot(slot) || SignalChain::isPathBSlot(slot)) {
+        if (SignalChain::isPathBSlot(slot) && _route.pathBAt(SignalChain::pathBIndexForSlot(slot)) != SignalChain::Stage::Empty) {
+            showBlockMenu(slot);
+            return;
+        }
         requestPicker(slot);
     }
 }
@@ -430,6 +533,95 @@ void SignalChainStrip::placeBlocks() {
         block.setAppearance(appearance.colour, appearance.icon);
         block.setCaption(Fx::captionFor(stage));
         block.setBounds(_slotBounds[static_cast<size_t>(slot)]);
+    }
+
+    layoutParallelLane();
+}
+
+void SignalChainStrip::layoutParallelLane() {
+    _pathBBounds.fill({});
+    if (!_route.active() || _laneSquare <= 0) {
+        _splitNode.setVisible(false);
+        _mergeNode.setVisible(false);
+        for (auto& block : _pathB) {
+            block.setVisible(false);
+        }
+        return;
+    }
+
+    const auto first = juce::jmax(0, _route.splitAfter + 1);
+    auto last = _route.mergeAfter;
+    const auto row = SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(first));
+    while (last > first && SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(last)) != row) {
+        --last;
+    }
+    auto centreOf = [this](int index) {
+        return _slotBounds[static_cast<size_t>(SignalChain::chainSlotForMovableIndex(index))].getCentre();
+    };
+    const auto anchor = centreOf(first);
+    const auto current = centreOf(last);
+    const auto before = _route.splitAfter >= 0 &&
+                                SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(_route.splitAfter)) == row
+                            ? centreOf(_route.splitAfter)
+                            : _slotBounds[static_cast<size_t>(row == 0 ? SignalChain::inputSlot : SignalChain::returnSlot)]
+                                  .getCentre();
+    const auto after = last + 1 < SignalChain::movableSlotCount &&
+                               SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(last + 1)) == row
+                           ? centreOf(last + 1)
+                           : _slotBounds[static_cast<size_t>(row == 0 ? SignalChain::downSlot : SignalChain::outputSlot)]
+                                 .getCentre();
+    const auto split = juce::Point<int>((before.x + anchor.x) / 2, anchor.y);
+    const auto merge = juce::Point<int>((current.x + after.x) / 2, current.y);
+    constexpr int node = 28;
+    _splitNode.setBounds(split.x - node / 2, split.y - node / 2, node, node);
+    _mergeNode.setBounds(merge.x - node / 2, merge.y - node / 2, node, node);
+    _splitNode.setVisible(true);
+    _mergeNode.setVisible(true);
+    _splitNode.toFront(false);
+    _mergeNode.toFront(false);
+
+    int shown = _route.occupiedPathB();
+    if (shown < SignalChain::ParallelRoute::pathBCount) {
+        ++shown;
+    }
+    shown = juce::jmax(1, shown);
+    const auto span = juce::jmax(1, merge.x - split.x);
+    auto blockSize = juce::jmin(_laneSquare, (span / shown) - 8);
+    if (blockSize < 30 && shown > _route.occupiedPathB()) {
+        shown = juce::jmax(1, _route.occupiedPathB());
+        blockSize = juce::jmin(_laneSquare, (span / shown) - 8);
+    }
+    blockSize = juce::jmax(28, blockSize);
+    const auto step = span / shown;
+    int visual = 0;
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        auto& block = _pathB[static_cast<size_t>(index)];
+        const auto stage = _route.pathBAt(index);
+        if (stage == SignalChain::Stage::Empty) {
+            block.setVisible(false);
+            continue;
+        }
+        const auto centreX = split.x + step * visual + step / 2;
+        _pathBBounds[static_cast<size_t>(index)] = {centreX - blockSize / 2, _laneTop, blockSize, blockSize};
+        ++visual;
+        if (_dragActive && _dragPathBIndex == index) {
+            block.setVisible(true);
+            continue;
+        }
+        const auto appearance = appearanceFor(stage);
+        block.setAppearance(appearance.colour, appearance.icon);
+        block.setCaption(Fx::captionFor(stage));
+        block.setBounds(_pathBBounds[static_cast<size_t>(index)]);
+        block.setVisible(true);
+    }
+    if (visual < shown) {
+        const auto centreX = split.x + step * visual + step / 2;
+        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+            if (_route.pathBAt(index) == SignalChain::Stage::Empty) {
+                _pathBBounds[static_cast<size_t>(index)] = {centreX - blockSize / 2, _laneTop, blockSize, blockSize};
+                break;
+            }
+        }
     }
 }
 
@@ -591,6 +783,25 @@ void SignalChainStrip::setIoMeterLevels(float inputDb, float outputDb) {
     _masterVolume.setSignalLevel(_outputMeter);
 }
 
+void SignalChainStrip::setRoute(const SignalChain::ParallelRoute& route) {
+    const auto previousRow = parallelRow();
+    _route = route;
+    if (previousRow != parallelRow()) {
+        resized();
+    } else {
+        placeBlocks();
+        repaint();
+    }
+}
+
+SignalChain::Stage SignalChainStrip::selectedStage() const noexcept {
+    const auto pathB = SignalChain::pathBIndexForSlot(_selectedChainSlot);
+    if (pathB >= 0) {
+        return _route.pathBAt(pathB);
+    }
+    return _layout.atSlot(_selectedChainSlot);
+}
+
 void SignalChainStrip::setLayout(const SignalChain::Layout& layout) {
     _layout = layout.isValid() ? layout : SignalChain::Layout{};
     if (SignalChain::isMovableSlot(_selectedChainSlot) && _layout.atSlot(_selectedChainSlot) == SignalChain::Stage::Empty) {
@@ -616,7 +827,11 @@ bool SignalChainStrip::isBlockOnChain(BlockId blockId) const noexcept {
 }
 
 SignalChainBlock* SignalChainStrip::effectBlockAtSlot(int chainSlot) noexcept {
-    const auto index = SignalChain::movableIndexForSlot(chainSlot);
+    const auto pathB = SignalChain::pathBIndexForSlot(chainSlot);
+    if (pathB >= 0) {
+        return &_pathB[static_cast<size_t>(pathB)];
+    }
+    const int index = SignalChain::movableIndexForSlot(chainSlot);
     if (index < 0) {
         return nullptr;
     }
@@ -632,7 +847,8 @@ void SignalChainStrip::selectChainSlot(int chainSlot) {
         _selected = BlockId::MasterVolume;
         _masterVolume.setToggleState(true, juce::dontSendNotification);
     } else {
-        const auto stage = _layout.atSlot(chainSlot);
+        const auto pathB = SignalChain::pathBIndexForSlot(chainSlot);
+        const auto stage = pathB >= 0 ? _route.pathBAt(pathB) : _layout.atSlot(chainSlot);
         if (stage == SignalChain::Stage::Empty) {
             return;
         }
@@ -734,6 +950,14 @@ int SignalChainStrip::nearestMovableSlot(juce::Point<int> position) const noexce
 }
 
 int SignalChainStrip::slotAtPosition(juce::Point<int> position) const noexcept {
+    if (_route.active()) {
+        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+            if (_pathBBounds[static_cast<size_t>(index)].expanded(8).contains(position)) {
+                return SignalChain::pathBSlotForIndex(index);
+            }
+        }
+    }
+
     int found = -1;
     auto bestDistance = std::numeric_limits<float>::max();
     for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
@@ -762,21 +986,37 @@ juce::Rectangle<int> SignalChainStrip::movableDragArea() const {
 
 void SignalChainStrip::startEffectDrag(int movableIndex, const juce::MouseEvent& event) {
     _dragMovableIndex = movableIndex;
+    _dragPathBIndex = -1;
     _dragChainSlot = SignalChain::chainSlotForMovableIndex(movableIndex);
     _dragTracking = true;
     _dragActive = false;
+    _dragToPathB = false;
     _dropSlot = -1;
     _dragStart = event.getEventRelativeTo(this).getPosition();
     _dragOrigin = _effects[static_cast<size_t>(movableIndex)].getBounds();
 }
 
 void SignalChainStrip::updateBlockDrag(const juce::MouseEvent& event) {
-    if (!_dragTracking || _dragMovableIndex < 0) {
+    if (!_dragTracking || (_dragMovableIndex < 0 && _dragPathBIndex < 0)) {
         return;
     }
 
     const auto position = event.getEventRelativeTo(this).getPosition();
     if (!_dragActive && position.getDistanceFrom(_dragStart) < kDragThresholdPx) {
+        return;
+    }
+
+    const auto delta = position - _dragStart;
+    if (_dragPathBIndex >= 0) {
+        auto& branch = _pathB[static_cast<size_t>(_dragPathBIndex)];
+        if (!_dragActive) {
+            _dragActive = true;
+            branch.toFront(false);
+        }
+        branch.setBounds(_dragOrigin.translated(delta.x, delta.y));
+        const bool upward = delta.y < -kDragDownThresholdPx && std::abs(delta.y) > std::abs(delta.x);
+        _dropSlot = upward ? nearestMovableSlot(position) : -1;
+        repaint();
         return;
     }
 
@@ -786,12 +1026,21 @@ void SignalChainStrip::updateBlockDrag(const juce::MouseEvent& event) {
         block.toFront(false);
         selectChainSlot(_dragChainSlot);
     }
+    _dragToPathB = delta.y > kDragDownThresholdPx && delta.y > std::abs(delta.x);
+    if (_dragToPathB) {
+        auto preview = _dragOrigin;
+        const auto laneY = _laneSquare > 0 ? _laneTop + _laneSquare / 2 : _dragOrigin.getBottom() + _dragOrigin.getHeight() / 2 + 10;
+        preview.setCentre(_dragOrigin.getCentreX(), laneY);
+        block.setBounds(preview);
+        _dropSlot = -1;
+        repaint();
+        return;
+    }
 
-    const auto delta = position - _dragStart;
-    auto bounds = _dragOrigin.translated(delta.x, delta.y);
+    auto bounds = _dragOrigin.translated(delta.x, 0);
     const auto area = movableDragArea();
     if (!area.isEmpty()) {
-        bounds.setCentre(area.getConstrainedPoint(bounds.getCentre()));
+        bounds.setCentre(area.getConstrainedPoint(bounds.getCentre()).x, _dragOrigin.getCentreY());
     }
     block.setBounds(bounds);
     _dropSlot = nearestMovableSlot(bounds.getCentre());
@@ -807,13 +1056,21 @@ void SignalChainStrip::finishBlockDrag(const juce::MouseEvent&) {
     const auto dropSlot = _dropSlot;
     const auto fromSlot = _dragChainSlot;
     const auto movableIndex = _dragMovableIndex;
+    const auto pathBIndex = _dragPathBIndex;
+    const auto toPathB = _dragToPathB;
     _dragTracking = false;
     _dragActive = false;
+    _dragToPathB = false;
     _dropSlot = -1;
     _dragMovableIndex = -1;
     _dragChainSlot = -1;
+    _dragPathBIndex = -1;
 
-    if (wasDragging && SignalChain::isMovableSlot(dropSlot)) {
+    if (wasDragging && pathBIndex >= 0 && SignalChain::isMovableSlot(dropSlot) && onPathBReturned) {
+        onPathBReturned(pathBIndex, dropSlot);
+    } else if (wasDragging && toPathB && movableIndex >= 0 && onBlockDraggedDown) {
+        onBlockDraggedDown(movableIndex);
+    } else if (wasDragging && SignalChain::isMovableSlot(dropSlot)) {
         commitDrop(fromSlot, dropSlot);
     }
 
@@ -841,7 +1098,7 @@ void SignalChainStrip::commitDrop(int fromSlot, int toSlot) {
 }
 
 void SignalChainStrip::requestPicker(int slot) {
-    if (!SignalChain::isMovableSlot(slot)) {
+    if (!SignalChain::isMovableSlot(slot) && !SignalChain::isPathBSlot(slot)) {
         return;
     }
 
@@ -851,14 +1108,19 @@ void SignalChainStrip::requestPicker(int slot) {
 }
 
 void SignalChainStrip::showBlockMenu(int slot) {
-    if (!SignalChain::isMovableSlot(slot) || _layout.atSlot(slot) == SignalChain::Stage::Empty) {
+    const auto pathB = SignalChain::pathBIndexForSlot(slot);
+    const auto movable = SignalChain::movableIndexForSlot(slot);
+    if (pathB < 0 && (movable < 0 || _layout.atSlot(slot) == SignalChain::Stage::Empty)) {
+        return;
+    }
+    if (pathB >= 0 && _route.pathBAt(pathB) == SignalChain::Stage::Empty) {
         return;
     }
 
     juce::PopupMenu menu;
     menu.addItem(kChangeBlockItem, "Change block");
     menu.addSeparator();
-    menu.addItem(kClearAllBlocksItem, "Clear all blocks", _layout.occupiedCount() > 0);
+    menu.addItem(kClearAllBlocksItem, "Clear all blocks", _layout.occupiedCount() > 0 || _route.occupiedPathB() > 0);
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(),
                        [safe = juce::Component::SafePointer<SignalChainStrip>(this), slot](int result) {

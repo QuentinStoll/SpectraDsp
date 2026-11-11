@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <vector>
 
 #include "Components/CustomComboBox.h"
 #include "Components/CustomKnob.h"
@@ -89,24 +90,34 @@ class InputGatePanel : public juce::Component {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InputGatePanel)
 };
 
-class AmpProfilerPanel : public juce::Component {
+class AmpProfilerPanel : public juce::Component,
+                         private juce::ChangeListener {
    public:
     explicit AmpProfilerPanel(ProfilerAudioProcessor& processor);
-    ~AmpProfilerPanel() override = default;
+    ~AmpProfilerPanel() override;
 
     void refreshAssets();
 
     std::function<void(const juce::String&, bool)> onStatusMessage;
     std::function<void()> onAssetsChanged;
+    std::function<void(const juce::String& profileId)> onProfileUnavailable;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
    private:
+    ProfilerAudioProcessor& _processor;
     juce::Label _title{"", "Amp"};
     juce::Label _bypassLabel{"", "No model loaded"};
+    CustomComboBox _profileMenu;
     CustomToggleButton _ampEnabled{"Amp Enabled"};
     FileDropZone _ampDrop;
+    bool _updatingMenu = false;
+    std::vector<juce::String> _profileIds;
+
+    void refreshProfileMenu();
+    void selectProfileFromMenu();
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     CustomKnob _outputKnob{"Gain", -12.0f, 12.0f, 0.0f, "dB"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _ampEnabledAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _outputAttachment;
@@ -114,24 +125,34 @@ class AmpProfilerPanel : public juce::Component {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AmpProfilerPanel)
 };
 
-class CabinetIrPanel : public juce::Component {
+class CabinetIrPanel : public juce::Component,
+                       private juce::ChangeListener {
    public:
     explicit CabinetIrPanel(ProfilerAudioProcessor& processor);
-    ~CabinetIrPanel() override = default;
+    ~CabinetIrPanel() override;
 
     void refreshAssets();
 
     std::function<void(const juce::String&, bool)> onStatusMessage;
     std::function<void()> onAssetsChanged;
+    std::function<void(const juce::String& profileId)> onProfileUnavailable;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
    private:
+    ProfilerAudioProcessor& _processor;
     juce::Label _title{"", "Cabinet / IR"};
     juce::Label _bypassLabel{"", "No IR loaded"};
+    CustomComboBox _profileMenu;
     CustomToggleButton _cabEnabled{"Cab Enabled"};
     FileDropZone _irDrop;
+    bool _updatingMenu = false;
+    std::vector<juce::String> _profileIds;
+
+    void refreshProfileMenu();
+    void selectProfileFromMenu();
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     CustomKnob _lowCutKnob{"Low Cut", 20.0f, 250.0f, 80.0f, "Hz", 1.0f};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _cabEnabledAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _lowCutAttachment;
