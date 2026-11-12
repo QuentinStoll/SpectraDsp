@@ -367,6 +367,14 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         _audioProcessor.clearChainSlot(slot);
         refreshChainView();
     };
+    _blockPicker.onClearAll = [this]() {
+        _audioProcessor.clearAllChainBlocks();
+        refreshChainView();
+    };
+    _blockPicker.onBypassChanged = [this](int slot, bool bypassed) {
+        _audioProcessor.setChainSlotBypassed(slot, bypassed);
+        updateChainStatus();
+    };
     _audioProcessor._apvts.state.addListener(this);
     _signalChain.setLayout(_audioProcessor.getChainLayout());
 
@@ -674,7 +682,7 @@ void ProfilerAudioProcessorEditor::openBlockPicker(int slot) {
         return;
     }
 
-    _blockPicker.open(slot, _audioProcessor.getChainLayout());
+    _blockPicker.open(slot, _audioProcessor.getChainLayout(), _audioProcessor.isChainSlotBypassed(slot));
 }
 
 void ProfilerAudioProcessorEditor::closeBlockPicker() {

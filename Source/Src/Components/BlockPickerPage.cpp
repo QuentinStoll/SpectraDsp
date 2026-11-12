@@ -167,29 +167,43 @@ BlockPickerPage::BlockPickerPage() {
     _title.setJustificationType(juce::Justification::centredLeft);
     _title.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(_title);
+    addAndMakeVisible(_bypassButton);
+    addAndMakeVisible(_clearBlockButton);
+    addAndMakeVisible(_clearAllButton);
     addAndMakeVisible(_backButton);
-    addChildComponent(_removeButton);
     addAndMakeVisible(_closeButton);
 
     for (auto& tile : _tiles) {
         addChildComponent(tile);
     }
 
-    _backButton.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
-    _removeButton.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
-    _closeButton.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
+    for (auto* button : {&_bypassButton, &_clearBlockButton, &_clearAllButton, &_backButton, &_closeButton}) {
+        button->setColour(juce::TextButton::buttonColourId, juce::Colours::black);
+    }
+    _bypassButton.setClickingTogglesState(true);
 
-    _backButton.onClick = [this]() {
-        showCategories();
+    _bypassButton.onClick = [this]() {
+        if (onBypassChanged) {
+            onBypassChanged(_targetSlot, _bypassButton.getToggleState());
+        }
     };
-    _closeButton.onClick = [this]() {
-        close();
-    };
-    _removeButton.onClick = [this]() {
+    _clearBlockButton.onClick = [this]() {
         const auto slot = _targetSlot;
         if (onBlockRemoved) {
             onBlockRemoved(slot);
         }
+        close();
+    };
+    _clearAllButton.onClick = [this]() {
+        if (onClearAll) {
+            onClearAll();
+        }
+        close();
+    };
+    _backButton.onClick = [this]() {
+        showCategories();
+    };
+    _closeButton.onClick = [this]() {
         close();
     };
 
@@ -206,16 +220,15 @@ void BlockPickerPage::paint(juce::Graphics& g) {
 void BlockPickerPage::resized() {
     auto area = getLocalBounds().reduced(12, 8);
     auto header = area.removeFromTop(28);
-    _closeButton.setBounds(header.removeFromRight(72).withSizeKeepingCentre(72, 24));
-    header.removeFromRight(8);
-    if (_removeButton.isVisible()) {
-        _removeButton.setBounds(header.removeFromRight(88).withSizeKeepingCentre(88, 24));
+    auto place = [&header](juce::TextButton& button, int width) {
+        button.setBounds(header.removeFromRight(width).withSizeKeepingCentre(width, 24));
         header.removeFromRight(8);
-    } else {
-        _removeButton.setBounds({});
-    }
-    _backButton.setBounds(header.removeFromRight(72).withSizeKeepingCentre(72, 24));
-    header.removeFromRight(10);
+    };
+    place(_closeButton, 72);
+    place(_backButton, 72);
+    place(_clearAllButton, 88);
+    place(_clearBlockButton, 104);
+    place(_bypassButton, 78);
     _title.setBounds(header);
     area.removeFromTop(10);
 
@@ -228,12 +241,17 @@ void BlockPickerPage::resized() {
     layoutTiles(area, visible);
 }
 
-void BlockPickerPage::open(int chainSlot, const SignalChain::Layout& layout) {
+void BlockPickerPage::open(int chainSlot, const SignalChain::Layout& layout, bool slotBypassed) {
     _targetSlot = chainSlot;
     _layout = layout;
+    setSlotBypassed(slotBypassed);
     showCategories();
     setVisible(true);
     toFront(true);
+}
+
+void BlockPickerPage::setSlotBypassed(bool bypassed) {
+    _bypassButton.setToggleState(bypassed, juce::dontSendNotification);
 }
 
 void BlockPickerPage::close() {
@@ -246,7 +264,6 @@ void BlockPickerPage::close() {
 void BlockPickerPage::showCategories() {
     _showingItems = false;
     _backButton.setEnabled(false);
-    _removeButton.setVisible(_layout.atSlot(_targetSlot) != SignalChain::Stage::Empty);
     _title.setText("CHOOSE A BLOCK", juce::dontSendNotification);
 
     const auto& catalog = blockCatalog();

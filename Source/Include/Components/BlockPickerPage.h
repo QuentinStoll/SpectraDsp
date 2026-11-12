@@ -16,13 +16,16 @@ class BlockPickerPage : public juce::Component {
     void paint(juce::Graphics& g) override;
     void resized() override;
 
-    void open(int chainSlot, const SignalChain::Layout& layout);
+    void open(int chainSlot, const SignalChain::Layout& layout, bool slotBypassed);
     void close();
     bool isOpen() const noexcept { return isVisible(); }
     int targetSlot() const noexcept { return _targetSlot; }
+    void setSlotBypassed(bool bypassed);
 
     std::function<void(int slot, SignalChain::Stage stage)> onBlockChosen;
     std::function<void(int slot)> onBlockRemoved;
+    std::function<void()> onClearAll;
+    std::function<void(int slot, bool bypassed)> onBypassChanged;
     std::function<void()> onClosed;
 
    private:
@@ -43,8 +46,10 @@ class BlockPickerPage : public juce::Component {
     };
 
     juce::Label _title;
+    juce::TextButton _bypassButton{"Bypass"};
+    juce::TextButton _clearBlockButton{"Clear block"};
+    juce::TextButton _clearAllButton{"Clear all"};
     juce::TextButton _backButton{"Back"};
-    juce::TextButton _removeButton{"Remove"};
     juce::TextButton _closeButton{"Close"};
     std::array<TileButton, 10> _tiles;
     int _targetSlot = SignalChain::chainSlotForMovableIndex(0);

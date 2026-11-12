@@ -639,8 +639,6 @@ void CustomLookAndFeel::drawSignalChainBlock(juce::Graphics& g,
                                              bool ledOn) const {
     const auto borderAlpha = isActive ? 1.0f : (isMouseOver ? 0.92f : 0.72f);
     const auto borderWidth = isActive ? 2.0f : 1.0f;
-    const auto glow = isActive ? 0.48f : (isMouseOver ? 0.28f : 0.12f);
-    drawAccentGlow(g, bounds.reduced(1.0f), glow, categoryColour);
 
     g.setColour(ProfilerStyle::Colors::blockFill);
     g.fillRoundedRectangle(bounds, 6.0f);

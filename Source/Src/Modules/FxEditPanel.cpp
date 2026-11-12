@@ -32,11 +32,12 @@ FxEditPanel::FxEditPanel(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_title);
     addAndMakeVisible(_algorithm);
     _bypass.setClickingTogglesState(true);
+    _bypass.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
     _bypass.onClick = [this]() {
-        if (!SignalChain::isMovableSlot(_chainSlot)) {
+        if (!SignalChain::isMovableSlot(_chainSlot) && !SignalChain::isPathBSlot(_chainSlot)) {
             return;
         }
-        _processor.setChainSlotBypassed(_chainSlot, !_bypass.getToggleState());
+        _processor.setChainSlotBypassed(_chainSlot, _bypass.getToggleState());
     };
     addChildComponent(_bypass);
     addChildComponent(_note);
@@ -56,8 +57,10 @@ void FxEditPanel::refreshBypass() {
     if (!isVisible() || Fx::moduleFor(_stage) == nullptr) {
         return;
     }
-    const bool enabled = !SignalChain::isMovableSlot(_chainSlot) || !_processor.isChainSlotBypassed(_chainSlot);
-    _bypass.setToggleState(enabled, juce::dontSendNotification);
+    const bool bypassed = SignalChain::isMovableSlot(_chainSlot) || SignalChain::isPathBSlot(_chainSlot)
+                              ? _processor.isChainSlotBypassed(_chainSlot)
+                              : false;
+    _bypass.setToggleState(bypassed, juce::dontSendNotification);
 }
 
 void FxEditPanel::setStage(SignalChain::Stage stage, int chainSlot) {
@@ -160,7 +163,7 @@ void FxEditPanel::resized() {
     auto area = getLocalBounds().reduced(10, 6);
     auto header = area.removeFromTop(22);
     if (_bypass.isVisible()) {
-        _bypass.setBounds(header.removeFromRight(52).withSizeKeepingCentre(52, 20));
+        _bypass.setBounds(header.removeFromRight(78).withSizeKeepingCentre(78, 22));
         header.removeFromRight(8);
     }
     _title.setBounds(header);

@@ -45,7 +45,7 @@ class FxEditPanel : public juce::Component,
     int _chainSlot = -1;
     juce::Label _title;
     juce::Label _algorithm;
-    CustomToggleButton _bypass{"On"};
+    juce::TextButton _bypass{"Bypass"};
     std::vector<KnobControl> _knobs;
     std::vector<ChoiceControl> _choices;
     std::vector<BoolControl> _flags;

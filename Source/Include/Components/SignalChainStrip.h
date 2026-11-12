@@ -202,7 +202,7 @@ class SignalChainStrip : public juce::Component {
     void finishBlockDrag(const juce::MouseEvent& event);
     void commitDrop(int fromSlot, int toSlot);
     void requestPicker(int slot);
-    void showBlockMenu(int slot);
+    void clearBlockSelection();
     int parallelRow() const noexcept;
     int laneYForRow(int row) const noexcept;
     float gapCentreX(int row, int gap) const noexcept;

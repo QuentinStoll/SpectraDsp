@@ -6,14 +6,11 @@
 #include "Fx/FxAppearance.h"
 
 namespace {
-constexpr int kSignalChainRadioGroup = 0x50524F46;  // "PROF"
 constexpr float kMeterFloorDb = -54.0f;
 constexpr float kMeterCeilDb = -3.0f;
 constexpr float kMeterAttackSeconds = 0.045f;
 constexpr float kMeterReleaseSeconds = 0.22f;
 constexpr int kDragThresholdPx = 6;
-constexpr int kChangeBlockItem = 1;
-constexpr int kClearAllBlocksItem = 2;
 constexpr int kDragDownThresholdPx = 26;
 
 float meterFromDb(float db) {
@@ -46,8 +43,8 @@ SignalChainBlock::SignalChainBlock(juce::Colour categoryColour, CustomLookAndFee
     : juce::Button({}),
       _categoryColour(categoryColour),
       _icon(icon) {
-    setClickingTogglesState(true);
-    setRadioGroupId(kSignalChainRadioGroup);
+    setClickingTogglesState(false);
+    setRadioGroupId(0);
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
     setOpaque(true);
 }
@@ -336,7 +333,7 @@ SignalChainStrip::SignalChainStrip() {
             }
         };
         block.onPickerRequested = [this, index]() {
-            showBlockMenu(SignalChain::chainSlotForMovableIndex(index));
+            requestPicker(SignalChain::chainSlotForMovableIndex(index));
         };
         block.onDragBegin = [this, index](const juce::MouseEvent& event) {
             startEffectDrag(index, event);
@@ -361,7 +358,7 @@ SignalChainStrip::SignalChainStrip() {
             }
         };
         block.onPickerRequested = [this, index]() {
-            showBlockMenu(SignalChain::pathBSlotForIndex(index));
+            requestPicker(SignalChain::pathBSlotForIndex(index));
         };
         block.onDragBegin = [this, index](const juce::MouseEvent& event) {
             _dragPathBIndex = index;
@@ -461,7 +458,6 @@ SignalChainStrip::SignalChainStrip() {
     _inputGate.setIoNode(true);
     _masterVolume.setIoNode(true);
     _masterVolume.setShowsLed(false);
-    _effects[static_cast<size_t>(SignalChain::movableIndexForSlot(2))].setToggleState(true, juce::dontSendNotification);
     _busLayer.toBack();
     setOpaque(true);
     setWantsKeyboardFocus(true);
@@ -592,10 +588,6 @@ void SignalChainStrip::mouseUp(const juce::MouseEvent& event) {
 
     const auto slot = slotAtPosition(event.getPosition());
     if (SignalChain::isMovableSlot(slot) || SignalChain::isPathBSlot(slot)) {
-        if (SignalChain::isPathBSlot(slot) && _route.pathBAt(SignalChain::pathBIndexForSlot(slot)) != SignalChain::Stage::Empty) {
-            showBlockMenu(slot);
-            return;
-        }
         requestPicker(slot);
     }
 }
@@ -920,6 +912,7 @@ void SignalChainStrip::setLayout(const SignalChain::Layout& layout) {
         selectChainSlot(SignalChain::inputSlot);
     }
     placeBlocks();
+    clearBlockSelection();
     if (auto* selected = effectBlockAtSlot(_selectedChainSlot)) {
         selected->setToggleState(true, juce::dontSendNotification);
     }
@@ -943,7 +936,26 @@ SignalChainBlock* SignalChainStrip::effectBlockAtSlot(int chainSlot) noexcept {
     return &_effects[static_cast<size_t>(index)];
 }
 
+void SignalChainStrip::clearBlockSelection() {
+    auto clear = [](SignalChainBlock& block) {
+        if (block.getToggleState()) {
+            block.setToggleState(false, juce::dontSendNotification);
+        }
+    };
+    clear(_inputGate);
+    clear(_pathDown);
+    clear(_pathReturn);
+    clear(_masterVolume);
+    for (auto& block : _effects) {
+        clear(block);
+    }
+    for (auto& block : _pathB) {
+        clear(block);
+    }
+}
+
 void SignalChainStrip::selectChainSlot(int chainSlot) {
+    clearBlockSelection();
     _selectedChainSlot = chainSlot;
     if (chainSlot == SignalChain::inputSlot) {
         _selected = BlockId::InputGate;
@@ -1300,34 +1312,6 @@ void SignalChainStrip::requestPicker(int slot) {
     if (onBlockPickerRequested) {
         onBlockPickerRequested(slot);
     }
-}
-
-void SignalChainStrip::showBlockMenu(int slot) {
-    const auto pathB = SignalChain::pathBIndexForSlot(slot);
-    const auto movable = SignalChain::movableIndexForSlot(slot);
-    if (pathB < 0 && (movable < 0 || _layout.atSlot(slot) == SignalChain::Stage::Empty)) {
-        return;
-    }
-    if (pathB >= 0 && _route.pathBAt(pathB) == SignalChain::Stage::Empty) {
-        return;
-    }
-
-    juce::PopupMenu menu;
-    menu.addItem(kChangeBlockItem, "Change block");
-    menu.addSeparator();
-    menu.addItem(kClearAllBlocksItem, "Clear all blocks", _layout.occupiedCount() > 0 || _route.occupiedPathB() > 0);
-
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(),
-                       [safe = juce::Component::SafePointer<SignalChainStrip>(this), slot](int result) {
-                           if (safe == nullptr) {
-                               return;
-                           }
-                           if (result == kChangeBlockItem) {
-                               safe->requestPicker(slot);
-                           } else if (result == kClearAllBlocksItem && safe->onClearAllBlocks) {
-                               safe->onClearAllBlocks();
-                           }
-                       });
 }
 
 int SignalChainStrip::fillChainOrder(std::array<int, 16>& order) const noexcept {
