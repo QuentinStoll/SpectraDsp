@@ -70,6 +70,7 @@ bash ./install.sh all default
 | `Source/Assets/` | Images and other interface assets |
 | `Tests/` | Automated tests and test support |
 | `cmake/` | Dependencies, build presets, and compiler configuration |
+| `packaging/` | Windows, macOS, and Linux installer scripts used by CI |
 | `.github/` | Workflows and contribution templates |
 
 ## Create a branch
@@ -176,4 +177,4 @@ Missing information may result in a PR being closed. The final decision to merge
 
 Merging to `main` does not publish a build. The pull request runs formatting, tests, coverage, and the plugin builds. That is the test of the branch.
 
-To publish, run **CI/CD Pipeline** manually from the Actions tab, with the branch set to `main`. The workflow then creates a GitHub Release from the build artifacts. Running the same workflow on a feature branch repeats the checks and does not publish.
+To publish, run **CI/CD Pipeline** manually from the Actions tab, with the branch set to `main`. The workflow then creates a GitHub Release with one installer per OS (`Spectra-windows-x64.exe`, `Spectra-windows-arm64.exe`, `Spectra-macos-arm64.pkg`, `Spectra-linux-x64.run`) plus the portable zip/tar archives. spectradsp.com fetches those installer names from the latest release. Running the same workflow on a feature branch repeats the checks and does not publish. The macOS package is not notarized.

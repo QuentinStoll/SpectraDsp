@@ -581,15 +581,19 @@ void InputGatePanel::resized() {
 }
 
 AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
-    : _ampDrop(makeAmpDropOptions(processor)) {
+    : _processor(processor),
+      _ampDrop(makeAmpDropOptions(processor)) {
     configurePanelTitle(_title, "Amp");
     configureBypassLabel(_bypassLabel);
     _ampEnabled.setLabelVisible(false);
     addAndMakeVisible(_title);
     addAndMakeVisible(_bypassLabel);
+    addAndMakeVisible(_profileMenu);
     addAndMakeVisible(_ampEnabled);
     addAndMakeVisible(_ampDrop);
     addAndMakeVisible(_outputKnob);
+    _processor.getProfileCatalog().addChangeListener(this);
+    _profileMenu.onChange = [this]() { selectProfileFromMenu(); };
 
     _outputAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "gain", _outputKnob.getSlider());
@@ -609,23 +613,102 @@ AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
         }
     };
     _ampDrop.onChanged = [this]() {
+        _processor.clearActiveAmpProfile();
         refreshAssets();
         if (onAssetsChanged) {
             onAssetsChanged();
         }
     };
 
+    refreshProfileMenu();
     refreshAssets();
+}
+
+AmpProfilerPanel::~AmpProfilerPanel() {
+    _processor.getProfileCatalog().removeChangeListener(this);
+}
+
+void AmpProfilerPanel::refreshProfileMenu() {
+    const juce::ScopedValueSetter<bool> updating(_updatingMenu, true);
+    const auto profiles = _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Amp);
+    _profileIds.clear();
+    _profileMenu.clear(juce::dontSendNotification);
+    _profileMenu.addItem("Amp profiles", 1);
+    for (int index = 0; index < static_cast<int>(profiles.size()); ++index) {
+        _profileIds.push_back(profiles[static_cast<size_t>(index)].id);
+        const auto title = profiles[static_cast<size_t>(index)].title;
+        _profileMenu.addItem(title.isNotEmpty() ? title : "Amp profile", index + 2);
+    }
+
+    const auto activeId = _processor.getActiveAmpProfileId();
+    auto selected = 1;
+    for (int index = 0; index < static_cast<int>(_profileIds.size()); ++index) {
+        if (_profileIds[static_cast<size_t>(index)] == activeId) {
+            selected = index + 2;
+            break;
+        }
+    }
+    _profileMenu.setSelectedId(selected, juce::dontSendNotification);
+}
+
+void AmpProfilerPanel::selectProfileFromMenu() {
+    if (_updatingMenu) {
+        return;
+    }
+
+    const auto selected = _profileMenu.getSelectedId();
+    if (selected <= 1) {
+        _processor.unloadAmpFile();
+        refreshAssets();
+        if (onAssetsChanged) {
+            onAssetsChanged();
+        }
+        return;
+    }
+
+    const auto index = selected - 2;
+    if (index < 0 || index >= static_cast<int>(_profileIds.size())) {
+        return;
+    }
+
+    const auto id = _profileIds[static_cast<size_t>(index)];
+    juce::String error;
+    if (_processor.loadCatalogProfile(ProfileCatalog::Kind::Amp, id, &error)) {
+        if (onStatusMessage) {
+            onStatusMessage("Amp profile loaded", true);
+        }
+    } else if (onProfileUnavailable) {
+        onProfileUnavailable(id);
+    } else if (onStatusMessage) {
+        onStatusMessage(error, false);
+    }
+    refreshAssets();
+    if (onAssetsChanged) {
+        onAssetsChanged();
+    }
+}
+
+void AmpProfilerPanel::changeListenerCallback(juce::ChangeBroadcaster* source) {
+    if (source == &_processor.getProfileCatalog()) {
+        refreshProfileMenu();
+        refreshAssets();
+    }
 }
 
 void AmpProfilerPanel::refreshAssets() {
     _ampDrop.refresh();
-    const auto loaded = _ampDrop.isFileLoaded();
+    refreshProfileMenu();
+    const auto loaded = _processor.isAmpModelLoaded();
     const auto enabled = _ampEnabled.getToggleState();
     _ampEnabled.setVisible(loaded);
     _outputKnob.setEnabled(loaded && enabled);
-    _bypassLabel.setText(loaded ? "BYPASSED" : "NO MODEL LOADED", juce::dontSendNotification);
-    _bypassLabel.setVisible(!loaded || !enabled);
+    const auto* entry = _processor.getProfileCatalog().find(_processor.getActiveAmpProfileId(), ProfileCatalog::Kind::Amp);
+    if (loaded && entry != nullptr) {
+        _bypassLabel.setText(enabled ? entry->title : "BYPASSED", juce::dontSendNotification);
+    } else {
+        _bypassLabel.setText(loaded ? "BYPASSED" : "NO MODEL LOADED", juce::dontSendNotification);
+    }
+    _bypassLabel.setVisible(!loaded || !enabled || entry != nullptr);
     resized();
 }
 
@@ -648,6 +731,10 @@ void AmpProfilerPanel::resized() {
     _title.setBounds(header);
     area.removeFromTop(4);
 
+    auto profiles = area.removeFromTop(28);
+    _profileMenu.setBounds(profiles);
+    area.removeFromTop(6);
+
     auto side = area.removeFromRight(112);
     area.removeFromRight(10);
     _ampDrop.setBounds(area);
@@ -655,15 +742,19 @@ void AmpProfilerPanel::resized() {
 }
 
 CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
-    : _irDrop(makeIrDropOptions(processor)) {
+    : _processor(processor),
+      _irDrop(makeIrDropOptions(processor)) {
     configurePanelTitle(_title, "Cab");
     configureBypassLabel(_bypassLabel);
     _cabEnabled.setLabelVisible(false);
     addAndMakeVisible(_title);
     addAndMakeVisible(_bypassLabel);
+    addAndMakeVisible(_profileMenu);
     addAndMakeVisible(_cabEnabled);
     addAndMakeVisible(_irDrop);
     addAndMakeVisible(_lowCutKnob);
+    _processor.getProfileCatalog().addChangeListener(this);
+    _profileMenu.onChange = [this]() { selectProfileFromMenu(); };
 
     _lowCutAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "cabLowCut", _lowCutKnob.getSlider());
@@ -683,23 +774,102 @@ CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
         }
     };
     _irDrop.onChanged = [this]() {
+        _processor.clearActiveIrProfile();
         refreshAssets();
         if (onAssetsChanged) {
             onAssetsChanged();
         }
     };
 
+    refreshProfileMenu();
     refreshAssets();
+}
+
+CabinetIrPanel::~CabinetIrPanel() {
+    _processor.getProfileCatalog().removeChangeListener(this);
+}
+
+void CabinetIrPanel::refreshProfileMenu() {
+    const juce::ScopedValueSetter<bool> updating(_updatingMenu, true);
+    const auto profiles = _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Ir);
+    _profileIds.clear();
+    _profileMenu.clear(juce::dontSendNotification);
+    _profileMenu.addItem("IR profiles", 1);
+    for (int index = 0; index < static_cast<int>(profiles.size()); ++index) {
+        _profileIds.push_back(profiles[static_cast<size_t>(index)].id);
+        const auto title = profiles[static_cast<size_t>(index)].title;
+        _profileMenu.addItem(title.isNotEmpty() ? title : "IR profile", index + 2);
+    }
+
+    const auto activeId = _processor.getActiveIrProfileId();
+    auto selected = 1;
+    for (int index = 0; index < static_cast<int>(_profileIds.size()); ++index) {
+        if (_profileIds[static_cast<size_t>(index)] == activeId) {
+            selected = index + 2;
+            break;
+        }
+    }
+    _profileMenu.setSelectedId(selected, juce::dontSendNotification);
+}
+
+void CabinetIrPanel::selectProfileFromMenu() {
+    if (_updatingMenu) {
+        return;
+    }
+
+    const auto selected = _profileMenu.getSelectedId();
+    if (selected <= 1) {
+        _processor.unloadIRFile();
+        refreshAssets();
+        if (onAssetsChanged) {
+            onAssetsChanged();
+        }
+        return;
+    }
+
+    const auto index = selected - 2;
+    if (index < 0 || index >= static_cast<int>(_profileIds.size())) {
+        return;
+    }
+
+    const auto id = _profileIds[static_cast<size_t>(index)];
+    juce::String error;
+    if (_processor.loadCatalogProfile(ProfileCatalog::Kind::Ir, id, &error)) {
+        if (onStatusMessage) {
+            onStatusMessage("IR profile loaded", true);
+        }
+    } else if (onProfileUnavailable) {
+        onProfileUnavailable(id);
+    } else if (onStatusMessage) {
+        onStatusMessage(error, false);
+    }
+    refreshAssets();
+    if (onAssetsChanged) {
+        onAssetsChanged();
+    }
+}
+
+void CabinetIrPanel::changeListenerCallback(juce::ChangeBroadcaster* source) {
+    if (source == &_processor.getProfileCatalog()) {
+        refreshProfileMenu();
+        refreshAssets();
+    }
 }
 
 void CabinetIrPanel::refreshAssets() {
     _irDrop.refresh();
-    const auto loaded = _irDrop.isFileLoaded();
+    refreshProfileMenu();
+    const auto loaded = _processor.isIRLoaded();
     const auto enabled = _cabEnabled.getToggleState();
     _cabEnabled.setVisible(loaded);
     _lowCutKnob.setEnabled(loaded && enabled);
-    _bypassLabel.setText(loaded ? "BYPASSED" : "NO IR LOADED", juce::dontSendNotification);
-    _bypassLabel.setVisible(!loaded || !enabled);
+    const auto* entry = _processor.getProfileCatalog().find(_processor.getActiveIrProfileId(), ProfileCatalog::Kind::Ir);
+    if (loaded && entry != nullptr) {
+        _bypassLabel.setText(enabled ? entry->title : "BYPASSED", juce::dontSendNotification);
+    } else {
+        _bypassLabel.setText(loaded ? "BYPASSED" : "NO IR LOADED", juce::dontSendNotification);
+    }
+    _bypassLabel.setVisible(!loaded || !enabled || entry != nullptr);
     resized();
 }
 
@@ -721,6 +891,10 @@ void CabinetIrPanel::resized() {
     header.removeFromRight(8);
     _title.setBounds(header);
     area.removeFromTop(4);
+
+    auto profiles = area.removeFromTop(28);
+    _profileMenu.setBounds(profiles);
+    area.removeFromTop(6);
 
     auto side = area.removeFromRight(112);
     area.removeFromRight(10);

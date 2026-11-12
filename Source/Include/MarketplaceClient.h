@@ -8,8 +8,8 @@
 #include <vector>
 
 namespace Marketplace {
-inline constexpr const char* baseUrl = "https://profiler.audio";
-inline constexpr const char* signupUrl = "https://profiler.audio/login";
+inline constexpr const char* baseUrl = "https://spectradsp.com";
+inline constexpr const char* signupUrl = "https://spectradsp.com/login";
 
 enum class Status {
     Success,
@@ -52,6 +52,7 @@ struct LibraryItem {
     juce::String irFileUrl;
     juce::String kind;
     bool hasIntegratedIr = false;
+    bool hasSeparateIr = false;
     juce::String conditionProfile{"off"};
     float conditionAmount = 0.0f;
 };

@@ -2,11 +2,16 @@
 
 #include <JuceHeader.h>
 
+#include <atomic>
+#include <memory>
+
 #include "ActionFeedback.h"
+#include "AppUpdate.h"
 #include "Components/ActionStatusBar.h"
 #include "Components/BlockPickerPage.h"
 #include "Components/CustomLookAndFeel.h"
 #include "Components/NotificationBanner.h"
+#include "Components/RouteMixPanel.h"
 #include "Components/ScalableViewport.h"
 #include "Components/SignalChainStrip.h"
 #include "Modules/ExportProfilModule.h"
@@ -64,11 +69,12 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     PedalDrivePanel _pedalPanel;
     MasterVolumePanel _masterPanel;
     FxEditPanel _fxPanel;
+    RouteMixPanel _routeMixPanel;
     BlockPickerPage _blockPicker;
 
     SettingsView _settingsView;
     juce::TextButton _resetButton{"Reset Chain"};
-    juce::TextButton _exportButton{"Export Profile"};
+    juce::TextButton _exportButton{"Save Preset"};
     juce::TextButton _closeOverlayButton{"Close"};
     juce::Component _settingsHost;
 
@@ -80,6 +86,8 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     OverlayMode _overlayMode = OverlayMode::None;
     int _hostChromePasses = 0;
     bool _standaloneFullscreenRequested = false;
+    bool _updateInProgress = false;
+    std::shared_ptr<std::atomic<bool>> _updateAlive;
 
     void applyStandaloneWindowChrome();
     void applyHostWindowChrome();
@@ -89,6 +97,8 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void showStudio();
     void showOverlay(OverlayMode mode);
     void showEditPanel(SignalChainStrip::BlockId blockId);
+    void showRouteMix();
+    void refreshChainView();
     void openBlockPicker(int slot);
     void closeBlockPicker();
     void placeChosenBlock(int slot, SignalChain::Stage stage);
@@ -96,6 +106,9 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void toggleBlockBypass(SignalChainStrip::BlockId blockId);
     void setSelectedBlockEnabled(bool enabled);
     void showStatus(const juce::String& message, bool success);
+    void checkForAppUpdate(bool userRequested);
+    void presentAppUpdate(const AppUpdate::Offer& offer, bool userRequested);
+    void applyAppUpdate(const AppUpdate::Offer& offer);
     void exportProfil(const juce::NamedValueSet& values, const juce::File& destinationFile);
     void createProfil(const juce::NamedValueSet& values);
     juce::String getDefaultExportName() const;

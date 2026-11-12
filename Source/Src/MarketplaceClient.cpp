@@ -108,9 +108,9 @@ juce::String messageFor(Status status, bool mfaCall) {
         case Status::Unavailable:
             return "Sign-in is unavailable right now.";
         case Status::TransportError:
-            return "Could not reach profiler.audio.";
+            return "Could not reach spectradsp.com.";
         case Status::Unexpected:
-            return "profiler.audio returned an unexpected response.";
+            return "spectradsp.com returned an unexpected response.";
         case Status::Success:
         case Status::MfaRequired:
             break;
@@ -163,7 +163,7 @@ LoginResult parseLoginBody(int statusCode, const juce::MemoryBlock& body, bool m
         result.challenge.challengeId = jsonString(parsed, "challengeId");
         if (result.challenge.factorId.isEmpty() || result.challenge.challengeId.isEmpty()) {
             result.status = Status::Unexpected;
-            result.message = "profiler.audio did not return a verification challenge.";
+            result.message = "spectradsp.com did not return a verification challenge.";
             result.challenge = {};
         }
         return result;
@@ -197,6 +197,7 @@ LibraryItem parseItem(const juce::var& item) {
     libraryItem.fileUrl = jsonString(item, "fileUrl");
     libraryItem.irFileUrl = jsonString(item, "irFileUrl");
     libraryItem.hasIntegratedIr = jsonBool(item, "hasIntegratedIr", false);
+    libraryItem.hasSeparateIr = libraryItem.irFileUrl.isNotEmpty();
     libraryItem.kind = jsonString(item, "kind");
     const auto conditionProfile = jsonString(item, "conditionProfile");
     if (conditionProfile.isNotEmpty()) {
@@ -291,7 +292,7 @@ LibraryResult Client::fetchLibrary(const juce::String& accessToken) const {
 
     if (result.status != Status::Success) {
         result.message = result.status == Status::TransportError
-                             ? "Could not reach profiler.audio."
+                             ? "Could not reach spectradsp.com."
                              : "Could not load your marketplace library.";
         return result;
     }
@@ -363,7 +364,7 @@ DownloadResult Client::download(const juce::String& fileUrl, const juce::String&
     if (result.status == Status::Unauthorized) {
         result.message = "Your session has expired. Sign in again.";
     } else if (result.status == Status::TransportError) {
-        result.message = "Could not reach profiler.audio.";
+        result.message = "Could not reach spectradsp.com.";
     } else {
         result.message = "Could not download this pack.";
     }
@@ -413,7 +414,7 @@ CaptureResult Client::submitIrCapture(const juce::String& accessToken,
         result.message = "The capture response was invalid.";
         return result;
     }
-    result.message = "Saved under My creations on profiler.audio, not in purchased packs.";
+    result.message = "Saved under My creations on spectradsp.com, not in purchased packs.";
     return result;
 }
 
@@ -562,7 +563,8 @@ juce::String Client::resolveUrl(const juce::String& fileUrl) const {
 
 bool Client::sendBearerToken(const juce::String& absoluteUrl) {
     const auto host = juce::URL(absoluteUrl).getDomain();
-    return host.equalsIgnoreCase("profiler.audio") || host.endsWithIgnoreCase(".profiler.audio");
+    return host.equalsIgnoreCase("spectradsp.com") || host.endsWithIgnoreCase(".spectradsp.com") ||
+           host.equalsIgnoreCase("profiler.audio") || host.endsWithIgnoreCase(".profiler.audio");
 }
 
 bool saveSession(const juce::File& file, const Session& session) {

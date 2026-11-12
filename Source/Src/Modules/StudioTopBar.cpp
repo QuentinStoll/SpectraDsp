@@ -40,7 +40,7 @@ void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverBu
 StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
     : _audioProcessor(processor),
       _apvts(processor._apvts) {
-    _logoLabel.setText("PROFILER", juce::dontSendNotification);
+    _logoLabel.setText("SPECTRA", juce::dontSendNotification);
     _logoLabel.setFont(ProfilerStyle::Fonts::logo(18.0f));
     _logoLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     _logoLabel.setJustificationType(juce::Justification::centredLeft);
@@ -56,7 +56,7 @@ StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
     _muteButton.setClickingTogglesState(true);
     _muteAttach = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(_apvts, "isMute", _muteButton);
 
-    _audioProcessor.getProfileManager().addChangeListener(this);
+    _audioProcessor.getPresetManager().addChangeListener(this);
     refreshProfileMenu();
     restoreLastUsedProfile();
 
@@ -78,7 +78,7 @@ StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
 }
 
 StudioTopBar::~StudioTopBar() {
-    _audioProcessor.getProfileManager().removeChangeListener(this);
+    _audioProcessor.getPresetManager().removeChangeListener(this);
     _presetMenu.setLookAndFeel(nullptr);
 }
 
@@ -103,55 +103,38 @@ void StudioTopBar::resized() {
 
 void StudioTopBar::refreshProfileMenu() {
     const juce::ScopedValueSetter<bool> updatingProfileMenu(_isUpdatingProfileMenu, true);
-    auto& profileManager = _audioProcessor.getProfileManager();
-    const auto profileNames = profileManager.getProfileNames();
+    auto& presets = _audioProcessor.getPresetManager();
+    const auto names = presets.getNames();
 
     _presetMenu.clear(juce::dontSendNotification);
     _presetMenu.addItem("Default Chain", 1);
 
-    for (int index = 0; index < profileNames.size(); ++index) {
-        const auto profileName = profileNames[index].isNotEmpty()
-                                     ? profileNames[index]
-                                     : "Profil " + juce::String(index + 1);
-        _presetMenu.addItem(profileName, index + 2);
+    for (int index = 0; index < names.size(); ++index) {
+        const auto name = names[index].isNotEmpty() ? names[index] : "Preset " + juce::String(index + 1);
+        _presetMenu.addItem(name, index + 2);
     }
 
-    const auto currentProfileIndex = profileManager.getCurrentProfileIndex();
-    const auto selectedId = currentProfileIndex >= 0 ? currentProfileIndex + 2 : 1;
-    _presetMenu.setSelectedId(selectedId, juce::dontSendNotification);
+    const auto currentIndex = presets.getCurrentIndex();
+    _presetMenu.setSelectedId(currentIndex >= 0 ? currentIndex + 2 : 1, juce::dontSendNotification);
 }
 
 void StudioTopBar::restoreLastUsedProfile() {
-    auto& profileManager = _audioProcessor.getProfileManager();
-
-    if (profileManager.getCurrentProfileId().isEmpty()) {
-        return;
-    }
-
-    const auto currentProfileIndex = profileManager.getCurrentProfileIndex();
-    if (currentProfileIndex < 0) {
-        resetParametersToDefaults();
-        resetLoadedFiles();
-        profileManager.clearCurrentProfile();
-        refreshProfileMenu();
-        return;
-    }
-
-    if (_audioProcessor.getAppliedProfileId() == profileManager.getCurrentProfileId()) {
-        const juce::ScopedValueSetter<bool> updatingProfileMenu(_isUpdatingProfileMenu, true);
-        _presetMenu.setSelectedId(currentProfileIndex + 2, juce::dontSendNotification);
+    auto& presets = _audioProcessor.getPresetManager();
+    const auto currentIndex = presets.getCurrentIndex();
+    if (currentIndex < 0) {
+        if (presets.getCurrentId().isNotEmpty()) {
+            presets.clearCurrentPreset();
+        }
         return;
     }
 
     juce::String errorMessage;
-    if (_audioProcessor.applyProfile(currentProfileIndex, &errorMessage)) {
+    if (_audioProcessor.applyPreset(currentIndex, &errorMessage)) {
         const juce::ScopedValueSetter<bool> updatingProfileMenu(_isUpdatingProfileMenu, true);
-        _presetMenu.setSelectedId(currentProfileIndex + 2, juce::dontSendNotification);
-    } else {
-        resetParametersToDefaults();
-        resetLoadedFiles();
-        profileManager.clearCurrentProfile();
-        refreshProfileMenu();
+        _presetMenu.setSelectedId(currentIndex + 2, juce::dontSendNotification);
+        if (errorMessage.isNotEmpty() && onStatus) {
+            onStatus(errorMessage, false);
+        }
     }
 }
 
@@ -160,78 +143,71 @@ void StudioTopBar::selectProfileFromMenu() {
         return;
     }
 
-    auto& profileManager = _audioProcessor.getProfileManager();
+    auto& presets = _audioProcessor.getPresetManager();
     const auto selectedId = _presetMenu.getSelectedId();
     if (selectedId == 1) {
         resetParametersToDefaults();
         resetLoadedFiles();
-        profileManager.clearCurrentProfile();
+        presets.clearCurrentPreset();
+        if (onPresetApplied) {
+            onPresetApplied();
+        }
         ActionFeedback::post(*this, "Default chain selected.");
         return;
     }
 
-    const auto profileIndex = selectedId - 2;
     juce::String errorMessage;
-    if (_audioProcessor.applyProfile(profileIndex, &errorMessage)) {
-        if (const auto* profile = profileManager.getProfile(profileIndex)) {
-            profileManager.setCurrentProfileId(profile->id);
-            ActionFeedback::post(*this, "Profile loaded: " + profile->name);
+    if (_audioProcessor.applyPreset(selectedId - 2, &errorMessage)) {
+        if (errorMessage.isNotEmpty() && onStatus) {
+            onStatus(errorMessage, false);
         }
+        if (onPresetApplied) {
+            onPresetApplied();
+        }
+        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Preset loaded: " + _presetMenu.getText(), errorMessage.isNotEmpty());
     } else {
+        if (onStatus && errorMessage.isNotEmpty()) {
+            onStatus(errorMessage, false);
+        }
         refreshProfileMenu();
-        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Could not load the selected profile.", true);
+        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Could not load the selected preset.", true);
     }
 }
 
 juce::String StudioTopBar::restoreDefaults() {
-    auto& profileManager = _audioProcessor.getProfileManager();
-    const auto currentProfileIndex = profileManager.getCurrentProfileIndex();
-
-    if (currentProfileIndex >= 0) {
+    auto& presets = _audioProcessor.getPresetManager();
+    const auto currentIndex = presets.getCurrentIndex();
+    if (currentIndex >= 0) {
         juce::String errorMessage;
-        if (_audioProcessor.applyProfile(currentProfileIndex, &errorMessage)) {
+        if (_audioProcessor.applyPreset(currentIndex, &errorMessage)) {
             refreshProfileMenu();
-            return "Current profile restored";
+            if (onPresetApplied) {
+                onPresetApplied();
+            }
+            return errorMessage.isNotEmpty() ? errorMessage : "Current preset restored";
         }
     }
 
     resetParametersToDefaults();
     resetLoadedFiles();
-
-    if (profileManager.getCurrentProfileId().isNotEmpty()) {
-        profileManager.clearCurrentProfile();
+    if (presets.getCurrentId().isNotEmpty()) {
+        presets.clearCurrentPreset();
         refreshProfileMenu();
     }
-
-    return "Default settings restored";
+    if (onPresetApplied) {
+        onPresetApplied();
+    }
+    return "Default chain restored";
 }
 
 void StudioTopBar::resetParametersToDefaults() {
-    auto resetParam = [this](const juce::String& paramID) {
-        if (auto* param = _apvts.getParameter(paramID)) {
-            param->setValueNotifyingHost(param->getDefaultValue());
+    for (auto* parameter : _audioProcessor.getParameters()) {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter)) {
+            ranged->beginChangeGesture();
+            ranged->setValueNotifyingHost(ranged->getDefaultValue());
+            ranged->endChangeGesture();
         }
-    };
-
-    resetParam("master");
-    resetParam("gain");
-    resetParam("noise");
-    resetParam("input");
-    resetParam("output");
-    for (const auto& band : EqBands::specs) {
-        resetParam(band.gainId);
-        resetParam(band.freqId);
     }
-    resetParam("isMute");
-    resetParam("isEqEnabled");
-    resetParam("isGateEnabled");
-    resetParam("isAmpEnabled");
-    resetParam("isCabEnabled");
-    resetParam("cabLowCut");
-    resetParam("isPedalEnabled");
-    resetParam("pedalDrive");
-    resetParam("pedalTone");
-    resetParam("pedalLevel");
     _audioProcessor.resetChainLayout();
 }
 
@@ -242,7 +218,7 @@ void StudioTopBar::resetLoadedFiles() {
 }
 
 void StudioTopBar::changeListenerCallback(juce::ChangeBroadcaster* source) {
-    if (source == &_audioProcessor.getProfileManager()) {
+    if (source == &_audioProcessor.getPresetManager()) {
         refreshProfileMenu();
     }
 }

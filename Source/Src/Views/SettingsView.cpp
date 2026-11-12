@@ -1,6 +1,7 @@
 #include "Views/SettingsView.h"
 
 #include "ActionFeedback.h"
+#include "AppUpdate.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 #include "UiSettings.h"
@@ -179,6 +180,17 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
         ActionFeedback::post(*this, "Hardware info in logs: " + _hardwareInfoMenu.getText());
     };
     addAndMakeVisible(_hardwareInfoMenu);
+
+    _versionLabel.setText("Version " + AppUpdate::currentTag(), juce::dontSendNotification);
+    _versionLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::textMuted);
+    addAndMakeVisible(_versionLabel);
+
+    _updateButton.onClick = [this]() {
+        if (onCheckForUpdates) {
+            onCheckForUpdates();
+        }
+    };
+    addAndMakeVisible(_updateButton);
 }
 
 void SettingsView::applySavedBackgroundColour() {
@@ -218,6 +230,8 @@ void SettingsView::resized() {
     _troubleshootingMenu.setVisible(showGeneral);
     _hardwareInfoLabel.setVisible(showGeneral);
     _hardwareInfoMenu.setVisible(showGeneral);
+    _versionLabel.setVisible(showGeneral);
+    _updateButton.setVisible(showGeneral);
     for (auto [panel, page] : {std::pair<juce::Component*, Page>{&_capturePanel, Page::CloneIr},
                                std::pair<juce::Component*, Page>{&_ampPanel, Page::CloneAmp}}) {
         panel->setVisible(_page == page);
@@ -277,6 +291,12 @@ void SettingsView::resized() {
     settingLine.removeFromLeft(20);
 
     _hardwareInfoMenu.setBounds(settingLine.removeFromLeft(220));
+
+    area.removeFromTop(20);
+    settingLine = area.removeFromTop(40);
+    _versionLabel.setBounds(settingLine.removeFromLeft(180));
+    settingLine.removeFromLeft(20);
+    _updateButton.setBounds(settingLine.removeFromLeft(220));
 }
 
 void SettingsView::applyBackgroundColour() {

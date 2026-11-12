@@ -24,29 +24,64 @@ if(PROFILER_ENABLE_COVERAGE AND WIN32)
         set(_opencppcoverage_url
             "https://github.com/OpenCppCoverage/OpenCppCoverage/releases/download/release-${PROFILER_OPENCPPCOVERAGE_VERSION}/OpenCppCoverageSetup-x64-${PROFILER_OPENCPPCOVERAGE_VERSION}.exe"
         )
+        set(_opencppcoverage_setup_bytes 16864947)
 
         file(MAKE_DIRECTORY "${_opencppcoverage_setup_dir}")
         file(MAKE_DIRECTORY "${PROFILER_OPENCPPCOVERAGE_DIR}")
-
-        message(STATUS "Coverage: downloading OpenCppCoverage")
-        file(DOWNLOAD "${_opencppcoverage_url}" "${_opencppcoverage_setup}" SHOW_PROGRESS TLS_VERIFY ON)
-
         file(TO_NATIVE_PATH "${PROFILER_OPENCPPCOVERAGE_DIR}" _opencppcoverage_dir)
+        find_program(_opencppcoverage_7z NAMES 7z 7za PATHS "C:/Program Files/7-Zip")
 
-        message(STATUS "Coverage: installing OpenCppCoverage")
-        execute_process(
-            COMMAND "${_opencppcoverage_setup}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER "/DIR=${_opencppcoverage_dir}"
-            RESULT_VARIABLE _opencppcoverage_result
-        )
-        if(NOT _opencppcoverage_result EQUAL 0)
-            message(FATAL_ERROR "OpenCppCoverage install failed")
-        endif()
+        foreach(_opencppcoverage_attempt RANGE 1 3)
+            message(STATUS "Coverage: downloading OpenCppCoverage (attempt ${_opencppcoverage_attempt})")
+            file(DOWNLOAD "${_opencppcoverage_url}" "${_opencppcoverage_setup}"
+                SHOW_PROGRESS
+                TLS_VERIFY ON
+                STATUS _opencppcoverage_download
+            )
+            list(GET _opencppcoverage_download 0 _opencppcoverage_download_code)
+            if(NOT _opencppcoverage_download_code EQUAL 0)
+                message(WARNING "Coverage: OpenCppCoverage download failed: ${_opencppcoverage_download}")
+                continue()
+            endif()
 
-        find_program(PROFILER_OPENCPPCOVERAGE_EXE
-            NAMES OpenCppCoverage.exe
-            PATHS "${PROFILER_OPENCPPCOVERAGE_DIR}"
-            NO_DEFAULT_PATH
-        )
+            file(SIZE "${_opencppcoverage_setup}" _opencppcoverage_size)
+            if(NOT _opencppcoverage_size EQUAL _opencppcoverage_setup_bytes)
+                message(WARNING "Coverage: unexpected OpenCppCoverage installer size ${_opencppcoverage_size}")
+                continue()
+            endif()
+
+            message(STATUS "Coverage: installing OpenCppCoverage")
+            execute_process(
+                COMMAND "${_opencppcoverage_setup}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER "/DIR=${_opencppcoverage_dir}"
+                RESULT_VARIABLE _opencppcoverage_result
+                OUTPUT_VARIABLE _opencppcoverage_out
+                ERROR_VARIABLE _opencppcoverage_err
+                TIMEOUT 180
+            )
+            if(NOT _opencppcoverage_result EQUAL 0)
+                message(WARNING "Coverage: silent install exited ${_opencppcoverage_result}: ${_opencppcoverage_out} ${_opencppcoverage_err}")
+                if(_opencppcoverage_7z)
+                    message(STATUS "Coverage: extracting OpenCppCoverage with 7-Zip")
+                    execute_process(
+                        COMMAND "${_opencppcoverage_7z}" x -y "-o${PROFILER_OPENCPPCOVERAGE_DIR}" "${_opencppcoverage_setup}"
+                        RESULT_VARIABLE _opencppcoverage_extract
+                        OUTPUT_VARIABLE _opencppcoverage_out
+                        ERROR_VARIABLE _opencppcoverage_err
+                    )
+                    if(NOT _opencppcoverage_extract EQUAL 0)
+                        message(WARNING "Coverage: 7-Zip extract failed: ${_opencppcoverage_out} ${_opencppcoverage_err}")
+                    endif()
+                endif()
+            endif()
+
+            unset(PROFILER_OPENCPPCOVERAGE_EXE CACHE)
+            file(GLOB_RECURSE _opencppcoverage_found "${PROFILER_OPENCPPCOVERAGE_DIR}/OpenCppCoverage.exe")
+            if(_opencppcoverage_found)
+                list(GET _opencppcoverage_found 0 PROFILER_OPENCPPCOVERAGE_EXE)
+                set(PROFILER_OPENCPPCOVERAGE_EXE "${PROFILER_OPENCPPCOVERAGE_EXE}" CACHE FILEPATH "OpenCppCoverage executable")
+                break()
+            endif()
+        endforeach()
     endif()
 
     if(NOT PROFILER_OPENCPPCOVERAGE_EXE)

@@ -18,13 +18,16 @@ if(NOT PROFILER_PLUGIN_FORMATS)
 endif()
 
 juce_add_plugin(${PLUGIN_NAME}
-    COMPANY_NAME "Profiler"
-    PRODUCT_NAME "Profiler"
-    PLUGIN_NAME "Profiler"
+    COMPANY_NAME "Spectra DSP"
+    PRODUCT_NAME "Spectra"
+    PLUGIN_NAME "Spectra"
+    BUNDLE_ID "com.spectradsp.spectra"
+    PLUGIN_MANUFACTURER_CODE "Sdsp"
+    PLUGIN_CODE "Spct"
 
     FORMATS ${PROFILER_PLUGIN_FORMATS}
-    ICON_BIG   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/ProfilerPP.png"
-    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/ProfilerPP.png"
+    ICON_BIG   "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/SpectraIcon.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Assets/png/SpectraIcon.png"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -66,6 +69,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Components/CustomToggleButton.cpp
     Src/Components/FileDropZone.cpp
     Src/Components/BlockPickerPage.cpp
+    Src/Components/RouteMixPanel.cpp
     Src/Components/SignalChainStrip.cpp
     Src/Components/FormFields/FormComboField.cpp
     Src/Components/FormComponent.cpp
@@ -96,6 +100,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Modules/StudioTopBar.cpp
     Src/Modules/UtilityBarModule.cpp
     Src/AmpCapture.cpp
+    Src/AppUpdate.cpp
     Src/MarketplaceClient.cpp
     Src/SpectraEngine.cpp
     Src/SpectraAmp.cpp
@@ -108,6 +113,8 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Views/IrCapturePanel.cpp
     Src/Views/SettingsView.cpp
     Src/ProfileManager.cpp
+    Src/PresetManager.cpp
+    Src/ProfileCatalog.cpp
     Src/UiSettings.cpp
     Src/PluginEditor.cpp
     Src/PluginProcessor.cpp
@@ -142,6 +149,17 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Include
     ${rtneural_SOURCE_DIR}
 )
+
+target_compile_definitions(${PLUGIN_NAME} PRIVATE
+    SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
+)
+foreach(spectra_release_format VST3 Standalone AU)
+    if(TARGET ${PLUGIN_NAME}_${spectra_release_format})
+        target_compile_definitions(${PLUGIN_NAME}_${spectra_release_format} PRIVATE
+            SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
+        )
+    endif()
+endforeach()
 
 # Apply compiler options and preset-based defines
 apply_compiler_options(${PLUGIN_NAME})

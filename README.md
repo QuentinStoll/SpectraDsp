@@ -6,9 +6,9 @@
 
 ![VSTProfiler banner](Source/Assets/png/ProfilerBanner.png)
 
-# VSTProfiler - Guitar Amplifier Simulator
+# Spectra - Guitar Amplifier Simulator
 
-VSTProfiler is an open-source audio plugin for guitarists who want to shape and save amplifier tones using neural amp models, cabinet impulse responses, and real-time controls, in a DAW or a standalone application.
+Spectra is an open-source audio plugin for guitarists who want to shape and save amplifier tones using neural amp models, cabinet impulse responses, and real-time controls, in a DAW or a standalone application.
 
 [Getting started](#getting-started) · [Usage](#usage) · [Contributing](#contributing) · [Report a bug](https://github.com/QuentinStoll/VstProfiler/issues) · [Request a feature](https://github.com/QuentinStoll/VstProfiler/issues)
 
@@ -55,7 +55,7 @@ Reproducing the tone and dynamic behavior of real amplifiers is the project's lo
 - Amp files must contain a model that the RTNeural JSON parser accepts, with one input and at least one output. The file chooser lists `.nam`, `.json`, and `.txt`, but an extension alone does not guarantee compatibility.
 - Profiles reference external amp and IR files rather than embedding them. Keep those files available when reopening or sharing a profile.
 - The processor currently requires mono input and stereo output. Configure the host's channel layout accordingly.
-- CI builds and tests Windows x64, Linux x64, and macOS Apple Silicon. A local macOS run in a DAW still needs to be checked on a Mac.
+- CI builds and tests Windows x64, Linux x64, and macOS Apple Silicon, and attaches a per-OS installer to GitHub Releases. A local macOS run in a DAW still needs to be checked on a Mac.
 - AAX is requested by some presets but is not built unless the Avid AAX SDK is present. That SDK requires an Avid developer agreement and is not part of the default build.
 
 ## Getting started
@@ -82,7 +82,13 @@ sudo apt-get install -y build-essential cmake git pkg-config \
 
 ### Installation
 
-Clone the repository and enter its directory:
+Prebuilt installers are attached to [GitHub Releases](https://github.com/QuentinStoll/SpectraDsp/releases). Each installer lets you choose the standalone application and/or the plugin (VST3, and Audio Unit on macOS). [spectradsp.com](https://spectradsp.com) downloads the latest of those release assets.
+
+- Windows: `Spectra-windows-x64.exe` (ARM64: `Spectra-windows-arm64.exe`)
+- macOS Apple Silicon: `Spectra-macos-arm64.pkg`. The package is not notarized; Gatekeeper may require Open anyway.
+- Linux x64: `Spectra-linux-x64.run`
+
+To build from source, clone the repository and enter its directory:
 
 ```sh
 git clone https://github.com/QuentinStoll/VstProfiler.git
@@ -103,7 +109,7 @@ bash ./install.sh all default
 
 The scripts compile from source; they do not install the plugin into your DAW's plugin directory. This project overrides JUCE's default output directories: the standalone application is under `build/bin/Standalone/`, and the VST3 bundle is under `build/bin/lib/VST3/`. On macOS, the Audio Unit is under `build/bin/lib/AU/`. Generated JUCE support files remain under `build/Source/Profiler_artefacts/`.
 
-The `default` preset asks for VST3, Audio Unit, and standalone. Audio Unit is skipped automatically on Windows and Linux. Copy `Profiler.component` into `~/Library/Audio/Plug-Ins/Components` and rescan Audio Units in the host.
+The `default` preset asks for VST3, Audio Unit, and standalone. Audio Unit is skipped automatically on Windows and Linux. Copy `Spectra.component` into `~/Library/Audio/Plug-Ins/Components` and rescan Audio Units in the host.
 
 ### Configuration
 
@@ -113,23 +119,23 @@ Build settings live in [cmake/presets_config.json](cmake/presets_config.json). B
 
 The Windows build action does not pass a CMake `--config` option. With Visual Studio, it therefore uses the generator's default build configuration, which is normally Debug, even when the preset sets a Release build type. To explicitly build Release after configuring with the script, run `cmake --build build --config Release --parallel 8`.
 
-The application stores settings and profiles in the JUCE user application-data directory under `Profiler`, with profiles in its `Profiles` subdirectory. On Windows, this is normally `%APPDATA%\Profiler`. On macOS, it is `~/Library/Application Support/Profiler`. External amp and IR files remain at their selected paths.
+The application stores settings and profiles in the JUCE user application-data directory under `Spectra`, with profiles in its `Profiles` subdirectory. On Windows, this is normally `%APPDATA%\Spectra`. On macOS, it is `~/Library/Application Support/Spectra`. External amp and IR files remain at their selected paths.
 
 ### Launch
 
 On Windows:
 
 ```powershell
-& ".\build\bin\Standalone\Profiler.exe"
+& ".\build\bin\Standalone\Spectra.exe"
 ```
 
 On Linux or macOS:
 
 ```sh
-./build/bin/Standalone/Profiler
+./build/bin/Standalone/Spectra
 ```
 
-For DAW use, copy the entire `build/bin/lib/VST3/Profiler.vst3` bundle to a VST3 location scanned by your host, and rescan plugins. Load **Profiler** on a track configured for mono input and stereo output. Build configurations share these output paths, so building Debug can replace an existing Release binary.
+For DAW use, copy the entire `build/bin/lib/VST3/Spectra.vst3` bundle to a VST3 location scanned by your host, and rescan plugins. Load **Spectra** on a track configured for mono input and stereo output. Build configurations share these output paths, so building Debug can replace an existing Release binary.
 
 ## Usage
 
@@ -172,7 +178,7 @@ On Linux or macOS:
 bash ./install.sh test
 ```
 
-These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job.
+These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job. A manual workflow dispatch on main publishes installers on the GitHub Release. Commits on main publish the 48 kHz latencies and realtime ratios at https://quentinstoll.github.io/VstProfiler/dev/bench/.
 
 ## Contributing
 

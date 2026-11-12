@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.22) # same as JUCE
 
 project(Profiler VERSION 0.0.0 LANGUAGES C CXX)
 
+set(SPECTRA_RELEASE_TAG "0.0.0-dev" CACHE STRING "GitHub release tag baked into the app")
+if(DEFINED ENV{SPECTRA_RELEASE_TAG} AND NOT "$ENV{SPECTRA_RELEASE_TAG}" STREQUAL "")
+    set(SPECTRA_RELEASE_TAG "$ENV{SPECTRA_RELEASE_TAG}" CACHE STRING "GitHub release tag baked into the app" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

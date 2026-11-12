@@ -10,10 +10,14 @@
 #include "EqBandLayout.h"
 #include "Fx/FxRack.h"
 #include "Fx/PedalDrive.h"
+#include "PresetManager.h"
+#include "ProfileCatalog.h"
 #include "ProfileManager.h"
 #include "SignalChainLayout.h"
 #include "SpectraAmp.h"
 #include "SpectraEngine.h"
+
+struct BranchWorker;
 
 namespace RTNeural {
 template <typename T>
@@ -27,7 +31,9 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
    public:
     //==============================================================================
     ProfilerAudioProcessor(juce::File profileDirectory = {},
-                           juce::File playViewSettingsFile = {});
+                           juce::File playViewSettingsFile = {},
+                           juce::File presetDirectory = {},
+                           juce::File catalogDirectory = {});
     ~ProfilerAudioProcessor() override;
 
     //==============================================================================
@@ -99,6 +105,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void unloadAmpFile();
     bool isIRLoaded() const noexcept;
     bool isAmpFileLoaded() const noexcept;
+    bool isAmpModelLoaded() const noexcept;
     juce::File getCurrentIRFile() const;
     juce::File getCurrentAmpFile() const;
     bool applyProfile(int profileIndex, juce::String* errorMessage = nullptr);
@@ -107,6 +114,28 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void clearAppliedProfile();
     ProfileManager& getProfileManager() noexcept;
     const ProfileManager& getProfileManager() const noexcept;
+    PresetManager& getPresetManager() noexcept;
+    ProfileCatalog& getProfileCatalog() noexcept;
+    bool saveCurrentPreset(const juce::String& name,
+                           juce::String* errorMessage = nullptr,
+                           bool overwriteCurrent = false);
+    bool applyPreset(int presetIndex, juce::String* errorMessage = nullptr);
+    bool importEncryptedProfile(ProfileCatalog::Kind kind,
+                                const juce::String& id,
+                                const juce::String& title,
+                                const juce::MemoryBlock& cipher,
+                                const juce::MemoryBlock& key,
+                                int conditionProfile,
+                                float conditionAmount,
+                                bool local,
+                                juce::String* errorMessage = nullptr);
+    bool loadCatalogProfile(ProfileCatalog::Kind kind,
+                            const juce::String& id,
+                            juce::String* errorMessage = nullptr);
+    juce::String getActiveAmpProfileId() const;
+    juce::String getActiveIrProfileId() const;
+    void clearActiveAmpProfile();
+    void clearActiveIrProfile();
     float getRmsLevelInput() const noexcept;
     float getRmsLevelOutput() const noexcept;
     bool readTuner(Fx::TunerSnapshot& snapshot) const;
@@ -120,6 +149,9 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     bool isChainSlotBypassed(int chainSlot) const noexcept;
     void setChainSlotBypassed(int chainSlot, bool bypassed);
     void toggleChainSlotBypass(int chainSlot);
+    SignalChain::ParallelRoute getParallelRoute() const noexcept;
+    void setParallelRoute(const SignalChain::ParallelRoute& route);
+    void clearParallelRoute();
 
    private:
     enum ChainPositions {
@@ -189,6 +221,14 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::atomic<float>* _pedalModelParam{nullptr};
     std::atomic<float>* _conditionProfileParam{nullptr};
     std::atomic<float>* _conditionAmountParam{nullptr};
+    std::atomic<float>* _splitModeParam{nullptr};
+    std::atomic<float>* _splitRouteParam{nullptr};
+    std::atomic<float>* _routeALevelParam{nullptr};
+    std::atomic<float>* _routeAPanParam{nullptr};
+    std::atomic<float>* _routeBLevelParam{nullptr};
+    std::atomic<float>* _routeBPanParam{nullptr};
+    std::atomic<float>* _routeBPolarityParam{nullptr};
+    std::atomic<float>* _routeLevelParam{nullptr};
 
     std::array<juce::SmoothedValue<float>, EqBands::count> _eqGainSmoothed{};
     std::array<juce::SmoothedValue<float>, EqBands::count> _eqFreqSmoothed{};
@@ -196,6 +236,10 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     bool _eqCoeffsDirty{true};
     std::atomic<std::uint64_t> _chainLayoutPacked{SignalChain::defaultPacked};
     std::atomic<std::uint16_t> _slotBypassMask{0};
+    std::atomic<std::uint32_t> _routeHeader{0};
+    std::atomic<std::uint32_t> _routePathB{0};
+    std::atomic<std::uint8_t> _routeBypass{0};
+    std::unique_ptr<BranchWorker> _branchWorker;
     std::vector<float> _directInputLeft;
     std::vector<float> _directInputRight;
     Fx::FxRack _fx;
@@ -204,7 +248,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::array<Filter, kChainCopies> _cabLowCuts{};
     std::array<PedalDrive, kChainCopies> _pedalDrives{};
     std::array<AmpCondition, kChainCopies> _ampConditions{};
-    std::vector<float> _conditionInput;
+    std::array<std::vector<float>, kChainCopies> _ampInputScratch{};
+    std::array<std::vector<float>, kChainCopies> _ampWetScratch{};
 
     enum class IrCaptureState {
         Idle = 0,
@@ -237,6 +282,10 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     };
 
     ProfileManager _profileManager;
+    PresetManager _presetManager;
+    ProfileCatalog _profileCatalog;
+    juce::String _activeAmpProfileId;
+    juce::String _activeIrProfileId;
     SpectraEngine _spectra;
     IrCapture _irCapture;
     AmpCaptureSession _ampCapture;
@@ -248,19 +297,59 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void updateEqCoefficients();
     void updateCabLowCutCoefficients();
     void applyProfileFileValues(const juce::NamedValueSet& values);
+    Preset capturePreset(const juce::String& name) const;
+    void applyPresetDocument(const Preset& preset);
+    struct StageCursor {
+        int amp = 0;
+        int cab = 0;
+        int eq = 0;
+        int pedal = 0;
+        std::array<int, 32> fx{};
+    };
+
+    struct BranchTask {
+        ProfilerAudioProcessor* processor = nullptr;
+        SignalChain::Layout layout{};
+        SignalChain::ParallelRoute route{};
+        float* left = nullptr;
+        float* right = nullptr;
+        int numSamples = 0;
+        int begin = 0;
+        int end = 0;
+        bool pathB = false;
+        int lane = 0;
+        bool sharedGain = true;
+        float ampGain = 1.0f;
+        StageCursor cursor{};
+    };
+
     void processGateStage(juce::dsp::ProcessContextReplacing<float>& context);
-    void processAmpStage(juce::AudioBuffer<float>& buffer,
-                         juce::dsp::ProcessContextReplacing<float>& context,
+    void processAmpStage(float* channel, int numSamples, int instance, bool slotEnabled, bool sharedGain, float ampGain);
+    void processCabStage(float* channel, int numSamples, int instance, bool slotEnabled);
+    void processEqStage(float* channel, int numSamples, int instance, bool slotEnabled);
+    void processPedalStage(float* channel, int numSamples, int instance, bool slotEnabled);
+    void processBranch(BranchTask& task);
+    void processParallel(const SignalChain::Layout& layout,
+                         const SignalChain::ParallelRoute& route,
+                         float* left,
+                         float* right,
                          int numSamples,
-                         int instance,
-                         bool slotEnabled);
-    void processCabStage(juce::dsp::ProcessContextReplacing<float>& context, int instance, bool slotEnabled);
-    void processEqStage(juce::dsp::ProcessContextReplacing<float>& context, int instance, bool slotEnabled);
-    void processPedalStage(juce::AudioBuffer<float>& buffer,
-                           juce::dsp::ProcessContextReplacing<float>& context,
-                           int numSamples,
-                           int instance,
-                           bool slotEnabled);
+                         float ampGain);
+    static void runBranchJob(void* raw);
+    void advanceCursor(const SignalChain::Layout& layout, int begin, int end, StageCursor& cursor) const noexcept;
+    void noteStage(SignalChain::Stage stage, StageCursor& cursor) const noexcept;
+    int latencyFor(SignalChain::Stage stage, bool slotBypassed, bool includeCab) const;
+    int latencyRange(const SignalChain::Layout& layout, int begin, int end, bool includeCab) const;
+    int latencyPathB(const SignalChain::ParallelRoute& route, bool includeCab) const;
+    bool rangeHas(const SignalChain::Layout& layout, int begin, int end, SignalChain::Stage stage) const noexcept;
+    bool pathBHas(const SignalChain::ParallelRoute& route, SignalChain::Stage stage) const noexcept;
+    bool rangeIsHeavy(const SignalChain::Layout& layout, int begin, int end) const;
+    bool pathBIsHeavy(const SignalChain::ParallelRoute& route) const;
+    bool isPathBBypassed(int index) const noexcept;
+    void ensureAudioScratch(int numSamples);
+    void applyAlign(int lane, float* left, float* right, int numSamples, int delaySamples);
+    void startBranchWorker();
+    void stopBranchWorker();
     void syncAmpCopies(bool force = false);
     void setEqBypassed(bool bypassed);
     bool loadIrIntoConvolvers(const void* data, size_t size);
@@ -310,7 +399,11 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::vector<std::unique_ptr<RTNeural::Model<float>>> _ampCopies;
     juce::MemoryBlock _ampModelBytes;
     SpectraAmp _spectraAmp;
-    std::vector<float> _spectraWet;
+    std::array<std::vector<float>, 2> _splitLeft{};
+    std::array<std::vector<float>, 2> _splitRight{};
+    std::array<std::vector<float>, 2> _alignLeft{};
+    std::array<std::vector<float>, 2> _alignRight{};
+    std::array<int, 2> _alignWrite{};
 
     juce::CriticalSection _ampModelLock;
     bool _ampLoaded = false;  // Initialized to false until the JSON is loaded

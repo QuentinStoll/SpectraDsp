@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Spectra</title>
+    <organization>com.spectradsp</organization>
+    <options customize="always" require-scripts="false" rootVolumeOnly="true"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <readme file="readme.txt" mime-type="text/plain"/>
+    <choices-outline>
+        <line choice="standalone"/>
+        <line choice="vst3"/>
+        <line choice="au"/>
+    </choices-outline>
+    <choice id="standalone" title="Standalone" description="Spectra application in /Applications" selected="true" enabled="true">
+        <pkg-ref id="com.spectradsp.spectra.standalone"/>
+    </choice>
+    <choice id="vst3" title="VST3 plugin" description="Spectra.vst3 in /Library/Audio/Plug-Ins/VST3" selected="true" enabled="true">
+        <pkg-ref id="com.spectradsp.spectra.vst3"/>
+    </choice>
+    <choice id="au" title="Audio Unit" description="Spectra.component in /Library/Audio/Plug-Ins/Components" selected="true" enabled="true">
+        <pkg-ref id="com.spectradsp.spectra.au"/>
+    </choice>
+    <pkg-ref id="com.spectradsp.spectra.standalone" version="0" onConclusion="none">standalone.pkg</pkg-ref>
+    <pkg-ref id="com.spectradsp.spectra.vst3" version="0" onConclusion="none">vst3.pkg</pkg-ref>
+    <pkg-ref id="com.spectradsp.spectra.au" version="0" onConclusion="none">au.pkg</pkg-ref>
+</installer-gui-script>

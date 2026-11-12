@@ -1,6 +1,6 @@
 @echo off
 :: ================================================
-::  Profiler - compilation script (Windows)
+::  Spectra - compilation script (Windows)
 ::  Epitech Paris - EIP 2025-2026
 :: ================================================
 

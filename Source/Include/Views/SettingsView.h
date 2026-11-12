@@ -2,7 +2,10 @@
 
 #include <JuceHeader.h>
 
+#include <functional>
+
 #include "Components/CustomComboBox.h"
+#include "Components/CustomTextButton.h"
 #include "Views/AmpCapturePanel.h"
 #include "Views/IrCapturePanel.h"
 
@@ -16,6 +19,8 @@ class SettingsView : public juce::Component {
     std::function<void(int)> onInterfaceScaleChanged;
     std::function<void(bool)> onActionStatusChanged;
     void refreshContrastSetting();
+
+    std::function<void()> onCheckForUpdates;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -47,6 +52,8 @@ class SettingsView : public juce::Component {
     CustomComboBox _troubleshootingMenu;
     juce::Label _hardwareInfoLabel;
     CustomComboBox _hardwareInfoMenu;
+    juce::Label _versionLabel;
+    CustomTextButton _updateButton{"Check for updates"};
 
     void applyBackgroundColour();
     void refreshColours();

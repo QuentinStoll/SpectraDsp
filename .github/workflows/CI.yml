@@ -113,6 +113,48 @@ jobs:
           chmod +x ./install.sh
           ./install.sh test
 
+      - name: Test Linux installer packaging
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x packaging/linux/build-run.sh packaging/linux/install.sh
+          python packaging/test_build_installer.py
+
+      - name: Summarize audio metrics
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("build/audio-metrics.json")
+          if not path.is_file():
+              raise SystemExit(0)
+          data = json.loads(path.read_text(encoding="utf-8"))
+          lines = [
+              "## Profiler audio (48 kHz)",
+              "",
+              "| name | unit | value |",
+              "| --- | --- | --- |",
+          ]
+          for row in data:
+              lines.append(f"| {row.get('name', '')} | {row.get('unit', '')} | {row.get('value', '')} |")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Upload audio metrics
+        if: always() && matrix.name == 'windows-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-metrics
+          path: build/audio-metrics.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -122,6 +164,86 @@ jobs:
           if-no-files-found: ignore
           path: build/Testing/
 
+  audio-history:
+    name: Audio history
+    needs: tests
+    if: always() && needs.tests.result != 'cancelled' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      deployments: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure gh-pages exists
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git ls-remote --exit-code --heads origin gh-pages; then
+            empty=$(git hash-object -t tree /dev/null)
+            sha=$(git commit-tree "$empty" -m "Initialize gh-pages")
+            git push origin "$sha":refs/heads/gh-pages
+          fi
+
+      - name: Download audio metrics
+        id: metrics
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: audio-metrics
+          if-no-artifact-found: ignore
+
+      - name: Locate audio metrics
+        id: locate
+        run: |
+          set -euo pipefail
+          if [[ -f audio-metrics.json ]]; then
+            echo "path=audio-metrics.json" >> "$GITHUB_OUTPUT"
+          elif [[ -f build/audio-metrics.json ]]; then
+            echo "path=build/audio-metrics.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "No audio-metrics artifact; skipping history."
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish audio history
+        if: steps.locate.outputs.path != ''
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Profiler audio
+          tool: customSmallerIsBetter
+          output-file-path: ${{ steps.locate.outputs.path }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          comment-on-alert: true
+          summary-always: true
+          fail-on-alert: false
+          alert-threshold: '150%'
+          max-items-in-chart: 200
+
+      - name: Enable GitHub Pages
+        if: steps.locate.outputs.path != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          output=$(gh api --method POST "repos/${{ github.repository }}/pages" -f source[branch]=gh-pages -f source[path]=/ 2>&1)
+          status=$?
+          echo "$output"
+          if [[ $status -eq 0 || "$output" == *409* ]]; then
+            exit 0
+          fi
+          if [[ "$output" == *403* ]]; then
+            echo "Enable Pages from Settings, Pages, Deploy from branch, gh-pages, root folder."
+            echo "Charts: https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/dev/bench/"
+          fi
+          exit 0
+
   coverage:
     name: Coverage
     needs: format
@@ -130,6 +252,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install OpenCppCoverage
+        shell: cmd
+        run: choco install opencppcoverage --no-progress -y
 
       - name: Run tests with coverage
         shell: cmd
@@ -177,6 +303,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set Spectra release tag
+        shell: bash
+        run: echo "SPECTRA_RELEASE_TAG=v$(date -u +'%Y.%m.%d')-${{ github.run_number }}" >> "$GITHUB_ENV"
+
       - name: Fetch SpectraDsp
         id: spectra
         shell: bash
@@ -216,7 +346,9 @@ jobs:
       - name: Build project (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: install.bat build
+        run: |
+          call install.bat config
+          cmake --build build --config Release --parallel 8
 
       - name: Build project (Linux and macOS)
         if: runner.os != 'Windows'
@@ -229,6 +361,25 @@ jobs:
         shell: bash
         run: python scripts/stage_spectra_dsp.py --library "${{ steps.spectra.outputs.library }}" --plugin-root build/bin
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: choco install innosetup --no-progress -y
+
+      - name: Install makeself
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y makeself
+
+      - name: Build Spectra installer
+        shell: bash
+        run: |
+          chmod +x packaging/macos/build-pkg.sh packaging/linux/build-run.sh packaging/linux/install.sh
+          python packaging/build_installer.py \
+            --plugin-root build/bin \
+            --os-arch "${{ matrix.name }}" \
+            --output-dir dist \
+            --version "0.0.${{ github.run_number }}"
+
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -240,11 +391,20 @@ jobs:
             build/bin/lib/AU/**
             build/bin/Standalone/**
 
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.name }}
+          retention-days: 14
+          if-no-files-found: error
+          path: dist/Spectra-*
+
   release:
     name: Publish Release
     needs: [tests, coverage, build]
     # Manual only. Merging to main runs the checks above and does not publish.
-    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main')
+    # always() is required so a coverage failure does not skip this job.
+    if: always() && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main') && needs.tests.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -256,6 +416,13 @@ jobs:
           pattern: build-*
           path: artifacts/
 
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: installers/
+          merge-multiple: true
+
       - name: Normalize artifact structure
         run: |
           mkdir -p release-package
@@ -264,6 +431,9 @@ jobs:
             mkdir -p "release-package/$os_arch"
             cp -r "$dir"* "release-package/$os_arch/"
           done
+          mkdir -p release-installers
+          find installers -type f \( -name 'Spectra-*.exe' -o -name 'Spectra-*.pkg' -o -name 'Spectra-*.run' \) -exec cp {} release-installers/ \;
+          ls -la release-installers
 
       - name: Create release archives
         run: |
@@ -301,7 +471,18 @@ jobs:
           name: Release ${{ steps.version.outputs.tag }}
           body: |
             Bundled SpectraDsp `${{ steps.engine.outputs.version }}`.
+
+            Installers (standalone and/or plugin, chosen in the installer UI):
+            - Windows x64: `Spectra-windows-x64.exe`
+            - Windows ARM64: `Spectra-windows-arm64.exe`
+            - macOS Apple Silicon: `Spectra-macos-arm64.pkg` (not notarized)
+            - Linux x64: `Spectra-linux-x64.run`
+
+            https://spectradsp.com points at this latest release.
           generate_release_notes: true
           files: |
             *.zip
             *.tar.gz
+            release-installers/Spectra-*.exe
+            release-installers/Spectra-*.pkg
+            release-installers/Spectra-*.run

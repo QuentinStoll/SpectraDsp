@@ -30,6 +30,9 @@ namespace {
 const juce::Identifier kChainLayoutId{"chainLayout"};
 const juce::Identifier kChainLayoutHighId{"chainLayoutHigh"};
 const juce::Identifier kChainBypassId{"chainBypass"};
+const juce::Identifier kRouteHeaderId{"routeHeader"};
+const juce::Identifier kRoutePathBId{"routePathB"};
+const juce::Identifier kRouteBypassId{"routeBypass"};
 
 void writeChainLayout(juce::ValueTree state, std::uint64_t packed) {
     if (!state.isValid()) {
@@ -51,6 +54,54 @@ std::uint16_t readChainBypass(const juce::ValueTree& tree) {
     return static_cast<std::uint16_t>(static_cast<int>(tree.getProperty(kChainBypassId, 0)) & 0x0FFF);
 }
 
+void writeRouteState(juce::ValueTree state, std::uint32_t header, std::uint32_t pathB, std::uint8_t bypass) {
+    if (!state.isValid()) {
+        return;
+    }
+    state.setProperty(kRouteHeaderId, static_cast<int>(header), nullptr);
+    state.setProperty(kRoutePathBId, static_cast<int>(pathB), nullptr);
+    state.setProperty(kRouteBypassId, static_cast<int>(bypass), nullptr);
+}
+
+std::uint32_t readRouteHeader(const juce::ValueTree& tree) {
+    return static_cast<std::uint32_t>(static_cast<int>(tree.getProperty(kRouteHeaderId, 0)));
+}
+
+std::uint32_t readRoutePathB(const juce::ValueTree& tree) {
+    return static_cast<std::uint32_t>(static_cast<int>(tree.getProperty(kRoutePathBId, 0)));
+}
+
+std::uint8_t readRouteBypass(const juce::ValueTree& tree) {
+    return static_cast<std::uint8_t>(static_cast<int>(tree.getProperty(kRouteBypassId, 0)) & 0x3F);
+}
+
+void splitPathGains(bool ab, float route, float& gainA, float& gainB) noexcept {
+    if (!ab) {
+        gainA = 1.0f;
+        gainB = 1.0f;
+        return;
+    }
+    const auto mix = juce::jlimit(0.0f, 1.0f, route);
+    if (mix <= 0.5f) {
+        gainA = 1.0f;
+        gainB = mix * 2.0f;
+    } else {
+        gainA = (1.0f - mix) * 2.0f;
+        gainB = 1.0f;
+    }
+}
+
+void stereoBalance(float pan, float& leftGain, float& rightGain) noexcept {
+    const auto limited = juce::jlimit(-100.0f, 100.0f, pan) / 100.0f;
+    if (limited >= 0.0f) {
+        leftGain = 1.0f - limited;
+        rightGain = 1.0f;
+    } else {
+        leftGain = 1.0f;
+        rightGain = 1.0f + limited;
+    }
+}
+
 std::uint64_t readChainLayout(const juce::ValueTree& tree) {
     const auto lowDefault = static_cast<int>(SignalChain::defaultPacked & 0xFFFFFFFFu);
     const auto low = static_cast<std::uint32_t>(static_cast<int>(tree.getProperty(kChainLayoutId, lowDefault)));
@@ -59,6 +110,65 @@ std::uint64_t readChainLayout(const juce::ValueTree& tree) {
 }
 
 }  // namespace
+
+struct BranchWorker : public juce::Thread {
+    BranchWorker() : juce::Thread("Spectra Branch") {}
+
+    ~BranchWorker() override { stop(); }
+
+    void start() {
+        if (isThreadRunning()) {
+            return;
+        }
+        _quit.store(false, std::memory_order_release);
+        if (!startRealtimeThread(juce::Thread::RealtimeOptions{}.withPriority(8))) {
+            startThread(juce::Thread::Priority::high);
+        }
+    }
+
+    void stop() {
+        _quit.store(true, std::memory_order_release);
+        _ready.signal();
+        stopThread(2000);
+    }
+
+    using Job = void (*)(void*);
+
+    void startJob(Job job, void* context) {
+        _done.reset();
+        _context = context;
+        _job = job;
+        _ready.signal();
+    }
+
+    void waitJob() {
+        _done.wait();
+        _job = nullptr;
+        _context = nullptr;
+    }
+
+    void run() override {
+        while (!threadShouldExit() && !_quit.load(std::memory_order_acquire)) {
+            _ready.wait();
+            if (threadShouldExit() || _quit.load(std::memory_order_acquire)) {
+                break;
+            }
+            try {
+                if (_job != nullptr) {
+                    _job(_context);
+                }
+            } catch (...) {
+            }
+            _done.signal();
+        }
+    }
+
+    juce::WaitableEvent _ready;
+    juce::WaitableEvent _done;
+    std::atomic<bool> _quit{false};
+    Job _job = nullptr;
+    void* _context = nullptr;
+};
 
 float ProfilerAudioProcessor::getParameterValue(const std::atomic<float>* parameter, float fallback) noexcept {
     return parameter != nullptr ? parameter->load() : fallback;
@@ -86,7 +196,9 @@ float ProfilerAudioProcessor::getMasterGainLinear(float masterPercent) noexcept 
 
 //==============================================================================
 ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
-                                               juce::File playViewSettingsFile)
+                                               juce::File playViewSettingsFile,
+                                               juce::File presetDirectory,
+                                               juce::File catalogDirectory)
 #ifndef JucePlugin_PreferredChannelConfigurations
     : AudioProcessor(
           BusesProperties()
@@ -98,10 +210,14 @@ ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
 #endif
               ),
       _fx(_apvts),
-      _profileManager(_apvts, std::move(profileDirectory), std::move(playViewSettingsFile))
+      _profileManager(_apvts, std::move(profileDirectory), std::move(playViewSettingsFile)),
+      _presetManager(std::move(presetDirectory)),
+      _profileCatalog(std::move(catalogDirectory))
 #else
     : _fx(_apvts),
-      _profileManager(_apvts, std::move(profileDirectory), std::move(playViewSettingsFile))
+      _profileManager(_apvts, std::move(profileDirectory), std::move(playViewSettingsFile)),
+      _presetManager(std::move(presetDirectory)),
+      _profileCatalog(std::move(catalogDirectory))
 #endif
 {
     Log::logSystemInfoOnFileStart = (bool)(UiSettings::loadHardwareInfoSetting() - 1);
@@ -134,15 +250,26 @@ ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
     _pedalModelParam = _apvts.getRawParameterValue("pedalModel");
     _conditionProfileParam = _apvts.getRawParameterValue("conditionProfile");
     _conditionAmountParam = _apvts.getRawParameterValue("conditionAmount");
+    _splitModeParam = _apvts.getRawParameterValue("splitMode");
+    _splitRouteParam = _apvts.getRawParameterValue("splitRoute");
+    _routeALevelParam = _apvts.getRawParameterValue("routeALevel");
+    _routeAPanParam = _apvts.getRawParameterValue("routeAPan");
+    _routeBLevelParam = _apvts.getRawParameterValue("routeBLevel");
+    _routeBPanParam = _apvts.getRawParameterValue("routeBPan");
+    _routeBPolarityParam = _apvts.getRawParameterValue("routeBPolarity");
+    _routeLevelParam = _apvts.getRawParameterValue("routeLevel");
     writeChainLayout(_apvts.state, _chainLayoutPacked.load());
     writeChainBypass(_apvts.state, 0);
+    writeRouteState(_apvts.state, 0, 0, 0);
     for (auto& mix : _ampWetMix) {
         mix.setCurrentAndTargetValue(1.0f);
     }
     _spectra.open();
 }
 
-ProfilerAudioProcessor::~ProfilerAudioProcessor() = default;
+ProfilerAudioProcessor::~ProfilerAudioProcessor() {
+    stopBranchWorker();
+}
 
 //==============================================================================
 const juce::String ProfilerAudioProcessor::getName() const {
@@ -178,6 +305,9 @@ double ProfilerAudioProcessor::getTailLengthSeconds() const {
     double tail = 0.0;
     for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
         tail = juce::jmax(tail, _fx.tailSecondsFor(layout.atSlot(SignalChain::chainSlotForMovableIndex(index))));
+    }
+    for (const auto stage : getParallelRoute().pathB) {
+        tail = juce::jmax(tail, _fx.tailSecondsFor(stage));
     }
     return tail;
 }
@@ -273,7 +403,13 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
         _ampConditions[static_cast<std::size_t>(instance)].prepare(
             sampleRate, conditionSalt + static_cast<std::uint32_t>(instance) * 0x9E3779B9u);
     }
-    _conditionInput.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
+    const auto scratchFrames = static_cast<std::size_t>(juce::jmax(1, samplesPerBlock));
+    for (auto& scratch : _ampInputScratch) {
+        scratch.assign(scratchFrames, 0.0f);
+    }
+    for (auto& scratch : _ampWetScratch) {
+        scratch.assign(scratchFrames, 0.0f);
+    }
 
     for (auto& blocker : _dcBlockers) {
         *blocker.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(sampleRate, 35.0f);
@@ -289,8 +425,19 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     _directInputLeft.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
     _directInputRight.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
     _fx.prepare(sampleRate, samplesPerBlock);
-    _spectraWet.assign(static_cast<std::size_t>(juce::jmax(1, samplesPerBlock)), 0.0f);
+    for (auto& channel : _splitLeft) {
+        channel.assign(scratchFrames, 0.0f);
+    }
+    for (auto& channel : _splitRight) {
+        channel.assign(scratchFrames, 0.0f);
+    }
+    for (int lane = 0; lane < 2; ++lane) {
+        _alignLeft[static_cast<size_t>(lane)].assign(48000, 0.0f);
+        _alignRight[static_cast<size_t>(lane)].assign(48000, 0.0f);
+        _alignWrite[static_cast<size_t>(lane)] = 0;
+    }
     _spectraAmp.prepare(sampleRate, samplesPerBlock);
+    startBranchWorker();
     updateReportedLatency();
 
     {
@@ -308,6 +455,7 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
 }
 
 void ProfilerAudioProcessor::releaseResources() {
+    stopBranchWorker();
     _chain.reset();
     for (auto& eqChain : _eqChains) {
         eqChain.reset();
@@ -431,21 +579,9 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     float* left = buffer.getWritePointer(0);
     float* right = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
-    auto mirror = [&]() {
-        if (right != nullptr) {
-            juce::FloatVectorOperations::copy(right, left, numSamples);
-        }
-    };
-    auto foldToMono = [&]() {
-        if (right == nullptr) {
-            return;
-        }
-        for (int sample = 0; sample < numSamples; ++sample) {
-            left[sample] = 0.5f * (left[sample] + right[sample]);
-        }
-        mirror();
-    };
-    mirror();
+    if (right != nullptr) {
+        juce::FloatVectorOperations::copy(right, left, numSamples);
+    }
 
     double bpm = 120.0;
     if (auto* hostPlayHead = getPlayHead()) {
@@ -460,47 +596,27 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     _fx.setTempo(bpm);
 
     _cabLowCutSmoothed.setTargetValue(getParameterValue(_cabLowCutParam, 80.0f));
+    if (_cabLowCutSmoothed.isSmoothing()) {
+        updateCabLowCutCoefficients();
+    }
+    ensureAudioScratch(numSamples);
     const auto layout = SignalChain::Layout::fromPacked(_chainLayoutPacked.load(std::memory_order_relaxed));
-    int ampInstance = 0;
-    int cabInstance = 0;
-    int eqInstance = 0;
-    int pedalInstance = 0;
-    std::array<int, 32> fxInstance{};
-    for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
-        const auto chainSlot = SignalChain::chainSlotForMovableIndex(index);
-        const auto stage = layout.atSlot(chainSlot);
-        const bool slotEnabled = !isChainSlotBypassed(chainSlot);
-        switch (stage) {
-            case SignalChain::Stage::Cab:
-                foldToMono();
-                processCabStage(context, cabInstance++, slotEnabled);
-                mirror();
-                break;
-            case SignalChain::Stage::Eq:
-                foldToMono();
-                processEqStage(context, eqInstance++, slotEnabled);
-                mirror();
-                break;
-            case SignalChain::Stage::Pedal:
-                foldToMono();
-                processPedalStage(buffer, context, numSamples, pedalInstance++, slotEnabled);
-                mirror();
-                break;
-            case SignalChain::Stage::Amp:
-                foldToMono();
-                processAmpStage(buffer, context, numSamples, ampInstance++, slotEnabled);
-                mirror();
-                break;
-            case SignalChain::Stage::Empty:
-                break;
-            default: {
-                const auto stageIndex = static_cast<size_t>(static_cast<int>(stage));
-                const int instance = stageIndex < fxInstance.size() ? fxInstance[stageIndex]++ : 0;
-                _fx.process(stage, instance, left, right != nullptr ? right : left, numSamples, slotEnabled,
-                            _directInputLeft.data(), _directInputRight.data());
-                break;
-            }
-        }
+    const auto route = getParallelRoute();
+    const float ampGain = juce::Decibels::decibelsToGain(getParameterValue(_gainParam, 0.0f));
+    if (!route.active()) {
+        BranchTask serial;
+        serial.processor = this;
+        serial.layout = layout;
+        serial.left = left;
+        serial.right = right;
+        serial.numSamples = numSamples;
+        serial.begin = 0;
+        serial.end = SignalChain::movableSlotCount;
+        serial.sharedGain = true;
+        serial.ampGain = ampGain;
+        processBranch(serial);
+    } else {
+        processParallel(layout, route, left, right, numSamples, ampGain);
     }
 
     _cabLowCutSmoothed.skip(numSamples);
@@ -539,24 +655,16 @@ bool ProfilerAudioProcessor::readTuner(Fx::TunerSnapshot& snapshot) const {
 
 void ProfilerAudioProcessor::updateReportedLatency() {
     const auto layout = getChainLayout();
+    const auto route = getParallelRoute();
     int latency = 0;
-    int activeAmps = 0;
-    for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
-        const auto chainSlot = SignalChain::chainSlotForMovableIndex(index);
-        if (isChainSlotBypassed(chainSlot)) {
-            continue;
-        }
-        const auto stage = layout.atSlot(chainSlot);
-        latency += _fx.latencySamplesFor(stage);
-        if (stage == SignalChain::Stage::Amp) {
-            ++activeAmps;
-        }
-        if (stage == SignalChain::Stage::Pedal && getParameterValue(_isPedalEnabledParam, 1.0f) > 0.5f) {
-            latency += _pedalDrives[0].latencySamples();
-        }
-    }
-    if (_spectraAmp.isLoaded()) {
-        latency += activeAmps * _spectraAmp.latencySamples();
+    if (!route.active()) {
+        latency = latencyRange(layout, 0, SignalChain::movableSlotCount, false);
+    } else {
+        latency = latencyRange(layout, 0, route.splitAfter + 1, true);
+        const auto pathA = latencyRange(layout, route.splitAfter + 1, route.mergeAfter + 1, true);
+        const auto pathB = latencyPathB(route, true);
+        latency += juce::jmax(pathA, pathB);
+        latency += latencyRange(layout, route.mergeAfter + 1, SignalChain::movableSlotCount, true);
     }
     if (latency != _reportedLatency) {
         _reportedLatency = latency;
@@ -566,6 +674,48 @@ void ProfilerAudioProcessor::updateReportedLatency() {
 
 SignalChain::Layout ProfilerAudioProcessor::getChainLayout() const noexcept {
     return SignalChain::Layout::fromPacked(_chainLayoutPacked.load(std::memory_order_relaxed));
+}
+
+SignalChain::ParallelRoute ProfilerAudioProcessor::getParallelRoute() const noexcept {
+    return SignalChain::ParallelRoute::fromPacked(_routeHeader.load(std::memory_order_relaxed),
+                                                  _routePathB.load(std::memory_order_relaxed));
+}
+
+void ProfilerAudioProcessor::setParallelRoute(const SignalChain::ParallelRoute& route) {
+    SignalChain::ParallelRoute clean;
+    clean.splitAfter = juce::jlimit(-1, SignalChain::movableSlotCount - 1, route.splitAfter);
+    clean.mergeAfter = juce::jlimit(-1, SignalChain::movableSlotCount - 1, route.mergeAfter);
+    if (clean.mergeAfter < 0 || clean.mergeAfter >= SignalChain::movableSlotCount ||
+        clean.mergeAfter <= clean.splitAfter) {
+        clean.splitAfter = -1;
+        clean.mergeAfter = -1;
+    }
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        const auto stage = route.pathBAt(index);
+        clean.pathB[static_cast<size_t>(index)] =
+            SignalChain::isEffectStage(stage) ? stage : SignalChain::Stage::Empty;
+    }
+
+    const auto previous = getParallelRoute();
+    auto bypass = _routeBypass.load(std::memory_order_relaxed);
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        if (previous.pathBAt(index) != clean.pathBAt(index)) {
+            bypass = static_cast<std::uint8_t>(bypass & ~(1u << index));
+        }
+    }
+    _routeBypass.store(bypass, std::memory_order_relaxed);
+    _routeHeader.store(clean.packedHeader(), std::memory_order_relaxed);
+    _routePathB.store(clean.packedPathB(), std::memory_order_relaxed);
+    writeRouteState(_apvts.state, clean.packedHeader(), clean.packedPathB(), bypass);
+    syncAmpCopies();
+}
+
+void ProfilerAudioProcessor::clearParallelRoute() {
+    _routeHeader.store(0, std::memory_order_relaxed);
+    _routePathB.store(0, std::memory_order_relaxed);
+    _routeBypass.store(0, std::memory_order_relaxed);
+    writeRouteState(_apvts.state, 0, 0, 0);
+    syncAmpCopies();
 }
 
 void ProfilerAudioProcessor::setChainLayout(const SignalChain::Layout& layout) {
@@ -619,6 +769,10 @@ void ProfilerAudioProcessor::swapChainSlots(int fromSlot, int toSlot) {
 }
 
 bool ProfilerAudioProcessor::isChainSlotBypassed(int chainSlot) const noexcept {
+    const auto pathB = SignalChain::pathBIndexForSlot(chainSlot);
+    if (pathB >= 0) {
+        return isPathBBypassed(pathB);
+    }
     const int bit = SignalChain::movableIndexForSlot(chainSlot);
     if (bit < 0) {
         return false;
@@ -627,6 +781,21 @@ bool ProfilerAudioProcessor::isChainSlotBypassed(int chainSlot) const noexcept {
 }
 
 void ProfilerAudioProcessor::setChainSlotBypassed(int chainSlot, bool bypassed) {
+    const auto pathB = SignalChain::pathBIndexForSlot(chainSlot);
+    if (pathB >= 0) {
+        auto mask = _routeBypass.load(std::memory_order_relaxed);
+        if (bypassed) {
+            mask = static_cast<std::uint8_t>(mask | (1u << pathB));
+        } else {
+            mask = static_cast<std::uint8_t>(mask & ~(1u << pathB));
+        }
+        _routeBypass.store(mask, std::memory_order_relaxed);
+        writeRouteState(_apvts.state,
+                        _routeHeader.load(std::memory_order_relaxed),
+                        _routePathB.load(std::memory_order_relaxed),
+                        mask);
+        return;
+    }
     const int bit = SignalChain::movableIndexForSlot(chainSlot);
     if (bit < 0) {
         return;
@@ -646,6 +815,13 @@ void ProfilerAudioProcessor::toggleChainSlotBypass(int chainSlot) {
 }
 
 void ProfilerAudioProcessor::clearChainSlot(int slot) {
+    const auto pathB = SignalChain::pathBIndexForSlot(slot);
+    if (pathB >= 0) {
+        auto route = getParallelRoute();
+        route.clearPathB(pathB);
+        setParallelRoute(route);
+        return;
+    }
     auto layout = getChainLayout();
     layout.clear(slot);
     setChainLayout(layout);
@@ -655,6 +831,7 @@ void ProfilerAudioProcessor::clearAllChainBlocks() {
     auto layout = getChainLayout();
     layout.clearAll();
     setChainLayout(layout);
+    clearParallelRoute();
 }
 
 void ProfilerAudioProcessor::setEqBypassed(bool bypassed) {
@@ -713,7 +890,17 @@ bool ProfilerAudioProcessor::loadIrIntoConvolvers(const void* data, size_t size)
 void ProfilerAudioProcessor::syncAmpCopies(bool force) {
     {
         const juce::ScopedLock ampLock(_ampModelLock);
-        const auto extraAmps = juce::jmax(0, getChainLayout().count(SignalChain::Stage::Amp) - 1);
+        const auto routeAmps = [&] {
+            int count = 0;
+            const auto route = getParallelRoute();
+            for (const auto stage : route.pathB) {
+                if (stage == SignalChain::Stage::Amp) {
+                    ++count;
+                }
+            }
+            return count;
+        }();
+        const auto extraAmps = juce::jmax(0, getChainLayout().count(SignalChain::Stage::Amp) + routeAmps - 1);
         if (force || static_cast<int>(_ampCopies.size()) != extraAmps) {
             _ampCopies.clear();
             if (extraAmps > 0 && _neuralAmp != nullptr && _ampModelBytes.getSize() > 0) {
@@ -727,14 +914,28 @@ void ProfilerAudioProcessor::syncAmpCopies(bool force) {
         }
     }
 
-    _spectraAmp.setInstanceCount(juce::jmax(1, getChainLayout().count(SignalChain::Stage::Amp)));
+    int pathBAmps = 0;
+    for (const auto stage : getParallelRoute().pathB) {
+        if (stage == SignalChain::Stage::Amp) {
+            ++pathBAmps;
+        }
+    }
+    _spectraAmp.setInstanceCount(juce::jmax(1, getChainLayout().count(SignalChain::Stage::Amp) + pathBAmps));
 }
 
 void ProfilerAudioProcessor::resetChainLayout() {
     setChainLayout({});
+    clearParallelRoute();
 }
 
 void ProfilerAudioProcessor::placeChainStage(SignalChain::Stage stage, int slot) {
+    const auto pathB = SignalChain::pathBIndexForSlot(slot);
+    if (pathB >= 0) {
+        auto route = getParallelRoute();
+        route.placePathB(stage, pathB);
+        setParallelRoute(route);
+        return;
+    }
     auto layout = getChainLayout();
     layout.place(stage, slot);
     setChainLayout(layout);
@@ -746,12 +947,24 @@ void ProfilerAudioProcessor::processGateStage(juce::dsp::ProcessContextReplacing
     }
 }
 
-void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
-                                             juce::dsp::ProcessContextReplacing<float>& context,
+void ProfilerAudioProcessor::processAmpStage(float* channel,
                                              int numSamples,
                                              int instance,
-                                             bool slotEnabled) {
-    _chain.get<Gain>().process(context);
+                                             bool slotEnabled,
+                                             bool sharedGain,
+                                             float ampGain) {
+    if (channel == nullptr || numSamples <= 0) {
+        return;
+    }
+
+    float* channels[] = {channel};
+    juce::dsp::AudioBlock<float> block(channels, 1, static_cast<size_t>(numSamples));
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    if (sharedGain) {
+        _chain.get<Gain>().process(context);
+    } else {
+        juce::FloatVectorOperations::multiply(channel, ampGain, numSamples);
+    }
 
     const auto mixIndex = static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance));
     auto& wetMix = _ampWetMix[mixIndex];
@@ -761,18 +974,19 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
     auto& condition = _ampConditions[mixIndex];
     condition.set(static_cast<int>(std::lround(getParameterValue(_conditionProfileParam, 0.0f))),
                   getParameterValue(_conditionAmountParam, 0.0f) * 0.01f);
-    if (static_cast<int>(_conditionInput.size()) < numSamples) {
-        _conditionInput.resize(static_cast<std::size_t>(numSamples));
-    }
-    if (static_cast<int>(_spectraWet.size()) < numSamples) {
-        _spectraWet.resize(static_cast<std::size_t>(numSamples));
+    auto& driven = _ampInputScratch[mixIndex];
+    auto& wetBuffer = _ampWetScratch[mixIndex];
+    if (static_cast<int>(driven.size()) < numSamples || static_cast<int>(wetBuffer.size()) < numSamples) {
+        wetMix.skip(numSamples);
+        _dcBlockers[mixIndex].process(context);
+        return;
     }
 
-    auto mixConditioned = [&](float* channel) {
-        condition.processPost(_spectraWet.data(), numSamples);
+    auto mixConditioned = [&]() {
+        condition.processPost(wetBuffer.data(), numSamples);
         for (int i = 0; i < numSamples; ++i) {
             const float dry = channel[i];
-            float wet = _spectraWet[static_cast<std::size_t>(i)];
+            float wet = wetBuffer[static_cast<size_t>(i)];
             if (!std::isfinite(wet)) {
                 wet = dry;
             }
@@ -782,11 +996,10 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
     };
 
     if (_spectraAmp.isLoaded()) {
-        auto* channel0Data = buffer.getWritePointer(0);
-        juce::FloatVectorOperations::copy(_conditionInput.data(), channel0Data, numSamples);
-        condition.processPre(_conditionInput.data(), numSamples);
-        if (_spectraAmp.render(instance, _conditionInput.data(), _spectraWet.data(), numSamples)) {
-            mixConditioned(channel0Data);
+        juce::FloatVectorOperations::copy(driven.data(), channel, numSamples);
+        condition.processPre(driven.data(), numSamples);
+        if (_spectraAmp.render(instance, driven.data(), wetBuffer.data(), numSamples)) {
+            mixConditioned();
         } else {
             wetMix.skip(numSamples);
         }
@@ -808,17 +1021,15 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
             const auto inputSkip = _ampInputSkip;
             const auto inputGain = _ampInputGain;
             const auto outputGain = _ampOutputGain;
-            auto* channel0Data = buffer.getWritePointer(0);
-            auto* driven = _conditionInput.data();
 
             // Keep the recurrent state tracking the input while the block is bypassed.
             // Freezing it makes the amp take seconds to recover when it is switched back on.
             for (int i = 0; i < numSamples; ++i) {
-                driven[i] = channel0Data[i] * inputGain;
+                driven[static_cast<size_t>(i)] = channel[i] * inputGain;
             }
-            condition.processPre(driven, numSamples);
+            condition.processPre(driven.data(), numSamples);
             for (int i = 0; i < numSamples; ++i) {
-                const float inputSample[] = {driven[i]};
+                const float inputSample[] = {driven[static_cast<size_t>(i)]};
                 model->forward(inputSample);
                 float wet = model->getOutputs()[0];
 
@@ -830,58 +1041,477 @@ void ProfilerAudioProcessor::processAmpStage(juce::AudioBuffer<float>& buffer,
                 // CoreAudioML / AIDA models store a residual in in_skip: the network
                 // predicts the difference, and the input channels are added back.
                 if (inputSkip > 0) {
-                    wet += channel0Data[i] * inputGain;
+                    wet += channel[i] * inputGain;
                 }
                 wet *= outputGain;
-                _spectraWet[static_cast<std::size_t>(i)] = std::isfinite(wet) ? wet : channel0Data[i];
+                wetBuffer[static_cast<size_t>(i)] = std::isfinite(wet) ? wet : channel[i];
             }
-            mixConditioned(channel0Data);
+            mixConditioned();
         } else {
             wetMix.skip(numSamples);
         }
     }
 
-    _dcBlockers[static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance))].process(context);
+    _dcBlockers[mixIndex].process(context);
 }
 
-void ProfilerAudioProcessor::processCabStage(juce::dsp::ProcessContextReplacing<float>& context, int instance, bool slotEnabled) {
+void ProfilerAudioProcessor::processCabStage(float* channel, int numSamples, int instance, bool slotEnabled) {
     const bool cabEnabled = slotEnabled && getParameterValue(_isCabEnabledParam, 1.0f) > 0.5f;
-    if (!_irLoaded || !cabEnabled) {
+    if (channel == nullptr || numSamples <= 0 || !_irLoaded || !cabEnabled) {
         return;
     }
 
+    float* channels[] = {channel};
+    juce::dsp::AudioBlock<float> block(channels, 1, static_cast<size_t>(numSamples));
+    juce::dsp::ProcessContextReplacing<float> context(block);
     const auto index = static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance));
     _cabConvolvers[index].process(context);
-    if (_cabLowCutSmoothed.isSmoothing()) {
-        updateCabLowCutCoefficients();
-    }
     _cabLowCuts[index].process(context);
 }
 
-void ProfilerAudioProcessor::processEqStage(juce::dsp::ProcessContextReplacing<float>& context, int instance, bool slotEnabled) {
-    if (!slotEnabled) {
+void ProfilerAudioProcessor::processEqStage(float* channel, int numSamples, int instance, bool slotEnabled) {
+    if (channel == nullptr || numSamples <= 0 || !slotEnabled) {
         return;
     }
+    float* channels[] = {channel};
+    juce::dsp::AudioBlock<float> block(channels, 1, static_cast<size_t>(numSamples));
+    juce::dsp::ProcessContextReplacing<float> context(block);
     _eqChains[static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance))].process(context);
 }
 
-void ProfilerAudioProcessor::processPedalStage(juce::AudioBuffer<float>& buffer,
-                                               juce::dsp::ProcessContextReplacing<float>&,
+void ProfilerAudioProcessor::processPedalStage(float* channel,
                                                int numSamples,
                                                int instance,
                                                bool slotEnabled) {
-    if (!slotEnabled || getParameterValue(_isPedalEnabledParam, 1.0f) <= 0.5f) {
+    if (channel == nullptr || numSamples <= 0 || !slotEnabled || getParameterValue(_isPedalEnabledParam, 1.0f) <= 0.5f) {
         return;
     }
 
     const auto index = static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance));
     const auto model = (int)std::lround(getParameterValue(_pedalModelParam, 0.0f));
-    _pedalDrives[index].process(buffer.getWritePointer(0),
+    _pedalDrives[index].process(channel,
                                 numSamples,
                                 model,
                                 getParameterValue(_pedalDriveParam, 4.0f),
                                 getParameterValue(_pedalToneParam, 65.0f),
                                 getParameterValue(_pedalLevelParam, 0.0f));
+}
+
+void ProfilerAudioProcessor::noteStage(SignalChain::Stage stage, StageCursor& cursor) const noexcept {
+    switch (stage) {
+        case SignalChain::Stage::Amp:
+            ++cursor.amp;
+            break;
+        case SignalChain::Stage::Cab:
+            ++cursor.cab;
+            break;
+        case SignalChain::Stage::Eq:
+            ++cursor.eq;
+            break;
+        case SignalChain::Stage::Pedal:
+            ++cursor.pedal;
+            break;
+        case SignalChain::Stage::Empty:
+            break;
+        default: {
+            const auto index = static_cast<size_t>(static_cast<int>(stage));
+            if (index < cursor.fx.size()) {
+                ++cursor.fx[index];
+            }
+            break;
+        }
+    }
+}
+
+void ProfilerAudioProcessor::advanceCursor(const SignalChain::Layout& layout,
+                                           int begin,
+                                           int end,
+                                           StageCursor& cursor) const noexcept {
+    for (int index = begin; index < end; ++index) {
+        noteStage(layout.atSlot(SignalChain::chainSlotForMovableIndex(index)), cursor);
+    }
+}
+
+int ProfilerAudioProcessor::latencyFor(SignalChain::Stage stage, bool slotBypassed, bool includeCab) const {
+    if (slotBypassed || stage == SignalChain::Stage::Empty) {
+        return 0;
+    }
+    int latency = _fx.latencySamplesFor(stage);
+    if (stage == SignalChain::Stage::Amp && _spectraAmp.isLoaded()) {
+        latency += _spectraAmp.latencySamples();
+    }
+    if (stage == SignalChain::Stage::Pedal && getParameterValue(_isPedalEnabledParam, 1.0f) > 0.5f) {
+        latency += _pedalDrives[0].latencySamples();
+    }
+    if (includeCab && stage == SignalChain::Stage::Cab && _irLoaded &&
+        getParameterValue(_isCabEnabledParam, 1.0f) > 0.5f) {
+        latency += _cabConvolvers[0].getLatency();
+    }
+    return latency;
+}
+
+int ProfilerAudioProcessor::latencyRange(const SignalChain::Layout& layout,
+                                         int begin,
+                                         int end,
+                                         bool includeCab) const {
+    int latency = 0;
+    for (int index = begin; index < end; ++index) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(index);
+        latency += latencyFor(layout.atSlot(slot), isChainSlotBypassed(slot), includeCab);
+    }
+    return latency;
+}
+
+int ProfilerAudioProcessor::latencyPathB(const SignalChain::ParallelRoute& route, bool includeCab) const {
+    int latency = 0;
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        latency += latencyFor(route.pathBAt(index), isPathBBypassed(index), includeCab);
+    }
+    return latency;
+}
+
+bool ProfilerAudioProcessor::rangeHas(const SignalChain::Layout& layout,
+                                      int begin,
+                                      int end,
+                                      SignalChain::Stage stage) const noexcept {
+    for (int index = begin; index < end; ++index) {
+        if (layout.atSlot(SignalChain::chainSlotForMovableIndex(index)) == stage) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ProfilerAudioProcessor::pathBHas(const SignalChain::ParallelRoute& route, SignalChain::Stage stage) const noexcept {
+    for (const auto candidate : route.pathB) {
+        if (candidate == stage) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ProfilerAudioProcessor::rangeIsHeavy(const SignalChain::Layout& layout, int begin, int end) const {
+    for (int index = begin; index < end; ++index) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(index);
+        const auto stage = layout.atSlot(slot);
+        if (stage == SignalChain::Stage::Amp && (_spectraAmp.isLoaded() || _ampLoaded)) {
+            return true;
+        }
+        if (stage == SignalChain::Stage::Cab && !isChainSlotBypassed(slot) && _irLoaded &&
+            getParameterValue(_isCabEnabledParam, 1.0f) > 0.5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ProfilerAudioProcessor::pathBIsHeavy(const SignalChain::ParallelRoute& route) const {
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        const auto stage = route.pathBAt(index);
+        if (stage == SignalChain::Stage::Amp && (_spectraAmp.isLoaded() || _ampLoaded)) {
+            return true;
+        }
+        if (stage == SignalChain::Stage::Cab && !isPathBBypassed(index) && _irLoaded &&
+            getParameterValue(_isCabEnabledParam, 1.0f) > 0.5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ProfilerAudioProcessor::isPathBBypassed(int index) const noexcept {
+    if (index < 0 || index >= SignalChain::ParallelRoute::pathBCount) {
+        return false;
+    }
+    return (_routeBypass.load(std::memory_order_relaxed) & (1u << index)) != 0;
+}
+
+void ProfilerAudioProcessor::ensureAudioScratch(int numSamples) {
+    const auto frames = static_cast<std::size_t>(juce::jmax(1, numSamples));
+    for (auto& scratch : _ampInputScratch) {
+        if (scratch.size() < frames) {
+            scratch.resize(frames);
+        }
+    }
+    for (auto& scratch : _ampWetScratch) {
+        if (scratch.size() < frames) {
+            scratch.resize(frames);
+        }
+    }
+    for (int lane = 0; lane < 2; ++lane) {
+        if (_splitLeft[static_cast<size_t>(lane)].size() < frames) {
+            _splitLeft[static_cast<size_t>(lane)].resize(frames);
+        }
+        if (_splitRight[static_cast<size_t>(lane)].size() < frames) {
+            _splitRight[static_cast<size_t>(lane)].resize(frames);
+        }
+    }
+}
+
+void ProfilerAudioProcessor::applyAlign(int lane, float* left, float* right, int numSamples, int delaySamples) {
+    if (left == nullptr || numSamples <= 0 || delaySamples <= 0) {
+        return;
+    }
+    const auto index = static_cast<size_t>(juce::jlimit(0, 1, lane));
+    auto& historyL = _alignLeft[index];
+    auto& historyR = _alignRight[index];
+    if (historyL.empty() || historyR.empty()) {
+        return;
+    }
+    const int capacity = static_cast<int>(historyL.size());
+    const int delay = juce::jmin(delaySamples, capacity - 1);
+    int write = _alignWrite[index];
+    for (int sample = 0; sample < numSamples; ++sample) {
+        historyL[static_cast<size_t>(write)] = left[sample];
+        historyR[static_cast<size_t>(write)] = right != nullptr ? right[sample] : left[sample];
+        auto read = write - delay;
+        if (read < 0) {
+            read += capacity;
+        }
+        left[sample] = historyL[static_cast<size_t>(read)];
+        if (right != nullptr) {
+            right[sample] = historyR[static_cast<size_t>(read)];
+        }
+        write = (write + 1) % capacity;
+    }
+    _alignWrite[index] = write;
+}
+
+void ProfilerAudioProcessor::startBranchWorker() {
+    if (_branchWorker == nullptr) {
+        _branchWorker = std::make_unique<BranchWorker>();
+    }
+    _branchWorker->start();
+}
+
+void ProfilerAudioProcessor::stopBranchWorker() {
+    if (_branchWorker != nullptr) {
+        _branchWorker->stop();
+    }
+}
+
+void ProfilerAudioProcessor::runBranchJob(void* raw) {
+    auto* task = static_cast<BranchTask*>(raw);
+    if (task != nullptr && task->processor != nullptr) {
+        task->processor->processBranch(*task);
+    }
+}
+
+void ProfilerAudioProcessor::processBranch(BranchTask& task) {
+    auto foldToMono = [&task]() {
+        if (task.right == nullptr) {
+            return;
+        }
+        for (int sample = 0; sample < task.numSamples; ++sample) {
+            task.left[sample] = 0.5f * (task.left[sample] + task.right[sample]);
+        }
+        juce::FloatVectorOperations::copy(task.right, task.left, task.numSamples);
+    };
+    auto mirror = [&task]() {
+        if (task.right != nullptr) {
+            juce::FloatVectorOperations::copy(task.right, task.left, task.numSamples);
+        }
+    };
+
+    auto runStage = [&](SignalChain::Stage stage, bool slotEnabled) {
+        switch (stage) {
+            case SignalChain::Stage::Cab:
+                foldToMono();
+                processCabStage(task.left, task.numSamples, task.cursor.cab++, slotEnabled);
+                mirror();
+                break;
+            case SignalChain::Stage::Eq:
+                foldToMono();
+                processEqStage(task.left, task.numSamples, task.cursor.eq++, slotEnabled);
+                mirror();
+                break;
+            case SignalChain::Stage::Pedal:
+                foldToMono();
+                processPedalStage(task.left, task.numSamples, task.cursor.pedal++, slotEnabled);
+                mirror();
+                break;
+            case SignalChain::Stage::Amp:
+                foldToMono();
+                processAmpStage(task.left, task.numSamples, task.cursor.amp++, slotEnabled, task.sharedGain, task.ampGain);
+                mirror();
+                break;
+            case SignalChain::Stage::Empty:
+                break;
+            default: {
+                const auto stageIndex = static_cast<size_t>(static_cast<int>(stage));
+                const int instance = stageIndex < task.cursor.fx.size() ? task.cursor.fx[stageIndex]++ : 0;
+                _fx.process(stage,
+                            instance,
+                            task.left,
+                            task.right != nullptr ? task.right : task.left,
+                            task.numSamples,
+                            slotEnabled,
+                            _directInputLeft.data(),
+                            _directInputRight.data(),
+                            task.lane);
+                break;
+            }
+        }
+    };
+
+    if (task.pathB) {
+        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+            runStage(task.route.pathBAt(index), !isPathBBypassed(index));
+        }
+        return;
+    }
+
+    for (int index = task.begin; index < task.end; ++index) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(index);
+        runStage(task.layout.atSlot(slot), !isChainSlotBypassed(slot));
+    }
+}
+
+void ProfilerAudioProcessor::processParallel(const SignalChain::Layout& layout,
+                                             const SignalChain::ParallelRoute& route,
+                                             float* left,
+                                             float* right,
+                                             int numSamples,
+                                             float ampGain) {
+    BranchTask trunk;
+    trunk.processor = this;
+    trunk.layout = layout;
+    trunk.left = left;
+    trunk.right = right;
+    trunk.numSamples = numSamples;
+    trunk.begin = 0;
+    trunk.end = route.splitAfter + 1;
+    trunk.sharedGain = true;
+    trunk.ampGain = ampGain;
+    processBranch(trunk);
+
+    float gainA = 1.0f;
+    float gainB = 1.0f;
+    splitPathGains(std::lround(getParameterValue(_splitModeParam, 0.0f)) >= 1,
+                   getParameterValue(_splitRouteParam, 0.5f),
+                   gainA,
+                   gainB);
+    const bool runA = gainA > 0.0001f;
+    const bool runB = gainB > 0.0001f;
+
+    auto& leftA = _splitLeft[0];
+    auto& rightA = _splitRight[0];
+    auto& leftB = _splitLeft[1];
+    auto& rightB = _splitRight[1];
+    std::copy(left, left + numSamples, leftA.begin());
+    if (right != nullptr) {
+        std::copy(right, right + numSamples, rightA.begin());
+    } else {
+        std::copy(left, left + numSamples, rightA.begin());
+    }
+    std::copy(leftA.begin(), leftA.begin() + numSamples, leftB.begin());
+    std::copy(rightA.begin(), rightA.begin() + numSamples, rightB.begin());
+    if (runA) {
+        juce::FloatVectorOperations::multiply(leftA.data(), gainA, numSamples);
+        juce::FloatVectorOperations::multiply(rightA.data(), gainA, numSamples);
+    } else {
+        juce::FloatVectorOperations::clear(leftA.data(), numSamples);
+        juce::FloatVectorOperations::clear(rightA.data(), numSamples);
+    }
+    if (runB) {
+        juce::FloatVectorOperations::multiply(leftB.data(), gainB, numSamples);
+        juce::FloatVectorOperations::multiply(rightB.data(), gainB, numSamples);
+    } else {
+        juce::FloatVectorOperations::clear(leftB.data(), numSamples);
+        juce::FloatVectorOperations::clear(rightB.data(), numSamples);
+    }
+
+    BranchTask pathA;
+    pathA.processor = this;
+    pathA.layout = layout;
+    pathA.left = leftA.data();
+    pathA.right = rightA.data();
+    pathA.numSamples = numSamples;
+    pathA.begin = route.splitAfter + 1;
+    pathA.end = route.mergeAfter + 1;
+    pathA.sharedGain = false;
+    pathA.ampGain = ampGain;
+    pathA.lane = 0;
+    advanceCursor(layout, 0, pathA.begin, pathA.cursor);
+
+    BranchTask pathB;
+    pathB.processor = this;
+    pathB.layout = layout;
+    pathB.route = route;
+    pathB.left = leftB.data();
+    pathB.right = rightB.data();
+    pathB.numSamples = numSamples;
+    pathB.pathB = true;
+    pathB.sharedGain = false;
+    pathB.ampGain = ampGain;
+    pathB.lane = 1;
+    advanceCursor(layout, 0, SignalChain::movableSlotCount, pathB.cursor);
+
+    const bool legacyAmp = !_spectraAmp.isLoaded() && _ampLoaded &&
+                           ((runA && rangeHas(layout, pathA.begin, pathA.end, SignalChain::Stage::Amp)) ||
+                            (runB && pathBHas(route, SignalChain::Stage::Amp)));
+    const bool dualTuner = runA && runB && rangeHas(layout, pathA.begin, pathA.end, SignalChain::Stage::Tuner) &&
+                           pathBHas(route, SignalChain::Stage::Tuner);
+    const bool heavyA = runA && rangeIsHeavy(layout, pathA.begin, pathA.end);
+    const bool heavyB = runB && pathBIsHeavy(route);
+    const bool useWorker = heavyA && heavyB && !legacyAmp && !dualTuner && _branchWorker != nullptr &&
+                           _branchWorker->isThreadRunning();
+
+    if (useWorker) {
+        ZoneScopedN("branch-join");
+        _branchWorker->startJob(&ProfilerAudioProcessor::runBranchJob, &pathB);
+        processBranch(pathA);
+        _branchWorker->waitJob();
+    } else {
+        if (runA) {
+            processBranch(pathA);
+        }
+        if (runB) {
+            processBranch(pathB);
+        }
+    }
+
+    const int latencyA = latencyRange(layout, pathA.begin, pathA.end, true);
+    const int latencyB = latencyPathB(route, true);
+    applyAlign(0, leftA.data(), rightA.data(), numSamples, latencyB - latencyA);
+    applyAlign(1, leftB.data(), rightB.data(), numSamples, latencyA - latencyB);
+
+    float balanceAL = 1.0f;
+    float balanceAR = 1.0f;
+    float balanceBL = 1.0f;
+    float balanceBR = 1.0f;
+    stereoBalance(getParameterValue(_routeAPanParam, 0.0f), balanceAL, balanceAR);
+    stereoBalance(getParameterValue(_routeBPanParam, 0.0f), balanceBL, balanceBR);
+    const float levelA = juce::Decibels::decibelsToGain(getParameterValue(_routeALevelParam, 0.0f));
+    const float levelB = juce::Decibels::decibelsToGain(getParameterValue(_routeBLevelParam, 0.0f)) *
+                         (getParameterValue(_routeBPolarityParam, 0.0f) > 0.5f ? -1.0f : 1.0f);
+    const float levelMerge = juce::Decibels::decibelsToGain(getParameterValue(_routeLevelParam, 0.0f));
+    for (int sample = 0; sample < numSamples; ++sample) {
+        const auto mixedL = (leftA[static_cast<size_t>(sample)] * balanceAL * levelA +
+                             leftB[static_cast<size_t>(sample)] * balanceBL * levelB) *
+                            levelMerge;
+        const auto mixedR = (rightA[static_cast<size_t>(sample)] * balanceAR * levelA +
+                             rightB[static_cast<size_t>(sample)] * balanceBR * levelB) *
+                            levelMerge;
+        left[sample] = mixedL;
+        if (right != nullptr) {
+            right[sample] = mixedR;
+        }
+    }
+
+    BranchTask tail;
+    tail.processor = this;
+    tail.layout = layout;
+    tail.left = left;
+    tail.right = right;
+    tail.numSamples = numSamples;
+    tail.begin = route.mergeAfter + 1;
+    tail.end = SignalChain::movableSlotCount;
+    tail.sharedGain = true;
+    tail.ampGain = ampGain;
+    advanceCursor(layout, 0, tail.begin, tail.cursor);
+    processBranch(tail);
 }
 
 void ProfilerAudioProcessor::updateEqCoefficients() {
@@ -953,6 +1583,10 @@ juce::AudioProcessorEditor* ProfilerAudioProcessor::createEditor() {
 void ProfilerAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
     writeChainLayout(_apvts.state, _chainLayoutPacked.load(std::memory_order_relaxed));
     writeChainBypass(_apvts.state, _slotBypassMask.load(std::memory_order_relaxed));
+    writeRouteState(_apvts.state,
+                    _routeHeader.load(std::memory_order_relaxed),
+                    _routePathB.load(std::memory_order_relaxed),
+                    _routeBypass.load(std::memory_order_relaxed));
     if (auto xml = _apvts.copyState().createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -964,6 +1598,9 @@ void ProfilerAudioProcessor::setStateInformation(const void* data, int sizeInByt
             const auto packed = readChainLayout(tree);
             _chainLayoutPacked.store(SignalChain::Layout::fromPacked(packed).packed(), std::memory_order_relaxed);
             _slotBypassMask.store(readChainBypass(tree), std::memory_order_relaxed);
+            _routeHeader.store(readRouteHeader(tree), std::memory_order_relaxed);
+            _routePathB.store(readRoutePathB(tree), std::memory_order_relaxed);
+            _routeBypass.store(readRouteBypass(tree), std::memory_order_relaxed);
             syncAmpCopies();
             _apvts.replaceState(std::move(tree));
         }
@@ -1049,6 +1686,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout ProfilerAudioProcessor::crea
         juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f),
         0.0f));
 
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"splitMode", 1}, "Split Mode", juce::StringArray{"Y", "A/B"}, 0));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"splitRoute", 1},
+        "Split Route",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
+        0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"routeALevel", 1},
+        "Path A Level",
+        juce::NormalisableRange<float>(-24.0f, 12.0f, 0.1f),
+        0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"routeAPan", 1},
+        "Path A Pan",
+        juce::NormalisableRange<float>(-100.0f, 100.0f, 1.0f),
+        0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"routeBLevel", 1},
+        "Path B Level",
+        juce::NormalisableRange<float>(-24.0f, 12.0f, 0.1f),
+        0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"routeBPan", 1},
+        "Path B Pan",
+        juce::NormalisableRange<float>(-100.0f, 100.0f, 1.0f),
+        0.0f));
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"routeBPolarity", 1}, "Path B Polarity", false));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"routeLevel", 1},
+        "Merge Level",
+        juce::NormalisableRange<float>(-24.0f, 12.0f, 0.1f),
+        0.0f));
+
     Fx::addParameters(layout);
     return layout;
 }
@@ -1094,6 +1766,7 @@ bool ProfilerAudioProcessor::loadIRFile(const juce::File& file) {
     }
 
     _currentIRFile = file;
+    _activeIrProfileId.clear();
     return true;
 }
 
@@ -1111,6 +1784,7 @@ bool ProfilerAudioProcessor::loadProtectedIr(const void* data, size_t size) {
 void ProfilerAudioProcessor::unloadIRFile() {
     _irLoaded = false;
     _currentIRFile = juce::File{};
+    _activeIrProfileId.clear();
     _irBytes.reset();
     for (auto& convolver : _cabConvolvers) {
         convolver.reset();
@@ -1249,6 +1923,7 @@ bool ProfilerAudioProcessor::loadAmpFile(const juce::File& file) {
     const auto loaded = installAmpPayload(bytes.getData(), bytes.getSize(), file);
     bytes.fillWith(0);
     if (loaded) {
+        _activeAmpProfileId.clear();
         setAmpCondition(AmpCondition::kOff, 0.0f);
     }
     return loaded;
@@ -1384,46 +2059,24 @@ bool ProfilerAudioProcessor::storeCapturedIr(const juce::String& title,
                                              const std::array<std::uint8_t, 32>& key,
                                              const juce::MemoryBlock& sealed,
                                              juce::String* errorMessage) {
-    juce::MemoryBlock wav;
-    if (!_spectra.openIr(key.data(), key.size(), sealed.getData(), sealed.getSize(), wav)) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "Could not open the captured IR.";
-        }
-        return false;
+    auto name = title.trim();
+    if (name.isEmpty()) {
+        name = "Captured IR";
     }
 
-    auto stem = title.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ");
-    stem = stem.trim();
-    if (stem.isEmpty()) {
-        stem = "Captured IR";
-    }
-
-    const auto directory = getSettingsFolder().getChildFile("Marketplace");
-    if (!directory.isDirectory() && !directory.createDirectory().wasOk()) {
-        wav.fillWith(0);
-        if (errorMessage != nullptr) {
-            *errorMessage = "Could not create the capture folder.";
-        }
-        return false;
-    }
-
-    auto file = directory.getChildFile(stem + ".wav");
-    for (int suffix = 2; file.existsAsFile(); ++suffix) {
-        file = directory.getChildFile(stem + " " + juce::String(suffix) + ".wav");
-    }
-    if (!file.replaceWithData(wav.getData(), wav.getSize())) {
-        wav.fillWith(0);
-        if (errorMessage != nullptr) {
-            *errorMessage = "Could not write the impulse response.";
-        }
-        return false;
-    }
-    wav.fillWith(0);
-
-    juce::NamedValueSet values;
-    values.set("profileName", title.trim().isNotEmpty() ? title.trim() : stem);
-    values.set("irPath", file.getFullPathName());
-    return _profileManager.createProfile(values, errorMessage);
+    juce::MemoryBlock keyBlock(key.data(), key.size());
+    const auto id = "capture-" + juce::Uuid().toDashedString();
+    const auto stored = importEncryptedProfile(ProfileCatalog::Kind::Ir,
+                                               id,
+                                               name,
+                                               sealed,
+                                               keyBlock,
+                                               0,
+                                               0.0f,
+                                               true,
+                                               errorMessage);
+    keyBlock.fillWith(0);
+    return stored;
 }
 
 bool ProfilerAudioProcessor::renderIrCapture(juce::AudioBuffer<float>& buffer) {
@@ -1594,6 +2247,7 @@ void ProfilerAudioProcessor::unloadAmpFile() {
         _ampModelBytes.reset();
         _ampFileLoaded = false;
         _currentAmpFile = juce::File{};
+        _activeAmpProfileId.clear();
     }
     _spectraAmp.clear();
     updateReportedLatency();
@@ -1606,6 +2260,14 @@ bool ProfilerAudioProcessor::isIRLoaded() const noexcept {
 bool ProfilerAudioProcessor::isAmpFileLoaded() const noexcept {
     const juce::ScopedLock ampLock(_ampModelLock);
     return _ampFileLoaded;
+}
+
+bool ProfilerAudioProcessor::isAmpModelLoaded() const noexcept {
+    if (_spectraAmp.isLoaded()) {
+        return true;
+    }
+    const juce::ScopedLock ampLock(_ampModelLock);
+    return _ampLoaded || _ampFileLoaded;
 }
 
 juce::File ProfilerAudioProcessor::getCurrentIRFile() const {
@@ -1685,10 +2347,238 @@ void ProfilerAudioProcessor::clearAppliedProfile() {
     _appliedProfileId.clear();
 }
 
+Preset ProfilerAudioProcessor::capturePreset(const juce::String& name) const {
+    Preset preset;
+    preset.name = name;
+
+    for (auto* parameter : getParameters()) {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter)) {
+            preset.parameters.set(ranged->getParameterID(),
+                                  static_cast<double>(ranged->convertFrom0to1(ranged->getValue())));
+        }
+    }
+
+    preset.chainLayout = _chainLayoutPacked.load(std::memory_order_relaxed);
+    preset.chainBypass = _slotBypassMask.load(std::memory_order_relaxed);
+    preset.routeHeader = _routeHeader.load(std::memory_order_relaxed);
+    preset.routePathB = _routePathB.load(std::memory_order_relaxed);
+    preset.routeBypass = _routeBypass.load(std::memory_order_relaxed);
+    preset.ampProfileId = _activeAmpProfileId;
+    preset.irProfileId = _activeIrProfileId;
+    return preset;
+}
+
+void ProfilerAudioProcessor::applyPresetDocument(const Preset& preset) {
+    for (int index = 0; index < preset.parameters.size(); ++index) {
+        const auto id = preset.parameters.getName(index).toString();
+        const auto value = preset.parameters.getValueAt(index);
+        if (!(value.isInt() || value.isInt64() || value.isDouble())) {
+            continue;
+        }
+        if (auto* parameter = _apvts.getParameter(id)) {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(static_cast<float>(static_cast<double>(value))));
+            parameter->endChangeGesture();
+        }
+    }
+
+    setChainLayout(SignalChain::Layout::fromPacked(preset.chainLayout));
+    setParallelRoute(SignalChain::ParallelRoute::fromPacked(preset.routeHeader, preset.routePathB));
+
+    for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(index);
+        setChainSlotBypassed(slot, (preset.chainBypass & (1u << index)) != 0);
+    }
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        setChainSlotBypassed(SignalChain::pathBSlotForIndex(index), (preset.routeBypass & (1u << index)) != 0);
+    }
+}
+
+bool ProfilerAudioProcessor::saveCurrentPreset(const juce::String& name,
+                                               juce::String* errorMessage,
+                                               bool overwriteCurrent) {
+    auto preset = capturePreset(name);
+    if (overwriteCurrent) {
+        if (const auto* current = _presetManager.getPreset(_presetManager.getCurrentIndex())) {
+            preset.id = current->id;
+            preset.createdAt = current->createdAt;
+            preset.name = current->name;
+        }
+    }
+    if (!_presetManager.savePreset(preset, errorMessage)) {
+        return false;
+    }
+
+    _presetManager.setCurrentPresetId(preset.id);
+    return true;
+}
+
+bool ProfilerAudioProcessor::applyPreset(int presetIndex, juce::String* errorMessage) {
+    const auto* preset = _presetManager.getPreset(presetIndex);
+    if (preset == nullptr) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Preset not found.";
+        }
+        return false;
+    }
+
+    const auto snapshot = *preset;
+    juce::String profileError;
+
+    if (snapshot.ampProfileId.isNotEmpty()) {
+        if (!loadCatalogProfile(ProfileCatalog::Kind::Amp, snapshot.ampProfileId, &profileError)) {
+            unloadAmpFile();
+            _activeAmpProfileId = snapshot.ampProfileId;
+        }
+    } else {
+        unloadAmpFile();
+        _activeAmpProfileId.clear();
+    }
+
+    if (snapshot.irProfileId.isNotEmpty()) {
+        juce::String irError;
+        if (!loadCatalogProfile(ProfileCatalog::Kind::Ir, snapshot.irProfileId, &irError)) {
+            unloadIRFile();
+            _activeIrProfileId = snapshot.irProfileId;
+            if (profileError.isEmpty()) {
+                profileError = irError;
+            }
+        }
+    } else {
+        unloadIRFile();
+        _activeIrProfileId.clear();
+    }
+
+    applyPresetDocument(snapshot);
+    _presetManager.setCurrentPresetId(snapshot.id);
+    if (profileError.isNotEmpty() && errorMessage != nullptr) {
+        *errorMessage = profileError;
+    }
+    return true;
+}
+
+bool ProfilerAudioProcessor::importEncryptedProfile(ProfileCatalog::Kind kind,
+                                                    const juce::String& id,
+                                                    const juce::String& title,
+                                                    const juce::MemoryBlock& cipher,
+                                                    const juce::MemoryBlock& key,
+                                                    int conditionProfile,
+                                                    float conditionAmount,
+                                                    bool local,
+                                                    juce::String* errorMessage) {
+    const auto* bytes = static_cast<const char*>(cipher.getData());
+    const auto plainAudio = cipher.getSize() >= 4 &&
+                            (std::memcmp(bytes, "RIFF", 4) == 0 || std::memcmp(bytes, "FORM", 4) == 0 ||
+                             bytes[0] == '{' || bytes[0] == '[');
+    if (plainAudio) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Marketplace profiles must stay encrypted.";
+        }
+        return false;
+    }
+
+    if (!_profileCatalog.storeCipher(id, title, kind, cipher, conditionProfile, conditionAmount, local, errorMessage)) {
+        return false;
+    }
+    if (key.getSize() == 32) {
+        _profileCatalog.rememberKey(id, kind, key);
+    }
+    return loadCatalogProfile(kind, id, errorMessage);
+}
+
+bool ProfilerAudioProcessor::loadCatalogProfile(ProfileCatalog::Kind kind,
+                                                const juce::String& id,
+                                                juce::String* errorMessage) {
+    juce::MemoryBlock cipher;
+    if (!_profileCatalog.readCipher(id, kind, cipher)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Download this profile from your library.";
+        }
+        return false;
+    }
+
+    juce::MemoryBlock key;
+    const auto hasKey = _profileCatalog.copyKey(id, kind, key);
+    juce::MemoryBlock plain;
+    bool opened = false;
+    if (kind == ProfileCatalog::Kind::Amp) {
+        if (hasKey) {
+            opened = _spectra.openModel(static_cast<const uint8_t*>(key.getData()),
+                                        key.getSize(),
+                                        cipher.getData(),
+                                        cipher.getSize(),
+                                        plain);
+        }
+        if (!opened) {
+            opened = _spectra.decryptModel(cipher.getData(), cipher.getSize(), plain);
+        }
+    } else {
+        if (hasKey) {
+            opened = _spectra.openIr(static_cast<const uint8_t*>(key.getData()),
+                                     key.getSize(),
+                                     cipher.getData(),
+                                     cipher.getSize(),
+                                     plain);
+        }
+        if (!opened) {
+            opened = _spectra.decryptIr(cipher.getData(), cipher.getSize(), plain);
+        }
+    }
+
+    const auto loaded = opened && (kind == ProfileCatalog::Kind::Amp
+                                       ? loadAmpFromMemory(plain.getData(), plain.getSize())
+                                       : loadIrFromMemory(plain.getData(), plain.getSize()));
+    plain.fillWith(0);
+    key.fillWith(0);
+    cipher.fillWith(0);
+
+    if (!loaded) {
+        if (errorMessage != nullptr) {
+            *errorMessage = kind == ProfileCatalog::Kind::Amp ? "Could not decrypt this amp profile."
+                                                              : "Could not decrypt this IR profile.";
+        }
+        return false;
+    }
+
+    if (kind == ProfileCatalog::Kind::Amp) {
+        _activeAmpProfileId = id;
+        if (const auto* entry = _profileCatalog.find(id, kind)) {
+            setAmpCondition(entry->conditionProfile, entry->conditionAmount);
+        }
+    } else {
+        _activeIrProfileId = id;
+    }
+    return true;
+}
+
+juce::String ProfilerAudioProcessor::getActiveAmpProfileId() const {
+    return _activeAmpProfileId;
+}
+
+juce::String ProfilerAudioProcessor::getActiveIrProfileId() const {
+    return _activeIrProfileId;
+}
+
+void ProfilerAudioProcessor::clearActiveAmpProfile() {
+    _activeAmpProfileId.clear();
+}
+
+void ProfilerAudioProcessor::clearActiveIrProfile() {
+    _activeIrProfileId.clear();
+}
+
 ProfileManager& ProfilerAudioProcessor::getProfileManager() noexcept {
     return _profileManager;
 }
 
 const ProfileManager& ProfilerAudioProcessor::getProfileManager() const noexcept {
     return _profileManager;
+}
+
+PresetManager& ProfilerAudioProcessor::getPresetManager() noexcept {
+    return _presetManager;
+}
+
+ProfileCatalog& ProfilerAudioProcessor::getProfileCatalog() noexcept {
+    return _profileCatalog;
 }

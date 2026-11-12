@@ -4,15 +4,19 @@ set(PROFILER_TEST_SOURCES
     AudioProcessorTests.cpp
     ProfileProcessorIntegrationTests.cpp
     ProfileManagerTests.cpp
+    PresetCatalogTests.cpp
     LoggingTests.cpp
     NotificationBannerTests.cpp
     UiSettingsTests.cpp
     HighContrastTests.cpp
     ActionFeedbackTests.cpp
+    SignalChainStripTests.cpp
     MarketplaceClientTests.cpp
+    AppUpdateTests.cpp
     SpectraEngineTests.cpp
     FxQualityTests.cpp
     AmpConditionTests.cpp
+    AudioContractTests.cpp
 )
 
 add_executable(ProfilerTests EXCLUDE_FROM_ALL
@@ -21,6 +25,7 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/Components/CustomLookAndFeel.cpp
     ../Source/Src/ActionFeedback.cpp
     ../Source/Src/Components/ActionStatusBar.cpp
+    ../Source/Src/Components/SignalChainStrip.cpp
     ../Source/Src/Logging.cpp
     ../Source/Src/AmpCapture.cpp
     ../Source/Src/PluginProcessor.cpp
@@ -29,8 +34,11 @@ add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ../Source/Src/Fx/FxDsp.cpp
     ../Source/Src/Fx/FxRack.cpp
     ../Source/Src/ProfileManager.cpp
+    ../Source/Src/PresetManager.cpp
+    ../Source/Src/ProfileCatalog.cpp
     ../Source/Src/UiSettings.cpp
     ../Source/Src/MarketplaceClient.cpp
+    ../Source/Src/AppUpdate.cpp
     ../Source/Src/SpectraEngine.cpp
     ../Source/Src/SpectraAmp.cpp
     ../Source/Src/AmpCondition.cpp
@@ -51,7 +59,8 @@ target_compile_definitions(ProfilerTests PRIVATE
     JucePlugin_WantsMidiInput=0
     JucePlugin_ProducesMidiOutput=0
     JucePlugin_IsMidiEffect=0
-    JucePlugin_Name="Profiler"
+    JucePlugin_Name="Spectra"
+    SPECTRA_RELEASE_TAG="v2026.11.06-100"
     PROFILER_TEST_TEMP_ROOT="${CMAKE_CURRENT_BINARY_DIR}/tmp"
 )
 
@@ -168,6 +177,14 @@ add_profiler_profile_manager_test(SaveCurrentProfileSetting "save current profil
 add_profiler_profile_manager_test(ClearCurrentProfileSetting "clear current profile setting")
 add_profiler_profile_manager_test(CaptureCurrentValues "capture current APVTS values with profile file paths")
 
+function(add_profiler_preset_test test_name case_name)
+    add_test(NAME ProfilerTests.Preset.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_preset_test(RestoreChain "preset restores the chain")
+add_profiler_preset_test(EncryptedCatalog "catalog keeps profiles encrypted")
+
 function(add_profiler_audio_processor_test test_name case_name)
     add_test(NAME ProfilerTests.AudioProcessor.${test_name}
         COMMAND ProfilerTests --case "${case_name}")
@@ -193,6 +210,25 @@ add_profiler_audio_processor_test(NamA2Realtime "audio processor nam a2 realtime
 add_profiler_audio_processor_test(NamCloneQuality "audio processor nam clone quality")
 add_profiler_audio_processor_test(CabinetIrReachesSignal "audio processor cabinet ir reaches the signal")
 add_profiler_audio_processor_test(EffectChain "audio processor effect chain")
+add_profiler_audio_processor_test(ParallelRoute "audio processor parallel route")
+
+function(add_profiler_audio_contract_test test_name case_name)
+    add_test(NAME ProfilerTests.AudioContract.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_audio_contract_test(DryLatencyIsZero "audio contract dry latency is zero")
+add_profiler_audio_contract_test(PedalLatencyMatchesTheDrive "audio contract pedal latency matches the drive")
+add_profiler_audio_contract_test(HarmonizerLatencyMatchesTheParameter "audio contract harmonizer latency matches the parameter")
+add_profiler_audio_contract_test(DropLatencyMatchesTheParameter "audio contract drop latency matches the parameter")
+add_profiler_audio_contract_test(GateLookaheadMatchesTheParameter "audio contract gate lookahead matches the parameter")
+add_profiler_audio_contract_test(BlockBoundariesStayContinuous "audio contract block boundaries stay continuous")
+add_profiler_audio_contract_test(BypassSettlesWithoutAClick "audio contract bypass settles without a click")
+add_profiler_audio_contract_test(OversizedBlockStaysFinite "audio contract oversized block stays finite")
+add_profiler_audio_contract_test(SilenceStaysSilent "audio contract silence stays silent")
+add_profiler_audio_contract_test(StagesStayRealtime "audio contract stages stay realtime")
+add_profiler_audio_contract_test(HarmonizerOctaveStaysInTune "audio contract harmonizer octave stays in tune")
+add_profiler_audio_contract_test(DropStaysInTune "audio contract drop stays in tune")
 
 function(add_profiler_amp_capture_test test_name case_name)
     add_test(NAME ProfilerTests.AmpCapture.${test_name}
@@ -236,6 +272,7 @@ add_profiler_ui_settings_test(InvalidJson "ui settings invalid JSON")
 add_profiler_ui_settings_test(InterfaceScaling "interface scaling keeps controls reachable")
 add_profiler_ui_settings_test(HighContrast "high contrast colours and theme restoration")
 add_profiler_ui_settings_test(ActionFeedback "action feedback routing and user gestures")
+add_profiler_ui_settings_test(SignalChainSelection "signal chain selection and deletion across parallel paths")
 
 function(add_profiler_notification_banner_test test_name case_name)
     add_test(NAME ProfilerTests.NotificationBanner.${test_name}
@@ -255,3 +292,11 @@ add_profiler_marketplace_test(Mfa "marketplace mfa")
 add_profiler_marketplace_test(Library "marketplace library")
 add_profiler_marketplace_test(Session "marketplace session file")
 add_profiler_marketplace_test(IrCapture "marketplace ir capture")
+
+function(add_profiler_app_update_test test_name case_name)
+    add_test(NAME ProfilerTests.AppUpdate.${test_name}
+        COMMAND ProfilerTests --case "${case_name}")
+endfunction()
+
+add_profiler_app_update_test(TagOrder "app update tag order")
+add_profiler_app_update_test(ParseLatest "app update parse latest")

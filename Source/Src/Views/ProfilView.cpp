@@ -1,122 +1,96 @@
 #include "Views/ProfilView.h"
 
-#include "ActionFeedback.h"
-#include "Modules/AddProfilModule.h"
 #include "Modules/DeleteProfileConfirmationModule.h"
 #include "Stylesheet.h"
+
+namespace {
+std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marketplace::LibraryItem>& items) {
+    std::vector<ProfileCatalog::Listing> listings;
+    for (const auto& item : items) {
+        if (item.id.isEmpty()) {
+            continue;
+        }
+
+        ProfileCatalog::Listing listing;
+        listing.id = item.id;
+        listing.title = item.title;
+        listing.conditionProfile = Marketplace::conditionProfileIndex(item.conditionProfile);
+        listing.conditionAmount = item.conditionAmount;
+        if (item.kind == "ir") {
+            listing.kind = ProfileCatalog::Kind::Ir;
+            listings.push_back(listing);
+            continue;
+        }
+
+        listing.kind = ProfileCatalog::Kind::Amp;
+        listings.push_back(listing);
+        if (item.hasSeparateIr && !item.hasIntegratedIr) {
+            ProfileCatalog::Listing impulse = listing;
+            impulse.id = item.id + "-cab";
+            impulse.title = item.title + " IR";
+            impulse.kind = ProfileCatalog::Kind::Ir;
+            impulse.conditionProfile = 0;
+            impulse.conditionAmount = 0.0f;
+            listings.push_back(impulse);
+        }
+    }
+    return listings;
+}
+}  // namespace
 
 ProfilView::ProfilView(ProfilerAudioProcessor& p)
     : _audioProcessor(p) {
     addAndMakeVisible(_viewport);
+    _presetHeading.setText("PRESETS", juce::dontSendNotification);
+    _presetHeading.setFont(ProfilerStyle::Fonts::moduleTitle());
+    _presetHeading.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
+    _presetHeading.setJustificationType(juce::Justification::centredLeft);
     _libraryPage.addAndMakeVisible(_accountPanel);
+    _libraryPage.addAndMakeVisible(_presetHeading);
     _libraryPage.addAndMakeVisible(_grid);
     _viewport.getVerticalScrollBar().setColour(juce::ScrollBar::thumbColourId, ProfilerStyle::Colors::orange);
     _viewport.setViewedComponent(&_libraryPage, false);
     _viewport.setScrollBarsShown(true, false);
-    refreshProfileGrid();
+    refreshPresetGrid();
 
-    _accountPanel.onLayoutChanged = [this]() {
-        resized();
+    _accountPanel.onLayoutChanged = [this]() { resized(); };
+    _accountPanel.onLibraryChanged = [this](const std::vector<Marketplace::LibraryItem>& items) {
+        _audioProcessor.getProfileCatalog().syncAccount(listingsFromAccount(items));
     };
-    _accountPanel.onPlaySpectra = [this](const juce::MemoryBlock& cipher,
-                                         const juce::MemoryBlock& key,
-                                         int conditionProfile,
-                                         float conditionAmount,
-                                         juce::String* errorMessage) {
-        Marketplace::Session session;
-        if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "Sign in to play this amp.";
-            }
-            return false;
-        }
-        if (!_audioProcessor.unlockSpectraSession(session.accessToken) ||
-            !_audioProcessor.loadSpectraModel(cipher.getData(), cipher.getSize(),
-                                              static_cast<const uint8_t*>(key.getData()), key.getSize())) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "Could not open this amp. Update Spectra and sign in again.";
-            }
-            return false;
-        }
-        _audioProcessor.setAmpCondition(conditionProfile, conditionAmount);
-        _notificationBanner.clearAction();
-        _notificationBanner.showMessage("Amp loaded", NotificationBanner::Type::Success, 5000);
-        return true;
-    };
-    _accountPanel.onInstallPack = [this](const juce::File& profileFile,
-                                         const juce::File& irFile,
-                                         bool hasIntegratedIr,
-                                         juce::String* errorMessage) {
-        return installMarketplacePack(profileFile, irFile, hasIntegratedIr, errorMessage);
+    _accountPanel.onEncryptedProfile = [this](const juce::String& accessToken, const juce::String& id, const juce::String& title,
+                                              const juce::String& kind, const juce::MemoryBlock& cipher, const juce::MemoryBlock& key,
+                                              int conditionProfile, float conditionAmount, juce::String* errorMessage) {
+        return storeEncryptedProfile(accessToken, id, title, kind, cipher, key, conditionProfile, conditionAmount, errorMessage);
     };
     _accountPanel.start();
-    _audioProcessor.getProfileManager().addChangeListener(this);
+    _audioProcessor.getPresetManager().addChangeListener(this);
 
-    _createProfilModule.onCreateClicked = [this](const juce::NamedValueSet& values) {
-        juce::String errorMessage;
-        if (_audioProcessor.getProfileManager().createProfile(values, &errorMessage)) {
-            refreshProfileGrid();
-            _notificationBanner.clearAction();
-            _notificationBanner.showMessage("Profile created successfully",
-                                            NotificationBanner::Type::Success,
-                                            5000);
-            showProfileGrid();
-        } else {
-            _notificationBanner.clearAction();
-            _notificationBanner.showMessage(errorMessage,
-                                            NotificationBanner::Type::Error,
-                                            5000);
-        }
-    };
-    _createProfilModule.onCancelClicked = [this]() {
-        showProfileGrid();
-        ActionFeedback::post(*this, "Profile creation cancelled.");
-    };
-    _editProfilModule.onSaveClicked = [this](int profileNumber, const juce::NamedValueSet& values) {
-        juce::String errorMessage;
-        auto& profileManager = _audioProcessor.getProfileManager();
-        const auto profileIndex = profileNumber - 1;
-        const auto* profile = profileManager.getProfile(profileIndex);
-        const auto isCurrentProfile = profile != nullptr &&
-                                      profile->id == profileManager.getCurrentProfileId();
-
-        if (profileManager.updateProfile(profileIndex, values, &errorMessage)) {
-            if (isCurrentProfile) {
-                _audioProcessor.syncLoadedFilesWithCurrentProfile();
+    _grid.onAddProfileClicked = [this]() { saveCurrentChain(); };
+    _grid.onProfileClicked = [this](int presetNumber) {
+        juce::PopupMenu menu;
+        menu.addItem(1, "Load preset");
+        menu.addItem(2, "Delete preset");
+        const juce::Component::SafePointer<ProfilView> safeThis(this);
+        menu.showMenuAsync(juce::PopupMenu::Options(), [safeThis, presetNumber](int result) {
+            if (safeThis == nullptr) {
+                return;
             }
-
-            refreshProfileGrid();
-            _notificationBanner.clearAction();
-            _notificationBanner.showMessage("Profile saved successfully",
-                                            NotificationBanner::Type::Success,
-                                            5000);
-        } else {
-            _notificationBanner.clearAction();
-            _notificationBanner.showMessage(errorMessage,
-                                            NotificationBanner::Type::Error,
-                                            5000);
-        }
-    };
-    _editProfilModule.onDeleteClicked = [this](int profileNumber) {
-        showDeleteProfileModal(profileNumber);
-    };
-    _editProfilModule.onBackClicked = [this]() {
-        showProfileGrid();
-        ActionFeedback::post(*this, "Returned to the profile library.");
-    };
-
-    _grid.onAddProfileClicked = [this]() {
-        showAddProfileModal();
-        ActionFeedback::post(*this, "Choose whether to create or import a profile.");
-    };
-
-    _grid.onProfileClicked = [this](int profileNumber) {
-        _notificationBanner.clearAction();
-        _notificationBanner.dismiss();
-        showEditProfilModule(profileNumber);
-        if (const auto* profile = _audioProcessor.getProfileManager().getProfile(profileNumber - 1)) {
-            ActionFeedback::post(*this, "Editing profile: " + profile->name);
-        }
+            if (result == 1) {
+                juce::String error;
+                if (safeThis->_audioProcessor.applyPreset(presetNumber - 1, &error)) {
+                    safeThis->_notificationBanner.showMessage(error.isNotEmpty() ? error : "Preset loaded",
+                                                              error.isNotEmpty() ? NotificationBanner::Type::Error
+                                                                                 : NotificationBanner::Type::Success,
+                                                              5000);
+                } else {
+                    safeThis->_notificationBanner.showMessage(error.isEmpty() ? "Could not load the preset." : error,
+                                                              NotificationBanner::Type::Error,
+                                                              5000);
+                }
+            } else if (result == 2) {
+                safeThis->showDeletePresetModal(presetNumber);
+            }
+        });
     };
 
     addChildComponent(_modalOverlay);
@@ -124,7 +98,11 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
 }
 
 ProfilView::~ProfilView() {
-    _audioProcessor.getProfileManager().removeChangeListener(this);
+    _audioProcessor.getPresetManager().removeChangeListener(this);
+}
+
+void ProfilView::downloadAccountProfile(const juce::String& id) {
+    _accountPanel.downloadById(id);
 }
 
 void ProfilView::paint(juce::Graphics& g) {
@@ -133,237 +111,93 @@ void ProfilView::paint(juce::Graphics& g) {
 
 void ProfilView::resized() {
     const auto area = getLocalBounds().reduced(25);
+    constexpr auto scrollbarOffset = 15;
+    const auto viewportArea = area.withRight(juce::jmin(getLocalBounds().getRight(), area.getRight() + scrollbarOffset));
+    _viewport.setBounds(viewportArea);
 
-    if (_contentMode == ContentMode::ProfileGrid || _contentMode == ContentMode::CreateProfil || _contentMode == ContentMode::EditProfil) {
-        constexpr auto scrollbarOffset = 15;
-        const auto viewportArea = area.withRight(juce::jmin(getLocalBounds().getRight(), area.getRight() + scrollbarOffset));
-
-        _viewport.setBounds(viewportArea);
-
-        const auto contentWidth = area.getWidth();
-
-        if (_contentMode == ContentMode::ProfileGrid) {
-            const auto accountHeight = _accountPanel.getPreferredHeight(contentWidth);
-            const auto gridHeight = _grid.getRequiredHeight(contentWidth);
-            const auto pageHeight = juce::jmax(area.getHeight(), accountHeight + 16 + gridHeight);
-            _libraryPage.setBounds(0, 0, contentWidth, pageHeight);
-            _accountPanel.setBounds(0, 0, contentWidth, accountHeight);
-            _grid.setBounds(0, accountHeight + 16, contentWidth, gridHeight);
-        } else if (_contentMode == ContentMode::CreateProfil) {
-            const auto createHeight = juce::jmax(area.getHeight(), _createProfilModule.getRequiredHeight(contentWidth));
-            _createProfilModule.setBounds(0, 0, contentWidth, createHeight);
-        } else {
-            const auto editHeight = juce::jmax(area.getHeight(), _editProfilModule.getRequiredHeight(contentWidth));
-            _editProfilModule.setBounds(0, 0, contentWidth, editHeight);
-        }
-    }
+    const auto contentWidth = area.getWidth();
+    const auto accountHeight = _accountPanel.getPreferredHeight(contentWidth);
+    constexpr auto headingHeight = 28;
+    const auto gridHeight = _grid.getRequiredHeight(contentWidth);
+    const auto pageHeight = juce::jmax(area.getHeight(), accountHeight + 16 + headingHeight + gridHeight);
+    _libraryPage.setBounds(0, 0, contentWidth, pageHeight);
+    _accountPanel.setBounds(0, 0, contentWidth, accountHeight);
+    _presetHeading.setBounds(0, accountHeight + 16, contentWidth, headingHeight);
+    _grid.setBounds(0, accountHeight + 16 + headingHeight, contentWidth, gridHeight);
 
     _modalOverlay.setBounds(getLocalBounds());
-
-    const auto bannerWidth = juce::jmin(_notificationBanner.getIdealWidth(),
-                                        juce::jmax(220, getWidth() - 50));
+    const auto bannerWidth = juce::jmin(_notificationBanner.getIdealWidth(), juce::jmax(220, getWidth() - 50));
     _notificationBanner.setBounds(getLocalBounds()
-                                      .withSizeKeepingCentre(bannerWidth,
-                                                             _notificationBanner.getIdealHeight())
+                                      .withSizeKeepingCentre(bannerWidth, _notificationBanner.getIdealHeight())
                                       .withRightX(getWidth() - 25)
                                       .withY(25));
 }
 
-void ProfilView::showAddProfileModal() {
-    auto addProfilModule = std::make_unique<AddProfilModule>();
-
-    addProfilModule->onCreateProfilClicked = [this]() {
-        _modalOverlay.dismiss();
-        _notificationBanner.clearAction();
-        _notificationBanner.dismiss();
-        showCreateProfilModule();
-        ActionFeedback::post(*this, "New profile form opened.");
-    };
-    addProfilModule->onImportProfilClicked = [this]() {
-        _modalOverlay.dismiss();
-        _notificationBanner.clearAction();
-        _notificationBanner.dismiss();
-        importProfil();
-    };
-
-    _modalOverlay.show(std::move(addProfilModule),
-                       juce::Rectangle<int>(0, 0, 480, 280));
-}
-
-void ProfilView::showDeleteProfileModal(int profileNumber) {
-    const auto* profile = _audioProcessor.getProfileManager().getProfile(profileNumber - 1);
-    const auto profileName = profile != nullptr ? profile->name : "this profile";
-    auto confirmationModule = std::make_unique<DeleteProfileConfirmationModule>(profileName);
-
-    confirmationModule->onConfirm = [this, profileNumber]() {
-        _modalOverlay.dismiss();
-        deleteProfile(profileNumber);
-    };
-
-    confirmationModule->onCancel = [this]() {
-        _modalOverlay.dismiss();
-        ActionFeedback::post(*this, "Profile deletion cancelled.");
-    };
-
-    _modalOverlay.show(std::move(confirmationModule),
-                       juce::Rectangle<int>(0, 0, 296, 108));
-    ActionFeedback::post(*this, "Confirm deletion of " + profileName + ".");
-}
-
-void ProfilView::deleteProfile(int profileNumber) {
-    juce::String errorMessage;
-    auto& profileManager = _audioProcessor.getProfileManager();
-    const auto profileIndex = profileNumber - 1;
-    const auto* profile = profileManager.getProfile(profileIndex);
-    const auto isCurrentProfile = profile != nullptr &&
-                                  profile->id == profileManager.getCurrentProfileId();
-
-    if (profileManager.deleteProfile(profileIndex, &errorMessage)) {
-        if (isCurrentProfile) {
-            _audioProcessor.syncLoadedFilesWithCurrentProfile();
-        }
-
-        refreshProfileGrid();
-        _notificationBanner.clearAction();
-        _notificationBanner.showMessage("Profile deleted successfully",
-                                        NotificationBanner::Type::Success,
-                                        5000);
-        showProfileGrid();
+void ProfilView::saveCurrentChain() {
+    juce::String error;
+    const auto name = "Preset " + juce::String(_audioProcessor.getPresetManager().getCount() + 1);
+    if (_audioProcessor.saveCurrentPreset(name, &error)) {
+        refreshPresetGrid();
+        _notificationBanner.showMessage("Preset saved", NotificationBanner::Type::Success, 5000);
     } else {
-        _notificationBanner.clearAction();
-        _notificationBanner.showMessage(errorMessage,
+        _notificationBanner.showMessage(error.isNotEmpty() ? error : "Could not save the preset.",
                                         NotificationBanner::Type::Error,
                                         5000);
     }
 }
 
-void ProfilView::showProfileGrid() {
-    refreshProfileGrid();
-    _contentMode = ContentMode::ProfileGrid;
-    _viewport.setViewedComponent(&_libraryPage, false);
-    _viewport.setVisible(true);
-    _createProfilModule.setVisible(false);
-    _editProfilModule.setVisible(false);
-    resized();
-    repaint();
+void ProfilView::showDeletePresetModal(int presetNumber) {
+    const auto* preset = _audioProcessor.getPresetManager().getPreset(presetNumber - 1);
+    const auto name = preset != nullptr ? preset->name : "this preset";
+    auto confirmation = std::make_unique<DeleteProfileConfirmationModule>(name);
+    confirmation->onConfirm = [this, presetNumber]() {
+        _modalOverlay.dismiss();
+        deletePreset(presetNumber);
+    };
+    confirmation->onCancel = [this]() { _modalOverlay.dismiss(); };
+    _modalOverlay.show(std::move(confirmation), juce::Rectangle<int>(0, 0, 296, 108));
 }
 
-void ProfilView::showCreateProfilModule() {
-    _createProfilModule.resetToDefaults("Profil " + juce::String(_audioProcessor.getProfileManager().getProfileCount() + 1));
-    _contentMode = ContentMode::CreateProfil;
-    _viewport.setViewedComponent(&_createProfilModule, false);
-    _viewport.setViewPosition(0, 0);
-    _viewport.setVisible(true);
-    _createProfilModule.setVisible(true);
-    _editProfilModule.setVisible(false);
-    resized();
-    repaint();
+void ProfilView::deletePreset(int presetNumber) {
+    juce::String error;
+    if (_audioProcessor.getPresetManager().deletePreset(presetNumber - 1, &error)) {
+        refreshPresetGrid();
+        _notificationBanner.showMessage("Preset deleted", NotificationBanner::Type::Success, 5000);
+    } else {
+        _notificationBanner.showMessage(error, NotificationBanner::Type::Error, 5000);
+    }
 }
 
-void ProfilView::showEditProfilModule(int profileNumber) {
-    const auto* profile = _audioProcessor.getProfileManager().getProfile(profileNumber - 1);
-    if (profile == nullptr) {
-        _notificationBanner.showMessage("Profile not found",
-                                        NotificationBanner::Type::Error,
-                                        5000);
-        showProfileGrid();
-        return;
+bool ProfilView::storeEncryptedProfile(const juce::String& accessToken,
+                                       const juce::String& id,
+                                       const juce::String& title,
+                                       const juce::String& kind,
+                                       const juce::MemoryBlock& cipher,
+                                       const juce::MemoryBlock& key,
+                                       int conditionProfile,
+                                       float conditionAmount,
+                                       juce::String* errorMessage) {
+    if (accessToken.isNotEmpty()) {
+        _audioProcessor.unlockSpectraSession(accessToken);
     }
-
-    _editProfilModule.setProfile(profileNumber, profile->values);
-    _contentMode = ContentMode::EditProfil;
-    _viewport.setViewedComponent(&_editProfilModule, false);
-    _viewport.setViewPosition(0, 0);
-    _viewport.setVisible(true);
-    _createProfilModule.setVisible(false);
-    _editProfilModule.setVisible(true);
-    resized();
-    repaint();
-}
-
-void ProfilView::importProfil() {
-    ActionFeedback::post(*this, "Choose a profile file to import.");
-    auto& profileManager = _audioProcessor.getProfileManager();
-    _profileFileChooser = std::make_unique<juce::FileChooser>(
-        "Import a profile",
-        profileManager.getProfileDirectory(),
-        "*" + juce::String(ProfileManager::profileFileExtension));
-
-    const juce::Component::SafePointer<ProfilView> safeThis(this);
-    _profileFileChooser->launchAsync(juce::FileBrowserComponent::openMode |
-                                         juce::FileBrowserComponent::canSelectFiles,
-                                     [safeThis](const juce::FileChooser& chooser) {
-                                         if (safeThis == nullptr) {
-                                             return;
-                                         }
-
-                                         const auto file = chooser.getResult();
-                                         if (file.existsAsFile()) {
-                                             juce::String errorMessage;
-                                             if (safeThis->_audioProcessor.getProfileManager().importProfile(file, &errorMessage)) {
-                                                 safeThis->refreshProfileGrid();
-                                                 safeThis->_notificationBanner.clearAction();
-                                                 safeThis->_notificationBanner.showMessage("Profile imported successfully",
-                                                                                           NotificationBanner::Type::Success,
-                                                                                           5000);
-                                             } else {
-                                                 safeThis->_notificationBanner.clearAction();
-                                                 safeThis->_notificationBanner.showMessage(errorMessage,
-                                                                                           NotificationBanner::Type::Error,
-                                                                                           5000);
-                                             }
-                                         } else {
-                                             ActionFeedback::post(*safeThis, "Profile import cancelled.");
-                                         }
-
-                                         safeThis->_profileFileChooser.reset();
-                                     });
-}
-
-bool ProfilView::installMarketplacePack(const juce::File& profileFile, const juce::File& irFile, bool hasIntegratedIr, juce::String* errorMessage) {
-    auto& profileManager = _audioProcessor.getProfileManager();
-    juce::StringArray existingIds;
-    for (const auto& profile : profileManager.getProfiles()) {
-        existingIds.add(profile.id);
-    }
-
-    if (!profileManager.importProfile(profileFile, errorMessage)) {
-        return false;
-    }
-
-    if (!hasIntegratedIr && irFile.existsAsFile()) {
-        const auto& profiles = profileManager.getProfiles();
-        for (int index = 0; index < profileManager.getProfileCount(); ++index) {
-            if (existingIds.contains(profiles[static_cast<size_t>(index)].id)) {
-                continue;
-            }
-
-            auto values = profiles[static_cast<size_t>(index)].values;
-            values.set("irPath", irFile.getFullPathName());
-            if (!profileManager.updateProfile(index, values, errorMessage)) {
-                return false;
-            }
-            break;
-        }
-    }
-
-    refreshProfileGrid();
-    _notificationBanner.clearAction();
-    _notificationBanner.showMessage("Pack added to your library",
-                                    NotificationBanner::Type::Success,
-                                    5000);
-    return true;
+    return _audioProcessor.importEncryptedProfile(kind == "ir" ? ProfileCatalog::Kind::Ir : ProfileCatalog::Kind::Amp,
+                                                  id,
+                                                  title,
+                                                  cipher,
+                                                  key,
+                                                  conditionProfile,
+                                                  conditionAmount,
+                                                  false,
+                                                  errorMessage);
 }
 
 void ProfilView::changeListenerCallback(juce::ChangeBroadcaster* source) {
-    if (source == &_audioProcessor.getProfileManager() && _contentMode == ContentMode::ProfileGrid) {
-        refreshProfileGrid();
+    if (source == &_audioProcessor.getPresetManager()) {
+        refreshPresetGrid();
     }
 }
 
-void ProfilView::refreshProfileGrid() {
-    auto& profileManager = _audioProcessor.getProfileManager();
-    profileManager.refreshProfiles();
-    _grid.setProfileNames(profileManager.getProfileNames());
+void ProfilView::refreshPresetGrid() {
+    _grid.setProfileNames(_audioProcessor.getPresetManager().getNames());
     resized();
 }

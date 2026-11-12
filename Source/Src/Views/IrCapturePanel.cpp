@@ -73,11 +73,11 @@ void IrCapturePanel::refreshAccountState(bool updateStatus) {
         _body.setText("IR capture plays a sweep and records the return. Use the standalone, which owns the audio device.",
                       juce::dontSendNotification);
         _cloneButton.setEnabled(false);
-        if (updateStatus) setStatus("Open Profiler standalone to clone an IR.");
+        if (updateStatus) setStatus("Open Spectra standalone to clone an IR.");
         return;
     }
 
-    _body.setText("The sweep is saved as a profile in this app. The sealed copy is also sent to My creations on profiler.audio.",
+    _body.setText("The sweep is stored as an encrypted IR profile and opened in memory. The sealed copy is also sent to My creations on spectradsp.com.",
                   juce::dontSendNotification);
     _cloneButton.setEnabled(signedIn && !_busy);
     if (!updateStatus) {

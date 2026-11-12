@@ -92,7 +92,10 @@ class SignalChainStrip : public juce::Component {
     void setBlockLed(BlockId blockId, bool isOn);
     void setIoMeterLevels(float inputDb, float outputDb);
     void setLayout(const SignalChain::Layout& layout);
+    void setRoute(const SignalChain::ParallelRoute& route);
     SignalChain::Layout getLayout() const noexcept { return _layout; }
+    SignalChain::ParallelRoute getRoute() const noexcept { return _route; }
+    SignalChain::Stage selectedStage() const noexcept;
     bool isBlockOnChain(BlockId blockId) const noexcept;
 
     std::function<void(BlockId)> onBlockSelected;
@@ -102,8 +105,17 @@ class SignalChainStrip : public juce::Component {
     std::function<void(int slot)> onBlockPickerRequested;
     std::function<void(int slot)> onBlockRemoved;
     std::function<void()> onClearAllBlocks;
+    std::function<void(int movableIndex)> onBlockDraggedDown;
+    std::function<void(int pathBIndex, int chainSlot)> onPathBReturned;
+    std::function<void()> onEditRouteMix;
 
    private:
+    class RouteNode : public juce::Button {
+       public:
+        RouteNode();
+        void paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) override;
+    };
+
     class SignalBusLayer : public juce::Component {
        public:
         void setRows(juce::Point<float> input,
@@ -128,14 +140,23 @@ class SignalChainStrip : public juce::Component {
     SignalChainBlock _masterVolume{ProfilerStyle::Colors::rigMaster, CustomLookAndFeel::RigIcon::Speaker};
     SignalChainBlock _pathDown{juce::Colour(0xffF4F4F5), CustomLookAndFeel::RigIcon::InputJack};
     SignalChainBlock _pathReturn{juce::Colour(0xffF4F4F5), CustomLookAndFeel::RigIcon::InputJack};
+    std::array<SignalChainBlock, SignalChain::ParallelRoute::pathBCount> _pathB{};
+    RouteNode _splitNode;
+    RouteNode _mergeNode;
     std::array<juce::Rectangle<int>, kSlotCount> _slotBounds{};
+    std::array<juce::Rectangle<int>, SignalChain::ParallelRoute::pathBCount> _pathBBounds{};
+    int _laneTop = 0;
+    int _laneSquare = 0;
     SignalChain::Layout _layout{};
+    SignalChain::ParallelRoute _route{};
     BlockId _selected = BlockId::AmpProfiler;
     int _selectedChainSlot = 2;
     int _dragMovableIndex = -1;
     int _dragChainSlot = -1;
+    int _dragPathBIndex = -1;
     bool _dragTracking = false;
     bool _dragActive = false;
+    bool _dragToPathB = false;
     int _dropSlot = -1;
     juce::Point<int> _dragStart{};
     juce::Rectangle<int> _dragOrigin{};
@@ -164,6 +185,8 @@ class SignalChainStrip : public juce::Component {
     void commitDrop(int fromSlot, int toSlot);
     void requestPicker(int slot);
     void showBlockMenu(int slot);
+    int parallelRow() const noexcept;
+    void layoutParallelLane();
     int fillChainOrder(std::array<int, 16>& order) const noexcept;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SignalChainStrip)
