@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794488028281,
+  "lastUpdate": 1794519250019,
   "repoUrl": "https://github.com/QuentinStoll/SpectraDsp",
   "entries": {
     "Profiler audio": [
@@ -642,6 +642,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "Drop realtime ratio",
             "value": 0.0063816,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Quentin Stoll",
+            "username": "QuentinStoll",
+            "email": "114921049+QuentinStoll@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Quentin Stoll",
+            "username": "QuentinStoll",
+            "email": "114921049+QuentinStoll@users.noreply.github.com"
+          },
+          "id": "d8a15ba761a78f46a1a17d752f52bd5ba3abf129",
+          "message": "fix(chain): replace the block menu with picker actions\n\nRight-click opens the block picker, and Bypass, Clear block and Clear all sit beside Back and Close. Selecting a block no longer leaves a coloured glow behind it.",
+          "timestamp": "2026-11-12T21:20:54Z",
+          "url": "https://github.com/QuentinStoll/SpectraDsp/commit/d8a15ba761a78f46a1a17d752f52bd5ba3abf129"
+        },
+        "date": 1794519249374,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pedal latency",
+            "value": 3,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer latency",
+            "value": 1056,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop latency",
+            "value": 960,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Gate lookahead",
+            "value": 384,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Pedal realtime ratio",
+            "value": 0.00489705,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer realtime ratio",
+            "value": 0.31813065,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop realtime ratio",
+            "value": 0.00688065,
             "unit": "x realtime",
             "extra": "48 kHz"
           }
