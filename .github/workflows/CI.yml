@@ -62,6 +62,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Fingerprint dependency toolchain
+        id: toolchain
+        shell: bash
+        run: python scripts/ci_cache_key.py >> "$GITHUB_OUTPUT"
+
+      - name: Restore public dependency cache
+        id: dependencies-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/_deps
+          key: deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'Source/CMakeLists.txt', 'Tests/CMakeLists.txt', '.github/workflows/CI.yml', 'scripts/ci_cache_key.py') }}
+
       - name: Fetch SpectraDsp
         id: spectra
         shell: bash
@@ -91,9 +103,6 @@ jobs:
             libasound2-dev \
             libcurl4-openssl-dev \
             libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libglib2.0-dev \
             mesa-common-dev \
             libjack-jackd2-dev \
             libdbus-1-dev
@@ -163,6 +172,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
           path: build/Testing/
+
+      # PR jobs may read the base branch cache but never publish executable cache content.
+      - name: Save public dependency cache
+        if: success() && steps.dependencies-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main')
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/_deps
+          key: ${{ steps.dependencies-cache.outputs.cache-primary-key }}
 
   audio-history:
     name: Audio history
@@ -253,6 +270,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Fingerprint dependency toolchain
+        id: toolchain
+        shell: bash
+        run: python scripts/ci_cache_key.py >> "$GITHUB_OUTPUT"
+
+      - name: Restore public dependency cache
+        id: dependencies-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/_deps
+          key: deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'Source/CMakeLists.txt', 'Tests/CMakeLists.txt', '.github/workflows/CI.yml', 'scripts/ci_cache_key.py') }}
+
       - name: Install OpenCppCoverage
         shell: cmd
         run: choco install opencppcoverage --no-progress -y
@@ -271,6 +300,14 @@ jobs:
           path: |
             build/coverage/coverage.xml
             build/coverage/html/
+
+      # PR jobs may read the base branch cache but never publish executable cache content.
+      - name: Save public dependency cache
+        if: success() && steps.dependencies-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main')
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/_deps
+          key: ${{ steps.dependencies-cache.outputs.cache-primary-key }}
 
   build:
     name: Build (${{ matrix.name }})
@@ -307,6 +344,18 @@ jobs:
         shell: bash
         run: echo "SPECTRA_RELEASE_TAG=v$(date -u +'%Y.%m.%d')-${{ github.run_number }}" >> "$GITHUB_ENV"
 
+      - name: Fingerprint dependency toolchain
+        id: toolchain
+        shell: bash
+        run: python scripts/ci_cache_key.py >> "$GITHUB_OUTPUT"
+
+      - name: Restore public dependency cache
+        id: dependencies-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/_deps
+          key: deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'Source/CMakeLists.txt', 'Tests/CMakeLists.txt', '.github/workflows/CI.yml', 'scripts/ci_cache_key.py') }}
+
       - name: Fetch SpectraDsp
         id: spectra
         shell: bash
@@ -336,9 +385,6 @@ jobs:
             libasound2-dev \
             libcurl4-openssl-dev \
             libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libglib2.0-dev \
             mesa-common-dev \
             libjack-jackd2-dev \
             libdbus-1-dev
@@ -398,6 +444,14 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           path: dist/Spectra-*
+
+      # PR jobs may read the base branch cache but never publish executable cache content.
+      - name: Save public dependency cache
+        if: success() && steps.dependencies-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Main')
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: build/_deps
+          key: ${{ steps.dependencies-cache.outputs.cache-primary-key }}
 
   release:
     name: Publish Release
