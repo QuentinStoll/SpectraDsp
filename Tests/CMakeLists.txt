@@ -44,6 +44,7 @@ target_include_directories(ProfilerTests PRIVATE
 )
 
 target_compile_definitions(ProfilerTests PRIVATE
+    JUCE_WEB_BROWSER=0
     JUCE_UNIT_TESTS=1
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
@@ -76,6 +77,12 @@ target_link_libraries(ProfilerTests PRIVATE
 if(UNIX AND NOT APPLE)
     target_link_libraries(ProfilerTests PRIVATE CURL::libcurl)
 endif()
+
+# Treat dependency headers as external, retaining warnings for our source files.
+target_include_directories(ProfilerTests SYSTEM PRIVATE
+    $<TARGET_PROPERTY:simdjson::simdjson,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:RTNeural,INTERFACE_INCLUDE_DIRECTORIES>
+)
 
 apply_compiler_options(ProfilerTests)
 profiler_link_nam_engine(ProfilerTests)

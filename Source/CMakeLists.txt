@@ -139,6 +139,12 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${PROFILER_PLATFORM_LIBS}
 )
 
+# Treat dependency headers as external, retaining warnings for our source files.
+target_include_directories(${PLUGIN_NAME} SYSTEM PRIVATE
+    $<TARGET_PROPERTY:simdjson::simdjson,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:RTNeural,INTERFACE_INCLUDE_DIRECTORIES>
+)
+
 # Generate the aggregate header consumed by the existing source files.  Unlike
 # Projucer, the CMake workflow writes it to the target's build artefacts.
 juce_generate_juce_header(${PLUGIN_NAME})
@@ -150,6 +156,7 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
 )
 
 target_compile_definitions(${PLUGIN_NAME} PRIVATE
+    JUCE_WEB_BROWSER=0
     SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
 )
 foreach(spectra_release_format VST3 Standalone AU)

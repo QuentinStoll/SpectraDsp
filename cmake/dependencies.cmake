@@ -6,7 +6,6 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "Skip dependency update chec
 # coverage tools ------------
 
 if(PROFILER_ENABLE_COVERAGE AND WIN32)
-    set(PROFILER_OPENCPPCOVERAGE_VERSION "0.9.9.0")
     set(PROFILER_OPENCPPCOVERAGE_DIR "${CMAKE_BINARY_DIR}/_deps/opencppcoverage")
 
     find_program(PROFILER_OPENCPPCOVERAGE_EXE
@@ -19,73 +18,9 @@ if(PROFILER_ENABLE_COVERAGE AND WIN32)
     )
 
     if(NOT PROFILER_OPENCPPCOVERAGE_EXE)
-        set(_opencppcoverage_setup_dir "${CMAKE_BINARY_DIR}/_deps/opencppcoverage-setup")
-        set(_opencppcoverage_setup "${_opencppcoverage_setup_dir}/OpenCppCoverageSetup.exe")
-        set(_opencppcoverage_url
-            "https://github.com/OpenCppCoverage/OpenCppCoverage/releases/download/release-${PROFILER_OPENCPPCOVERAGE_VERSION}/OpenCppCoverageSetup-x64-${PROFILER_OPENCPPCOVERAGE_VERSION}.exe"
-        )
-        set(_opencppcoverage_setup_bytes 16864947)
-
-        file(MAKE_DIRECTORY "${_opencppcoverage_setup_dir}")
-        file(MAKE_DIRECTORY "${PROFILER_OPENCPPCOVERAGE_DIR}")
-        file(TO_NATIVE_PATH "${PROFILER_OPENCPPCOVERAGE_DIR}" _opencppcoverage_dir)
-        find_program(_opencppcoverage_7z NAMES 7z 7za PATHS "C:/Program Files/7-Zip")
-
-        foreach(_opencppcoverage_attempt RANGE 1 3)
-            message(STATUS "Coverage: downloading OpenCppCoverage (attempt ${_opencppcoverage_attempt})")
-            file(DOWNLOAD "${_opencppcoverage_url}" "${_opencppcoverage_setup}"
-                SHOW_PROGRESS
-                TLS_VERIFY ON
-                STATUS _opencppcoverage_download
-            )
-            list(GET _opencppcoverage_download 0 _opencppcoverage_download_code)
-            if(NOT _opencppcoverage_download_code EQUAL 0)
-                message(WARNING "Coverage: OpenCppCoverage download failed: ${_opencppcoverage_download}")
-                continue()
-            endif()
-
-            file(SIZE "${_opencppcoverage_setup}" _opencppcoverage_size)
-            if(NOT _opencppcoverage_size EQUAL _opencppcoverage_setup_bytes)
-                message(WARNING "Coverage: unexpected OpenCppCoverage installer size ${_opencppcoverage_size}")
-                continue()
-            endif()
-
-            message(STATUS "Coverage: installing OpenCppCoverage")
-            execute_process(
-                COMMAND "${_opencppcoverage_setup}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER "/DIR=${_opencppcoverage_dir}"
-                RESULT_VARIABLE _opencppcoverage_result
-                OUTPUT_VARIABLE _opencppcoverage_out
-                ERROR_VARIABLE _opencppcoverage_err
-                TIMEOUT 180
-            )
-            if(NOT _opencppcoverage_result EQUAL 0)
-                message(WARNING "Coverage: silent install exited ${_opencppcoverage_result}: ${_opencppcoverage_out} ${_opencppcoverage_err}")
-                if(_opencppcoverage_7z)
-                    message(STATUS "Coverage: extracting OpenCppCoverage with 7-Zip")
-                    execute_process(
-                        COMMAND "${_opencppcoverage_7z}" x -y "-o${PROFILER_OPENCPPCOVERAGE_DIR}" "${_opencppcoverage_setup}"
-                        RESULT_VARIABLE _opencppcoverage_extract
-                        OUTPUT_VARIABLE _opencppcoverage_out
-                        ERROR_VARIABLE _opencppcoverage_err
-                    )
-                    if(NOT _opencppcoverage_extract EQUAL 0)
-                        message(WARNING "Coverage: 7-Zip extract failed: ${_opencppcoverage_out} ${_opencppcoverage_err}")
-                    endif()
-                endif()
-            endif()
-
-            unset(PROFILER_OPENCPPCOVERAGE_EXE CACHE)
-            file(GLOB_RECURSE _opencppcoverage_found "${PROFILER_OPENCPPCOVERAGE_DIR}/OpenCppCoverage.exe")
-            if(_opencppcoverage_found)
-                list(GET _opencppcoverage_found 0 PROFILER_OPENCPPCOVERAGE_EXE)
-                set(PROFILER_OPENCPPCOVERAGE_EXE "${PROFILER_OPENCPPCOVERAGE_EXE}" CACHE FILEPATH "OpenCppCoverage executable")
-                break()
-            endif()
-        endforeach()
-    endif()
-
-    if(NOT PROFILER_OPENCPPCOVERAGE_EXE)
-        message(FATAL_ERROR "OpenCppCoverage was not found")
+        message(FATAL_ERROR
+            "Coverage requires an installed OpenCppCoverage. Install it explicitly or set "
+            "PROFILER_OPENCPPCOVERAGE_EXE to a trusted executable. Configuration never runs downloaded installers.")
     endif()
 
     message(STATUS "Coverage: using OpenCppCoverage at ${PROFILER_OPENCPPCOVERAGE_EXE}")
@@ -126,33 +61,12 @@ if(NOT TARGET juce::juce_core)
     FetchContent_Declare(
         juce
         GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-        GIT_TAG 8.0.12
-        GIT_SHALLOW TRUE
+        GIT_TAG 29396c22c93392d6738e021b83196283d6e4d850 # JUCE 8.0.12
         GIT_PROGRESS TRUE
     )
+    set(JUCE_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+    set(JUCE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(juce)
-endif()
-
-
-# spdlog --------------------
-
-option(USE_SYSTEM_SPDLOG "Use system-installed spdlog via find_package" OFF) # only for local builds
-if (TARGET spdlog::spdlog)
-    message(STATUS "spdlog: using existing target")
-elseif (PROFILER_USE_SYSTEM_SPDLOG)
-    message(STATUS "spdlog: using system package")
-    find_package(spdlog CONFIG REQUIRED)
-else()
-    FetchContent_Declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.16.0
-    )
-
-    set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "" FORCE)
-    set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-
-    FetchContent_MakeAvailable(spdlog)
 endif()
 
 
@@ -168,12 +82,12 @@ else()
     FetchContent_Declare(
         simdjson
         GIT_REPOSITORY https://github.com/simdjson/simdjson.git
-        GIT_TAG v4.2.4
+        GIT_TAG 980f2ad3afb12729157b44ed33d2bac41b67b54b # simdjson 4.2.4
     )
 
-    set(SIMDJSON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(SIMDJSON_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-    set(SIMDJSON_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    unset(SIMDJSON_BUILD_STATIC CACHE)
+    set(BUILD_SHARED_LIBS OFF)
+    set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "" FORCE)
     set(SIMDJSON_ENABLE_THREADS ON CACHE BOOL "" FORCE)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -188,12 +102,16 @@ if(NOT TARGET RTNeural)
     FetchContent_Declare(
         rtneural
         GIT_REPOSITORY https://github.com/jatinchowdhury18/RTNeural.git
-        GIT_TAG main
+        GIT_TAG 95c3c0f987a6fe903e7eec71e797405dbed7caf7
+        GIT_SUBMODULES "" # xsimd is unused by the Eigen backend
     )
 
-    set(RTNEURAL_BACKEND "STL" CACHE STRING "" FORCE)
+    # Preserve the Eigen backend previously selected implicitly by RTNeural.
+    unset(RTNEURAL_BACKEND CACHE)
+    unset(RTNEURAL_USE_JSON CACHE)
+    set(RTNEURAL_EIGEN ON CACHE BOOL "" FORCE)
+    set(RTNEURAL_STL OFF CACHE BOOL "" FORCE)
     set(RTNEURAL_XSIMD OFF CACHE BOOL "" FORCE)
-    set(RTNEURAL_USE_JSON ON CACHE BOOL "" FORCE)
 
     FetchContent_MakeAvailable(rtneural)
 endif()
@@ -212,14 +130,12 @@ else()
     FetchContent_Declare(
         tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
-        GIT_TAG 0350df1 # v0.13.4 do change at your own risk if you have a protocol missmatch with the tracy binaries
+        GIT_TAG 0350df11f89e08687362be68da032889d822ef63 # v0.13.4 do change at your own risk if you have a protocol missmatch with the tracy binaries
     )
 
-    if(ENABLE_TRACY_CLIENT)
-        set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
-    endif()
+    set(TRACY_ENABLE ${ENABLE_TRACY_CLIENT} CACHE BOOL "" FORCE)
     set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
-    set(TRACY_ONLY_LOCALHOST OFF CACHE BOOL "" FORCE)
+    set(TRACY_ONLY_LOCALHOST ON CACHE BOOL "" FORCE)
     set(TRACY_NO_EXIT OFF CACHE BOOL "" FORCE)
     set(TRACY_NO_CONTEXT_SWITCH OFF CACHE BOOL "" FORCE)
     set(TRACY_NO_SAMPLING OFF CACHE BOOL "" FORCE)
@@ -229,14 +145,10 @@ else()
 endif()
 
 
-# JUCE on Linux needs GTK, WebKitGTK, and libcurl. macOS uses system frameworks.
+# HTTP requests still require libcurl; the embedded browser is disabled.
 
 if(UNIX AND NOT APPLE)
     find_package(CURL REQUIRED)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GTK3 REQUIRED gtk+-3.0>=3.0)
-    pkg_check_modules(WEBKIT2GTK REQUIRED webkit2gtk-4.1)
-    include_directories(${GTK3_INCLUDE_DIRS} ${WEBKIT2GTK_INCLUDE_DIRS})
 endif()
 
 # Clear-model amp engine. Neural Amp Modeler Core v0.6.0 (MIT) is fetched as source
@@ -252,11 +164,15 @@ set(SPECTRA_NAM_EIGEN_COMMIT "bc3b39870ecb690a623a3f49149a358b95c5781d")
 FetchContent_Declare(
     spectra_nam_src
     URL https://github.com/sdatkinson/NeuralAmpModelerCore/archive/refs/tags/v${SPECTRA_NAM_VERSION}.tar.gz
+    URL_HASH SHA256=d55f3c49278a06e5bf5978ea60ae8384603b843d7fdee22a0e9ba71c95108450
+    TLS_VERIFY ON
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_Declare(
     spectra_nam_eigen
     URL https://gitlab.com/libeigen/eigen/-/archive/${SPECTRA_NAM_EIGEN_COMMIT}/eigen-${SPECTRA_NAM_EIGEN_COMMIT}.tar.gz
+    URL_HASH SHA256=5f6557d1aca6e959a4b955c55f2935261fd30de59c0c79e35bc6d5cbe1de22d1
+    TLS_VERIFY ON
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
