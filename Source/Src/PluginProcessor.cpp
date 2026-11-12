@@ -1465,6 +1465,29 @@ void ProfilerAudioProcessor::processForkSequence(const SignalChain::Layout& layo
         std::copy(leftA.begin(), leftA.begin() + numSamples, leftB.begin());
         std::copy(rightA.begin(), rightA.begin() + numSamples, rightB.begin());
 
+        float gainA = 1.0f;
+        float gainB = 1.0f;
+        splitPathGains(std::lround(getParameterValue(_splitModeParam, 0.0f)) >= 1,
+                       getParameterValue(_splitRouteParam, 0.5f),
+                       gainA,
+                       gainB);
+        const bool runA = gainA > 0.0001f;
+        const bool runB = gainB > 0.0001f;
+        if (runA) {
+            juce::FloatVectorOperations::multiply(leftA.data(), gainA, numSamples);
+            juce::FloatVectorOperations::multiply(rightA.data(), gainA, numSamples);
+        } else {
+            juce::FloatVectorOperations::clear(leftA.data(), numSamples);
+            juce::FloatVectorOperations::clear(rightA.data(), numSamples);
+        }
+        if (runB) {
+            juce::FloatVectorOperations::multiply(leftB.data(), gainB, numSamples);
+            juce::FloatVectorOperations::multiply(rightB.data(), gainB, numSamples);
+        } else {
+            juce::FloatVectorOperations::clear(leftB.data(), numSamples);
+            juce::FloatVectorOperations::clear(rightB.data(), numSamples);
+        }
+
         BranchTask pathA;
         pathA.processor = this;
         pathA.layout = layout;
@@ -1477,7 +1500,6 @@ void ProfilerAudioProcessor::processForkSequence(const SignalChain::Layout& layo
         pathA.ampGain = ampGain;
         pathA.lane = 0;
         pathA.cursor = stageCursor;
-        processBranch(pathA);
 
         auto cursorB = stageCursor;
         advanceCursor(layout, begin, end, cursorB);
@@ -1493,13 +1515,36 @@ void ProfilerAudioProcessor::processForkSequence(const SignalChain::Layout& layo
         pathB.ampGain = ampGain;
         pathB.lane = 1;
         pathB.cursor = cursorB;
-        processBranch(pathB);
+        if (runA) {
+            processBranch(pathA);
+        } else {
+            advanceCursor(layout, begin, end, pathA.cursor);
+        }
+        if (runB) {
+            processBranch(pathB);
+        }
 
+        float balanceAL = 1.0f;
+        float balanceAR = 1.0f;
+        float balanceBL = 1.0f;
+        float balanceBR = 1.0f;
+        stereoBalance(getParameterValue(_routeAPanParam, 0.0f), balanceAL, balanceAR);
+        stereoBalance(getParameterValue(_routeBPanParam, 0.0f), balanceBL, balanceBR);
+        const float levelA = juce::Decibels::decibelsToGain(getParameterValue(_routeALevelParam, 0.0f));
+        const float levelB = juce::Decibels::decibelsToGain(getParameterValue(_routeBLevelParam, 0.0f)) *
+                             (getParameterValue(_routeBPolarityParam, 0.0f) > 0.5f ? -1.0f : 1.0f);
+        const float levelMerge = juce::Decibels::decibelsToGain(getParameterValue(_routeLevelParam, 0.0f));
         const auto mix = juce::jlimit(0.0f, 1.0f, fork.mix);
+        const float mixA = runA && runB ? 1.0f - mix : 1.0f;
+        const float mixB = runA && runB ? mix : 1.0f;
         for (int sample = 0; sample < numSamples; ++sample) {
-            left[sample] = (1.0f - mix) * leftA[static_cast<size_t>(sample)] + mix * leftB[static_cast<size_t>(sample)];
+            left[sample] = (mixA * leftA[static_cast<size_t>(sample)] * balanceAL * levelA +
+                            mixB * leftB[static_cast<size_t>(sample)] * balanceBL * levelB) *
+                           levelMerge;
             if (right != nullptr) {
-                right[sample] = (1.0f - mix) * rightA[static_cast<size_t>(sample)] + mix * rightB[static_cast<size_t>(sample)];
+                right[sample] = (mixA * rightA[static_cast<size_t>(sample)] * balanceAR * levelA +
+                                 mixB * rightB[static_cast<size_t>(sample)] * balanceBR * levelB) *
+                                levelMerge;
             }
         }
         stageCursor = pathA.cursor;

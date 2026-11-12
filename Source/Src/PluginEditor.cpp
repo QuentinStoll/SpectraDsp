@@ -349,6 +349,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         _audioProcessor.setForkGraph(graph);
         refreshChainView();
     };
+    _signalChain.onEditRouteMix = [this]() { showRouteMix(); };
     _signalChain.onForkEdgeMoved = [this](int forkId, bool isSplit, int gap) {
         auto graph = _audioProcessor.getForkGraph();
         if (isSplit) {
@@ -649,6 +650,7 @@ void ProfilerAudioProcessorEditor::showRouteMix() {
     _masterPanel.setVisible(false);
     _fxPanel.setVisible(false);
     _routeMixPanel.setVisible(true);
+    _routeMixPanel.toFront(false);
     closeBlockPicker();
 }
 
