@@ -60,7 +60,7 @@ Reproducing the tone and dynamic behavior of real amplifiers is the project's lo
 ### Prerequisites
 
 - Git, CMake **3.22 or later**, and a **C++20** compiler.
-- Internet access for the first configure step: CMake fetches JUCE **8.0.12**, spdlog, simdjson, RTNeural, and Tracy. See [dependency configuration](cmake/dependencies.cmake) for the selected versions.
+- Internet access for the first configure step: CMake fetches JUCE **8.0.12**, simdjson, RTNeural, and Tracy. See [dependency configuration](cmake/dependencies.cmake) for the selected versions.
 - On Windows: Visual Studio 2022 or Build Tools with the **Desktop development with C++** workload and a Windows SDK. Run commands from a developer terminal.
 - On macOS: Xcode, or the Xcode Command Line Tools, which include Clang and the macOS SDK. No extra package such as GTK is required. Building VST3, Audio Unit, and the standalone app does not require a paid license. Notarizing a build so other people can open it without a Gatekeeper warning requires the Apple Developer Program.
 - On Linux: a C++20-capable GCC or Clang toolchain and the JUCE system dependencies below.
@@ -73,9 +73,13 @@ sudo apt-get update
 sudo apt-get install -y build-essential cmake git pkg-config \
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
   libfreetype6-dev libfontconfig1-dev libasound2-dev libcurl4-openssl-dev \
-  libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev \
+  libssl-dev \
   mesa-common-dev libjack-jackd2-dev libdbus-1-dev
 ```
+
+Build notes: the embedded JUCE browser is disabled; GTK/WebKit are not required. Tracy instrumentation follows the selected preset and bundled Tracy only listens on localhost. Windows coverage requires an explicitly installed OpenCppCoverage (or `-DPROFILER_OPENCPPCOVERAGE_EXE=...`); CMake does not download and execute its installer.
+
+Dependencies fetched by CMake are pinned to commits; NAM/Eigen archives are checked against SHA-256 hashes. Update those pins and hashes deliberately when upgrading.
 
 ### Installation
 
@@ -207,3 +211,11 @@ The project's [license notice](LICENCE.md) specifies **GNU GPL version 3 or late
 - **Open setup tasks:** confirm or replace the placeholder reporting email in the security and conduct policies, and check the macOS standalone app and Audio Unit in a host on a Mac.
 
 [Back to top](#readme-top)
+
+### Build performance and validation
+
+- CTest runs the complete registered `Profiler` category once (including cases that previously were only run by the extra summary command). Use `ctest --test-dir build -C Release --output-on-failure`; detailed results are in `build/Testing/Temporary/LastTest.log`. Individual cases remain runnable with `ProfilerTests --case "case name"`.
+- Audio metrics are written to `build/audio-metrics.json` by that same test run. Coverage also uses this single run.
+- RTNeural explicitly uses Eigen, preserving the previous effective backend. The unused STL/JSON configuration variables were removed.
+- Visual Studio builds use two compiler processes per project. Set `-DPROFILER_MSVC_COMPILE_JOBS=1` to disable this or choose a value up to 64. This is multiplied by project-level `--parallel`; reduce either limit on machines with little memory. Ninja retains its own scheduler.
+- CI caches only public dependencies under `build/_deps`, keyed by toolchain, runner image, architecture, job, workspace and CMake configuration. There are no fallback keys. Only successful main-branch push/manual jobs save caches; PR jobs only restore. Application outputs, credentials and the private SpectraDsp download are outside the cache.
