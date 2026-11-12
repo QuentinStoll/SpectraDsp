@@ -49,6 +49,7 @@ class SignalChainBlock : public juce::Button {
     bool _ledOn = true;
     bool _isIoNode = false;
     bool _showsLed = true;
+    bool _ledPressActive = false;
     float _signalLevel = 0.0f;
     FlowMark _flowMark = FlowMark::None;
 
@@ -102,6 +103,7 @@ class SignalChainStrip : public juce::Component {
     std::function<void(const SignalChain::Layout&)> onLayoutChanged;
     std::function<void(int fromSlot, int toSlot)> onSlotsSwapped;
     std::function<void(int slot)> onBlockPickerRequested;
+    std::function<void(int slot)> onBlockRemoved;
     std::function<void()> onClearAllBlocks;
     std::function<void(int movableIndex)> onBlockDraggedDown;
     std::function<void(int pathBIndex, int chainSlot)> onPathBReturned;
@@ -165,6 +167,7 @@ class SignalChainStrip : public juce::Component {
     SignalChainBlock* effectBlockAtSlot(int chainSlot) noexcept;
     bool selectBlockInDirection(int columnDelta, int rowDelta);
     void selectChainSlot(int chainSlot);
+    void updateBlockSelection();
     void handleBlockClick(BlockId blockId);
     void handleEffectClick(int movableIndex);
     bool isOccupiedSlot(int slot) const;

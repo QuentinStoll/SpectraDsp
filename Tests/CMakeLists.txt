@@ -8,6 +8,9 @@ set(PROFILER_TEST_SOURCES
     LoggingTests.cpp
     NotificationBannerTests.cpp
     UiSettingsTests.cpp
+    HighContrastTests.cpp
+    ActionFeedbackTests.cpp
+    SignalChainStripTests.cpp
     MarketplaceClientTests.cpp
     AppUpdateTests.cpp
     SpectraEngineTests.cpp
@@ -19,6 +22,10 @@ set(PROFILER_TEST_SOURCES
 add_executable(ProfilerTests EXCLUDE_FROM_ALL
     ${PROFILER_TEST_SOURCES}
     ../Source/Src/Components/NotificationBanner.cpp
+    ../Source/Src/Components/CustomLookAndFeel.cpp
+    ../Source/Src/ActionFeedback.cpp
+    ../Source/Src/Components/ActionStatusBar.cpp
+    ../Source/Src/Components/SignalChainStrip.cpp
     ../Source/Src/Logging.cpp
     ../Source/Src/AmpCapture.cpp
     ../Source/Src/PluginProcessor.cpp
@@ -262,6 +269,10 @@ endfunction()
 add_profiler_ui_settings_test(DefaultsAndNormalisation "ui settings defaults and normalisation")
 add_profiler_ui_settings_test(Persistence "ui settings persistence")
 add_profiler_ui_settings_test(InvalidJson "ui settings invalid JSON")
+add_profiler_ui_settings_test(InterfaceScaling "interface scaling keeps controls reachable")
+add_profiler_ui_settings_test(HighContrast "high contrast colours and theme restoration")
+add_profiler_ui_settings_test(ActionFeedback "action feedback routing and user gestures")
+add_profiler_ui_settings_test(SignalChainSelection "signal chain selection and deletion across parallel paths")
 
 function(add_profiler_notification_banner_test test_name case_name)
     add_test(NAME ProfilerTests.NotificationBanner.${test_name}

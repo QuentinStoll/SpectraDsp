@@ -419,9 +419,9 @@ void EqResponseDisplay::mouseDoubleClick(const juce::MouseEvent& event) {
 
 void EqResponseDisplay::paint(juce::Graphics& g) {
     auto bounds = getLocalBounds().toFloat();
-    g.setColour(juce::Colour(0xff08080A));
+    g.setColour(ProfilerStyle::Contrast::surface(juce::Colour(0xff08080A)));
     g.fillRoundedRectangle(bounds, 5.0f);
-    g.setColour(juce::Colour(0xff2A2A32));
+    g.setColour(ProfilerStyle::Contrast::outline(juce::Colour(0xff2A2A32)));
     g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
 
     const auto plot = plotArea();
@@ -429,7 +429,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         return;
     }
 
-    g.setColour(juce::Colour(0xff16161C));
+    g.setColour(ProfilerStyle::Contrast::enabled ? juce::Colour(0xff777777) : juce::Colour(0xff16161C));
     const float dbLines[] = {18.0f, 12.0f, 6.0f, -6.0f, -12.0f, -18.0f};
     for (const auto db : dbLines) {
         g.drawHorizontalLine(juce::roundToInt(yForDb(db)), plot.getX(), plot.getRight());
@@ -440,7 +440,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         g.drawVerticalLine(juce::roundToInt(xForHz(hz)), plot.getY(), plot.getBottom());
     }
 
-    g.setColour(juce::Colour(0xff3A3A46));
+    g.setColour(ProfilerStyle::Contrast::outline(juce::Colour(0xff3A3A46)));
     g.drawHorizontalLine(juce::roundToInt(yForDb(0.0f)), plot.getX(), plot.getRight());
 
     ensureEqCurve();
@@ -473,7 +473,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
                                              false);
         g.setGradientFill(gradient);
         g.fillPath(fill);
-        g.setColour(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.32f : 0.96f));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.32f : 0.96f)));
         g.strokePath(curve, juce::PathStrokeType(_bypassed ? 1.0f : 1.4f,
                                                  juce::PathStrokeType::mitered,
                                                  juce::PathStrokeType::rounded));
@@ -482,7 +482,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
     const auto activeBand = _dragBand >= 0 ? _dragBand : _hoverBand;
     if (activeBand >= 0) {
         const auto markerX = xForHz(bandFreq(activeBand));
-        g.setColour(ProfilerStyle::Colors::rigEq.withAlpha(0.28f));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::rigEq.withAlpha(0.28f)));
         g.drawVerticalLine(juce::roundToInt(markerX), plot.getY(), plot.getBottom());
     }
 
@@ -491,14 +491,14 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         const auto selected = band == _dragBand || band == _hoverBand;
         const auto radius = selected ? kEqHandleRadius + 0.7f : kEqHandleRadius;
         auto handle = juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre);
-        g.setColour(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.35f : (selected ? 1.0f : 0.95f)));
+        g.setColour(ProfilerStyle::Contrast::accent(ProfilerStyle::Colors::rigEq.withAlpha(_bypassed ? 0.35f : (selected ? 1.0f : 0.95f))));
         g.fillEllipse(handle);
         g.setColour(juce::Colour(0xff08080A).withAlpha(0.55f));
         g.drawEllipse(handle, 0.9f);
     }
 
     g.setFont(ProfilerStyle::Fonts::micro());
-    g.setColour(ProfilerStyle::Colors::caption.withAlpha(0.55f));
+    g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::caption.withAlpha(0.55f)));
     const float dbLabels[] = {12.0f, 0.0f, -12.0f};
     for (const auto db : dbLabels) {
         auto label = juce::Rectangle<float>(bounds.getX() + 2.0f, yForDb(db) - 6.0f, 24.0f, 12.0f);
@@ -520,7 +520,7 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
         const auto hz = bandFreq(activeBand);
         const auto db = bandGain(activeBand);
         const auto readout = formatHz(hz) + "  " + juce::String(db, 1) + " dB";
-        g.setColour(ProfilerStyle::Colors::text.withAlpha(0.82f));
+        g.setColour(ProfilerStyle::Contrast::foreground(ProfilerStyle::Colors::text.withAlpha(0.82f)));
         g.drawText(readout,
                    juce::Rectangle<float>(plot.getX(), plot.getY() + 2.0f, plot.getWidth() - 4.0f, 14.0f),
                    juce::Justification::centredRight, false);
@@ -595,12 +595,13 @@ AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
     _processor.getProfileCatalog().addChangeListener(this);
     _profileMenu.onChange = [this]() { selectProfileFromMenu(); };
 
-    _ampEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        processor._apvts, "isAmpEnabled", _ampEnabled);
     _outputAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "gain", _outputKnob.getSlider());
 
     _ampEnabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_ampEnabled.getToggleState());
+        }
         refreshAssets();
         if (onAssetsChanged) {
             onAssetsChanged();
@@ -711,6 +712,13 @@ void AmpProfilerPanel::refreshAssets() {
     resized();
 }
 
+void AmpProfilerPanel::setBlockEnabled(bool enabled) {
+    if (_ampEnabled.getToggleState() != enabled) {
+        _ampEnabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshAssets();
+    }
+}
+
 void AmpProfilerPanel::paint(juce::Graphics&) {}
 
 void AmpProfilerPanel::resized() {
@@ -748,12 +756,13 @@ CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
     _processor.getProfileCatalog().addChangeListener(this);
     _profileMenu.onChange = [this]() { selectProfileFromMenu(); };
 
-    _cabEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        processor._apvts, "isCabEnabled", _cabEnabled);
     _lowCutAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "cabLowCut", _lowCutKnob.getSlider());
 
     _cabEnabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_cabEnabled.getToggleState());
+        }
         refreshAssets();
         if (onAssetsChanged) {
             onAssetsChanged();
@@ -864,6 +873,13 @@ void CabinetIrPanel::refreshAssets() {
     resized();
 }
 
+void CabinetIrPanel::setBlockEnabled(bool enabled) {
+    if (_cabEnabled.getToggleState() != enabled) {
+        _cabEnabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshAssets();
+    }
+}
+
 void CabinetIrPanel::paint(juce::Graphics&) {}
 
 void CabinetIrPanel::resized() {
@@ -897,9 +913,11 @@ EqPostFxPanel::EqPostFxPanel(juce::AudioProcessorValueTreeState& apvts)
     addAndMakeVisible(_eqEnabled);
     addAndMakeVisible(_eqDisplay);
     addAndMakeVisible(_eqModule);
-    _eqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, "isEqEnabled", _eqEnabled);
 
     _eqEnabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_eqEnabled.getToggleState());
+        }
         refreshBypassState();
     };
     refreshBypassState();
@@ -912,6 +930,13 @@ void EqPostFxPanel::refreshBypassState() {
     _bypassLabel.setVisible(!enabled);
     resized();
     repaint();
+}
+
+void EqPostFxPanel::setBlockEnabled(bool enabled) {
+    if (_eqEnabled.getToggleState() != enabled) {
+        _eqEnabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshBypassState();
+    }
 }
 
 void EqPostFxPanel::paint(juce::Graphics&) {}
@@ -948,8 +973,6 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
     addAndMakeVisible(_toneKnob);
     addAndMakeVisible(_levelKnob);
 
-    _enabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        apvts, "isPedalEnabled", _enabled);
     _modelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         apvts, "pedalModel", _model);
     _driveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -960,6 +983,9 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
         apvts, "pedalLevel", _levelKnob.getSlider());
 
     _enabled.onClick = [this]() {
+        if (onEnabledChanged) {
+            onEnabledChanged(_enabled.getToggleState());
+        }
         refreshBypassState();
     };
     refreshBypassState();
@@ -973,6 +999,13 @@ void PedalDrivePanel::refreshBypassState() {
     _levelKnob.setEnabled(enabled);
     _bypassLabel.setVisible(!enabled);
     resized();
+}
+
+void PedalDrivePanel::setBlockEnabled(bool enabled) {
+    if (_enabled.getToggleState() != enabled) {
+        _enabled.setToggleState(enabled, juce::dontSendNotification);
+        refreshBypassState();
+    }
 }
 
 void PedalDrivePanel::paint(juce::Graphics&) {}

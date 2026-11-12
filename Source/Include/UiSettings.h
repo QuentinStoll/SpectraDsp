@@ -3,6 +3,16 @@
 #include <JuceHeader.h>
 
 namespace UiSettings {
+bool loadActionStatusEnabled();
+void saveActionStatusEnabled(bool enabled);
+
+bool loadHighContrastEnabled();
+void saveHighContrastEnabled(bool enabled);
+
+int normaliseInterfaceScalePercent(int percent);
+int loadInterfaceScalePercent();
+void saveInterfaceScalePercent(int percent);
+
 int loadBackgroundColourPreset();
 void saveBackgroundColourPreset(int presetId);
 int normaliseBackgroundColourPreset(int presetId);

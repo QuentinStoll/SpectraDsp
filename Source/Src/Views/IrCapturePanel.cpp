@@ -1,5 +1,6 @@
 #include "Views/IrCapturePanel.h"
 
+#include "ActionFeedback.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 
@@ -45,7 +46,7 @@ IrCapturePanel::~IrCapturePanel() {
 }
 
 void IrCapturePanel::paint(juce::Graphics& g) {
-    g.setColour(ProfilerStyle::Colors::border.withAlpha(0.35f));
+    g.setColour(ProfilerStyle::Contrast::outline(ProfilerStyle::Colors::border.withAlpha(0.35f)));
     g.drawHorizontalLine(0, 0.0f, (float)getWidth());
 }
 
@@ -64,7 +65,7 @@ void IrCapturePanel::resized() {
     _status.setBounds(area.removeFromTop(juce::jmax(20, area.getHeight())));
 }
 
-void IrCapturePanel::refreshAccountState() {
+void IrCapturePanel::refreshAccountState(bool updateStatus) {
     const auto standalone = _processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
     Marketplace::Session session;
     const auto signedIn = Marketplace::loadSession(Marketplace::defaultSessionFile(), session) && session.accessToken.isNotEmpty();
@@ -72,17 +73,20 @@ void IrCapturePanel::refreshAccountState() {
         _body.setText("IR capture plays a sweep and records the return. Use the standalone, which owns the audio device.",
                       juce::dontSendNotification);
         _cloneButton.setEnabled(false);
-        _status.setText("Open Spectra standalone to clone an IR.", juce::dontSendNotification);
+        if (updateStatus) setStatus("Open Spectra standalone to clone an IR.");
         return;
     }
 
     _body.setText("The sweep is stored as an encrypted IR profile and opened in memory. The sealed copy is also sent to My creations on spectradsp.com.",
                   juce::dontSendNotification);
     _cloneButton.setEnabled(signedIn && !_busy);
+    if (!updateStatus) {
+        return;
+    }
     if (!signedIn) {
-        _status.setText("Sign in on the Library page to clone an IR.", juce::dontSendNotification);
+        setStatus("Sign in on the Library page to clone an IR.");
     } else if (!_busy) {
-        _status.setText("Signed in as " + session.email + ".", juce::dontSendNotification);
+        setStatus("Signed in as " + session.email + ".");
     }
 }
 
@@ -96,19 +100,19 @@ void IrCapturePanel::startCapture() {
         return;
     }
     if (_nameEditor.getText().trim().isEmpty()) {
-        _status.setText("Name the IR before cloning it.", juce::dontSendNotification);
+        setStatus("Name the IR before cloning it.");
         return;
     }
 
     juce::String error;
     if (!_processor.beginIrCapture(&error)) {
-        _status.setText(error, juce::dontSendNotification);
+        setStatus(error);
         return;
     }
 
     _busy = true;
     _cloneButton.setEnabled(false);
-    _status.setText("Playing the sweep. Keep the return connected.", juce::dontSendNotification);
+    setStatus("Playing the sweep. Keep the return connected.");
     startTimerHz(15);
 }
 
@@ -124,15 +128,15 @@ void IrCapturePanel::sealAndUpload() {
     Marketplace::Session session;
     if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
         _busy = false;
-        _status.setText("Sign in on the Library page to clone an IR.", juce::dontSendNotification);
-        refreshAccountState();
+        setStatus("Sign in on the Library page to clone an IR.");
+        refreshAccountState(false);
         return;
     }
 
     if (!_processor.unlockSpectraSession(session.accessToken)) {
         _busy = false;
-        _status.setText("Could not open a capture session.", juce::dontSendNotification);
-        refreshAccountState();
+        setStatus("Could not open a capture session.");
+        refreshAccountState(false);
         return;
     }
 
@@ -147,8 +151,8 @@ void IrCapturePanel::sealAndUpload() {
         wipeKey(key);
         sealed.fillWith(0);
         _busy = false;
-        _status.setText(error, juce::dontSendNotification);
-        refreshAccountState();
+        setStatus(error);
+        refreshAccountState(false);
         return;
     }
 
@@ -167,10 +171,16 @@ void IrCapturePanel::sealAndUpload() {
                 return;
             }
             safeThis->_busy = false;
-            safeThis->_status.setText(localMessage + result.message, juce::dontSendNotification);
-            safeThis->refreshAccountState();
+            safeThis->setStatus(localMessage + result.message);
+            safeThis->refreshAccountState(false);
         });
     });
     wipeKey(key);
     sealed.fillWith(0);
+}
+
+void IrCapturePanel::setStatus(const juce::String& message) {
+    const bool changed = _status.getText() != message;
+    _status.setText(message, juce::dontSendNotification);
+    if (changed) ActionFeedback::post(*this, message);
 }

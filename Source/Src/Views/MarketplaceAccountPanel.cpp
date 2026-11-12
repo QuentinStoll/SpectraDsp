@@ -1,5 +1,6 @@
 #include "Views/MarketplaceAccountPanel.h"
 
+#include "ActionFeedback.h"
 #include "SettingsPath.h"
 #include "Stylesheet.h"
 
@@ -98,6 +99,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
     addAndMakeVisible(_codeEditor);
 
     _submitButton.onClick = [this]() {
+        ActionFeedback::post(*this, _mode == Mode::Code ? "Checking verification code..." : "Signing in...");
         if (_busy) {
             return;
         }
@@ -105,7 +107,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         if (_mode == Mode::Code) {
             const auto code = _codeEditor.getText().trim();
             if (!Marketplace::Client::isSixDigitCode(code)) {
-                _statusLabel.setText("Enter the 6-digit code.", juce::dontSendNotification);
+                setStatus("Enter the 6-digit code.");
                 return;
             }
 
@@ -130,7 +132,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         const auto email = _emailEditor.getText().trim();
         const auto password = _passwordEditor.getText();
         if (email.isEmpty() || password.isEmpty()) {
-            _statusLabel.setText("Enter your marketplace email and password.", juce::dontSendNotification);
+            setStatus("Enter your marketplace email and password.");
             return;
         }
 
@@ -154,6 +156,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         _challenge = {};
         _codeEditor.clear();
         showLogin({});
+        ActionFeedback::post(*this, "Sign-in form opened.");
     };
     addAndMakeVisible(_backButton);
 
@@ -163,6 +166,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         _challenge = {};
         _items.clear();
         showLogin({});
+        ActionFeedback::post(*this, "Signed out of the marketplace.");
     };
     addAndMakeVisible(_signOutButton);
 
@@ -281,7 +285,7 @@ void MarketplaceAccountPanel::setBusy(bool busy) {
 void MarketplaceAccountPanel::showLogin(const juce::String& message) {
     _mode = Mode::Login;
     _submitButton.setButtonText("Sign in");
-    _statusLabel.setText(message, juce::dontSendNotification);
+    setStatus(message);
     setBusy(false);
     notifyLayout();
 }
@@ -290,8 +294,7 @@ void MarketplaceAccountPanel::showCodeEntry() {
     _mode = Mode::Code;
     _codeEditor.clear();
     _submitButton.setButtonText("Confirm");
-    _statusLabel.setText("Enter the 6-digit code from your authenticator. It expires in 5 minutes.",
-                         juce::dontSendNotification);
+    setStatus("Enter the 6-digit code from your authenticator. It expires in 5 minutes.");
     setBusy(false);
     notifyLayout();
 }
@@ -330,7 +333,7 @@ void MarketplaceAccountPanel::applyLoginResult(const Marketplace::LoginResult& r
         return;
     }
 
-    _statusLabel.setText(result.message, juce::dontSendNotification);
+    setStatus(result.message);
     setBusy(false);
 }
 
@@ -391,7 +394,7 @@ void MarketplaceAccountPanel::loadLibrary() {
             }
 
             if (result.status != Marketplace::Status::Success) {
-                safeThis->_statusLabel.setText(result.message, juce::dontSendNotification);
+                safeThis->setStatus(result.message);
                 safeThis->setBusy(false);
                 return;
             }
@@ -404,10 +407,9 @@ void MarketplaceAccountPanel::loadLibrary() {
             if (result.email.isNotEmpty()) {
                 safeThis->_session.email = result.email;
             }
-            safeThis->_statusLabel.setText(safeThis->_items.empty()
-                                               ? "No amp or IR profiles on this account yet."
-                                               : juce::String(safeThis->_items.size()) + " profiles on this account.",
-                                           juce::dontSendNotification);
+            safeThis->setStatus(safeThis->_items.empty()
+                                    ? "No amp or IR profiles on this account yet."
+                                    : juce::String(safeThis->_items.size()) + " profiles on this account.");
             if (safeThis->onLibraryChanged) {
                 safeThis->onLibraryChanged(safeThis->_items);
             }
@@ -424,7 +426,7 @@ void MarketplaceAccountPanel::downloadById(const juce::String& id) {
             return;
         }
     }
-    _statusLabel.setText("Sign in and refresh the library to open this profile.", juce::dontSendNotification);
+    setStatus("Sign in and refresh the library to open this profile.");
 }
 
 void MarketplaceAccountPanel::downloadPack(int index) {
@@ -441,7 +443,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     const auto listedAmount = _items[static_cast<size_t>(index)].conditionAmount;
     if (kind == "amp") {
         setBusy(true);
-        _statusLabel.setText("Opening " + title + "...", juce::dontSendNotification);
+        setStatus("Opening " + title + "...");
         juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
         _jobs.addJob([safeThis, packId, session, title, listedProfile, listedAmount]() {
             juce::MemoryBlock cipher;
@@ -505,7 +507,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                     cipher.fillWith(0);
                     key.fillWith(0);
                     irCipher.fillWith(0);
-                    safeThis->_statusLabel.setText(error, juce::dontSendNotification);
+                    safeThis->setStatus(error);
                     safeThis->setBusy(false);
                     return;
                 }
@@ -522,14 +524,14 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 cipher.fillWith(0);
                 key.fillWith(0);
                 irCipher.fillWith(0);
-                safeThis->_statusLabel.setText(played && irPlayed ? "Amp profile loaded." : playError, juce::dontSendNotification);
+                safeThis->setStatus(played && irPlayed ? "Amp profile loaded." : playError);
                 safeThis->setBusy(false);
             });
         });
         return;
     }
     setBusy(true);
-    _statusLabel.setText("Downloading " + title + "...", juce::dontSendNotification);
+    setStatus("Downloading " + title + "...");
 
     juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
     _jobs.addJob([safeThis, packId, entitlementId, title, kind, session]() {
@@ -578,7 +580,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 if (safeThis == nullptr) {
                     return;
                 }
-                safeThis->_statusLabel.setText(message, juce::dontSendNotification);
+                safeThis->setStatus(message);
                 safeThis->setBusy(false);
             };
 
@@ -658,4 +660,9 @@ void MarketplaceAccountPanel::notifyLayout() {
     if (onLayoutChanged != nullptr) {
         onLayoutChanged();
     }
+}
+void MarketplaceAccountPanel::setStatus(const juce::String& message) {
+    const bool changed = _statusLabel.getText() != message;
+    _statusLabel.setText(message, juce::dontSendNotification);
+    if (changed) ActionFeedback::post(*this, message);
 }

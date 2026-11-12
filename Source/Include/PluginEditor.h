@@ -5,21 +5,26 @@
 #include <atomic>
 #include <memory>
 
+#include "ActionFeedback.h"
 #include "AppUpdate.h"
+#include "Components/ActionStatusBar.h"
 #include "Components/BlockPickerPage.h"
 #include "Components/CustomLookAndFeel.h"
 #include "Components/NotificationBanner.h"
 #include "Components/RouteMixPanel.h"
+#include "Components/ScalableViewport.h"
 #include "Components/SignalChainStrip.h"
 #include "Modules/ExportProfilModule.h"
 #include "Modules/FxEditPanel.h"
 #include "Modules/StudioEditPanels.h"
 #include "Modules/StudioTopBar.h"
 #include "PluginProcessor.h"
+#include "ProfilerConstantValues.h"
 #include "Views/ProfilView.h"
 #include "Views/SettingsView.h"
 
 class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                     public ActionFeedback::Sink,
                                      private juce::ChangeListener,
                                      private juce::AudioProcessorValueTreeState::Listener,
                                      private juce::ValueTree::Listener,
@@ -35,6 +40,7 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void broughtToFront() override;
     void mouseDown(const juce::MouseEvent& event) override;
     bool keyPressed(const juce::KeyPress& key) override;
+    void reportAction(const juce::String& message, bool error = false) override;
 
    private:
     enum class OverlayMode {
@@ -45,8 +51,13 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     };
 
     ProfilerAudioProcessor& _audioProcessor;
+    ActionFeedback::ParameterChanges _parameterFeedback;
+    ActionStatusBar _actionStatusBar;
+    bool _actionStatusEnabled = false;
+    int _interfaceScalePercent = 100;
     CustomLookAndFeel _customLookAndFeel;
-    juce::Component _content;
+    ScalableViewport _contentViewport{editorWidth, editorHeight};
+    juce::Component& _content = _contentViewport.getContent();
 
     StudioTopBar _topBar;
     SignalChainStrip _signalChain;
@@ -93,6 +104,7 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void placeChosenBlock(int slot, SignalChain::Stage stage);
     void updateChainStatus();
     void toggleBlockBypass(SignalChainStrip::BlockId blockId);
+    void setSelectedBlockEnabled(bool enabled);
     void showStatus(const juce::String& message, bool success);
     void checkForAppUpdate(bool userRequested);
     void presentAppUpdate(const AppUpdate::Offer& offer, bool userRequested);

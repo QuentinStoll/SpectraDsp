@@ -1,5 +1,7 @@
 #include "Components/ModalOverlay.h"
 
+#include "ActionFeedback.h"
+
 ModalOverlay::ModalOverlay() {
     setInterceptsMouseClicks(true, true);
     setWantsKeyboardFocus(true);
@@ -88,12 +90,15 @@ void ModalOverlay::resized() {
 }
 
 void ModalOverlay::mouseDown(const juce::MouseEvent& event) {
-    if (_dismissOnBackgroundClick && !getCentredContentBounds().contains(event.getPosition()))
+    if (_dismissOnBackgroundClick && !getCentredContentBounds().contains(event.getPosition())) {
+        ActionFeedback::post(*this, "Dialog cancelled.");
         dismiss();
+    }
 }
 
 bool ModalOverlay::keyPressed(const juce::KeyPress& key) {
     if (key == juce::KeyPress::escapeKey) {
+        ActionFeedback::post(*this, "Dialog cancelled.");
         dismiss();
         return true;
     }

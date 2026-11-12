@@ -33,7 +33,8 @@ class IrCapturePanel : public juce::Component,
     CustomTextButton _cloneButton{"Clone IR", ProfilerStyle::Theme::Orange};
     juce::Label _status;
 
-    void refreshAccountState();
+    void refreshAccountState(bool updateStatus = true);
+    void setStatus(const juce::String& message);
     void startCapture();
     void sealAndUpload();
     void timerCallback() override;

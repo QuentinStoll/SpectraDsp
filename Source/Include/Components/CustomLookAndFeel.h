@@ -6,6 +6,11 @@ class CustomLookAndFeel : public juce::LookAndFeel_V4 {
    public:
     CustomLookAndFeel();
     ~CustomLookAndFeel() override = default;
+    void applyColourScheme();
+    void refreshTheme(juce::Component& root);
+
+    void fillTextEditorBackground(juce::Graphics&, int width, int height, juce::TextEditor&) override;
+    void drawTextEditorOutline(juce::Graphics&, int width, int height, juce::TextEditor&) override;
 
     juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override;
     juce::Font getLabelFont(juce::Label& label) override;
@@ -164,7 +169,6 @@ class CustomLookAndFeel : public juce::LookAndFeel_V4 {
     juce::Typeface::Ptr _orbitronExtraBold;
     juce::Typeface::Ptr _orbitronBlack;
 
-    void applyColourScheme();
     void loadOrbitronTypefaces();
     juce::Typeface::Ptr typefaceForFont(const juce::Font& font) const;
     void drawAccentGlow(juce::Graphics& g, juce::Rectangle<float> bounds, float intensity,

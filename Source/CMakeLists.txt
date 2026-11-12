@@ -55,6 +55,8 @@ juce_add_binary_data(ProfilerAssets
 
 # Collect source files
 target_sources(${PLUGIN_NAME} PRIVATE
+    Src/ActionFeedback.cpp
+    Src/Components/ActionStatusBar.cpp
     Src/Components/CustomComboBox.cpp
     Src/Components/CustomImageButton.cpp
     Src/Components/CustomKnob.cpp

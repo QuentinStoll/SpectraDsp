@@ -21,6 +21,7 @@ class FxEditPanel : public juce::Component,
 
     void setStage(SignalChain::Stage stage, int chainSlot);
     void refreshBypass();
+    std::function<void(bool)> onEnabledChanged;
     void paint(juce::Graphics& g) override;
     void resized() override;
     void visibilityChanged() override;

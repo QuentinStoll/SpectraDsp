@@ -6,7 +6,7 @@ FormComboField::FormComboField(const juce::Identifier& fieldId, const juce::Stri
     setOptions(options);
 
     _comboBox.onChange = [this]() {
-        notifyValueChanged();
+        notifyValueChanged(getLabelText() + ": " + getSelectedText());
     };
 }
 

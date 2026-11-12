@@ -68,6 +68,7 @@ class MarketplaceAccountPanel : public juce::Component,
 
     void setBusy(bool busy);
     void showLogin(const juce::String& message);
+    void setStatus(const juce::String& message);
     void showCodeEntry();
     void showLibrary();
     void applyLoginResult(const Marketplace::LoginResult& result, bool fromCode);

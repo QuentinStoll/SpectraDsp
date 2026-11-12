@@ -1,5 +1,6 @@
 #include "Modules/StudioTopBar.h"
 
+#include "ActionFeedback.h"
 #include "Components/CustomLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
@@ -21,7 +22,9 @@ void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverBu
                                        isMouseOverButton,
                                        isButtonDown,
                                        getToggleState());
-        const auto iconColour = ProfilerStyle::Colors::text.withAlpha(isMouseOverButton ? 1.0f : 0.86f);
+        const auto iconColour = ProfilerStyle::Contrast::enabled
+                                    ? (isButtonDown || getToggleState() ? juce::Colours::black : juce::Colours::white)
+                                    : ProfilerStyle::Colors::text.withAlpha(isMouseOverButton ? 1.0f : 0.86f);
         if (_icon == Icon::Gear) {
             laf->drawGearIcon(g, bounds.reduced(7.0f), iconColour);
         } else {
@@ -149,6 +152,7 @@ void StudioTopBar::selectProfileFromMenu() {
         if (onPresetApplied) {
             onPresetApplied();
         }
+        ActionFeedback::post(*this, "Default chain selected.");
         return;
     }
 
@@ -160,11 +164,13 @@ void StudioTopBar::selectProfileFromMenu() {
         if (onPresetApplied) {
             onPresetApplied();
         }
+        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Preset loaded: " + _presetMenu.getText(), errorMessage.isNotEmpty());
     } else {
         if (onStatus && errorMessage.isNotEmpty()) {
             onStatus(errorMessage, false);
         }
         refreshProfileMenu();
+        ActionFeedback::post(*this, errorMessage.isNotEmpty() ? errorMessage : "Could not load the selected preset.", true);
     }
 }
 

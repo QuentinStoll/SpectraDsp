@@ -1,5 +1,6 @@
 #include "Components/FileDropZone.h"
 
+#include "ActionFeedback.h"
 #include "Stylesheet.h"
 
 namespace {
@@ -117,6 +118,7 @@ bool FileDropZone::tryLoadFile(const juce::File& file) {
 }
 
 void FileDropZone::chooseFile() {
+    ActionFeedback::post(*this, "Choose a file for " + _options.title + ".");
     _fileChooser = std::make_unique<juce::FileChooser>(_options.chooserTitle, juce::File{}, _options.filePattern);
     const juce::Component::SafePointer<FileDropZone> safeThis(this);
 
@@ -129,6 +131,8 @@ void FileDropZone::chooseFile() {
                                   const auto file = chooser.getResult();
                                   if (file.existsAsFile()) {
                                       safeThis->tryLoadFile(file);
+                                  } else {
+                                      ActionFeedback::post(*safeThis, safeThis->_options.title + " file selection cancelled.");
                                   }
                                   safeThis->_fileChooser.reset();
                               });
@@ -136,10 +140,12 @@ void FileDropZone::chooseFile() {
 
 void FileDropZone::unloadFile() {
     if (!isFileLoaded() || !_options.unloadFile) {
+        ActionFeedback::post(*this, "No file is loaded in " + _options.title + ".");
         return;
     }
 
     _options.unloadFile();
+    ActionFeedback::post(*this, _options.title + " file unloaded.");
     refresh();
     if (onChanged) {
         onChanged();

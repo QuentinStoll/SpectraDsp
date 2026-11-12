@@ -43,6 +43,9 @@ Reproducing the tone and dynamic behavior of real amplifiers is the project's lo
 - Arrange amp, cabinet, EQ, and pedal blocks on a two-row signal chain. The path stays serial, a type can be used more than once, and a block can be removed from the picker.
 - Create, edit, import, export, and delete `.profilerprofile` profiles containing parameter values and external asset paths.
 - Use a JUCE interface with **Clone**, **Play**, **Profil**, and settings views.
+- Enlarge text and controls through **Settings > General > Interface scale** (100%–200%). The choice is saved locally; scrollbars keep the interface reachable in smaller windows.
+- Enable **Settings > General > High contrast** for white text and outlines with yellow selection and focus indicators on black backgrounds. This preference is saved locally and updates open editors.
+- Enable **Settings > General > Action status messages** for a persistent, selectable message at the bottom of the window. It reports navigation, completed control adjustments, signal-chain edits, settings, file and profile operations, and capture/marketplace results. Messages wrap and remain available until the next action or **Clear**; the preference is saved locally.
 - Build a standalone application and a VST3 plugin on Windows, macOS, and Linux. macOS builds also produce an Audio Unit.
 
 ### Current limitations
