@@ -48,6 +48,7 @@ struct LibraryItem {
     juce::String id;
     juce::String title;
     juce::String authorName;
+    juce::String summary;
     juce::String fileUrl;
     juce::String irFileUrl;
     juce::String kind;

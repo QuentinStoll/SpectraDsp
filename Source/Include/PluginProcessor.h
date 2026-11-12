@@ -152,6 +152,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     SignalChain::ParallelRoute getParallelRoute() const noexcept;
     void setParallelRoute(const SignalChain::ParallelRoute& route);
     void clearParallelRoute();
+    SignalChain::ForkGraph getForkGraph() const;
+    void setForkGraph(const SignalChain::ForkGraph& graph);
 
    private:
     enum ChainPositions {
@@ -239,6 +241,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::atomic<std::uint32_t> _routeHeader{0};
     std::atomic<std::uint32_t> _routePathB{0};
     std::atomic<std::uint8_t> _routeBypass{0};
+    juce::CriticalSection _forkLock;
+    SignalChain::ForkGraph _forkGraph;
     std::unique_ptr<BranchWorker> _branchWorker;
     std::vector<float> _directInputLeft;
     std::vector<float> _directInputRight;
@@ -335,6 +339,12 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
                          float* right,
                          int numSamples,
                          float ampGain);
+    void processForkSequence(const SignalChain::Layout& layout,
+                             const SignalChain::ForkGraph& graph,
+                             float* left,
+                             float* right,
+                             int numSamples,
+                             float ampGain);
     static void runBranchJob(void* raw);
     void advanceCursor(const SignalChain::Layout& layout, int begin, int end, StageCursor& cursor) const noexcept;
     void noteStage(SignalChain::Stage stage, StageCursor& cursor) const noexcept;

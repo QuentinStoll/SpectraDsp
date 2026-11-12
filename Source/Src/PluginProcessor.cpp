@@ -601,9 +601,12 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     ensureAudioScratch(numSamples);
     const auto layout = SignalChain::Layout::fromPacked(_chainLayoutPacked.load(std::memory_order_relaxed));
+    const auto graph = getForkGraph();
     const auto route = getParallelRoute();
     const float ampGain = juce::Decibels::decibelsToGain(getParameterValue(_gainParam, 0.0f));
-    if (!route.active()) {
+    if (graph.forks.size() > 1) {
+        processForkSequence(layout, graph, left, right, numSamples, ampGain);
+    } else if (!route.active()) {
         BranchTask serial;
         serial.processor = this;
         serial.layout = layout;
@@ -616,7 +619,11 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         serial.ampGain = ampGain;
         processBranch(serial);
     } else {
-        processParallel(layout, route, left, right, numSamples, ampGain);
+        auto mixedRoute = route;
+        if (!graph.forks.empty()) {
+            mixedRoute.mix = graph.forks.front().mix;
+        }
+        processParallel(layout, mixedRoute, left, right, numSamples, ampGain);
     }
 
     _cabLowCutSmoothed.skip(numSamples);
@@ -707,6 +714,11 @@ void ProfilerAudioProcessor::setParallelRoute(const SignalChain::ParallelRoute& 
     _routeHeader.store(clean.packedHeader(), std::memory_order_relaxed);
     _routePathB.store(clean.packedPathB(), std::memory_order_relaxed);
     writeRouteState(_apvts.state, clean.packedHeader(), clean.packedPathB(), bypass);
+    {
+        const juce::ScopedLock lock(_forkLock);
+        clean.mix = juce::jlimit(0.0f, 1.0f, route.mix);
+        _forkGraph = SignalChain::graphFromRoute(clean);
+    }
     syncAmpCopies();
 }
 
@@ -715,6 +727,43 @@ void ProfilerAudioProcessor::clearParallelRoute() {
     _routePathB.store(0, std::memory_order_relaxed);
     _routeBypass.store(0, std::memory_order_relaxed);
     writeRouteState(_apvts.state, 0, 0, 0);
+    {
+        const juce::ScopedLock lock(_forkLock);
+        _forkGraph = {};
+    }
+    syncAmpCopies();
+}
+
+SignalChain::ForkGraph ProfilerAudioProcessor::getForkGraph() const {
+    const juce::ScopedLock lock(_forkLock);
+    return _forkGraph;
+}
+
+void ProfilerAudioProcessor::setForkGraph(const SignalChain::ForkGraph& graph) {
+    SignalChain::ForkGraph valid;
+    auto sorted = graph;
+    SignalChain::sortForks(sorted);
+    for (auto fork : sorted.forks) {
+        fork.mix = juce::jlimit(0.0f, 1.0f, fork.mix);
+        if (!SignalChain::forkIntervalFits(valid, fork.row, fork.splitGap, fork.mergeGap)) {
+            continue;
+        }
+        valid.forks.push_back(fork);
+    }
+    {
+        const juce::ScopedLock lock(_forkLock);
+        _forkGraph = valid;
+    }
+    if (valid.forks.empty()) {
+        _routeHeader.store(0, std::memory_order_relaxed);
+        _routePathB.store(0, std::memory_order_relaxed);
+        writeRouteState(_apvts.state, 0, 0, _routeBypass.load(std::memory_order_relaxed));
+    } else {
+        const auto route = SignalChain::routeFromFork(valid.forks.front());
+        _routeHeader.store(route.packedHeader(), std::memory_order_relaxed);
+        _routePathB.store(route.packedPathB(), std::memory_order_relaxed);
+        writeRouteState(_apvts.state, route.packedHeader(), route.packedPathB(), _routeBypass.load(std::memory_order_relaxed));
+    }
     syncAmpCopies();
 }
 
@@ -915,9 +964,11 @@ void ProfilerAudioProcessor::syncAmpCopies(bool force) {
     }
 
     int pathBAmps = 0;
-    for (const auto stage : getParallelRoute().pathB) {
-        if (stage == SignalChain::Stage::Amp) {
-            ++pathBAmps;
+    for (const auto& fork : getForkGraph().forks) {
+        for (int index = 0; index < fork.columnCount(); ++index) {
+            if (fork.laneAt(index) == SignalChain::Stage::Amp) {
+                ++pathBAmps;
+            }
         }
     }
     _spectraAmp.setInstanceCount(juce::jmax(1, getChainLayout().count(SignalChain::Stage::Amp) + pathBAmps));
@@ -1368,6 +1419,111 @@ void ProfilerAudioProcessor::processBranch(BranchTask& task) {
     }
 }
 
+void ProfilerAudioProcessor::processForkSequence(const SignalChain::Layout& layout,
+                                                 const SignalChain::ForkGraph& graph,
+                                                 float* left,
+                                                 float* right,
+                                                 int numSamples,
+                                                 float ampGain) {
+    auto ordered = graph;
+    SignalChain::sortForks(ordered);
+    int cursor = 0;
+    StageCursor stageCursor{};
+    ensureAudioScratch(numSamples);
+    for (const auto& fork : ordered.forks) {
+        const auto begin = SignalChain::movableForFork(fork.row, fork.splitGap);
+        const auto end = SignalChain::movableForFork(fork.row, fork.mergeGap);
+        if (begin < cursor || end <= begin || end > SignalChain::movableSlotCount) {
+            continue;
+        }
+        if (begin > cursor) {
+            BranchTask head;
+            head.processor = this;
+            head.layout = layout;
+            head.left = left;
+            head.right = right;
+            head.numSamples = numSamples;
+            head.begin = cursor;
+            head.end = begin;
+            head.sharedGain = true;
+            head.ampGain = ampGain;
+            head.cursor = stageCursor;
+            processBranch(head);
+            stageCursor = head.cursor;
+        }
+
+        auto& leftA = _splitLeft[0];
+        auto& rightA = _splitRight[0];
+        auto& leftB = _splitLeft[1];
+        auto& rightB = _splitRight[1];
+        std::copy(left, left + numSamples, leftA.begin());
+        if (right != nullptr) {
+            std::copy(right, right + numSamples, rightA.begin());
+        } else {
+            std::copy(left, left + numSamples, rightA.begin());
+        }
+        std::copy(leftA.begin(), leftA.begin() + numSamples, leftB.begin());
+        std::copy(rightA.begin(), rightA.begin() + numSamples, rightB.begin());
+
+        BranchTask pathA;
+        pathA.processor = this;
+        pathA.layout = layout;
+        pathA.left = leftA.data();
+        pathA.right = rightA.data();
+        pathA.numSamples = numSamples;
+        pathA.begin = begin;
+        pathA.end = end;
+        pathA.sharedGain = false;
+        pathA.ampGain = ampGain;
+        pathA.lane = 0;
+        pathA.cursor = stageCursor;
+        processBranch(pathA);
+
+        auto cursorB = stageCursor;
+        advanceCursor(layout, begin, end, cursorB);
+        BranchTask pathB;
+        pathB.processor = this;
+        pathB.layout = layout;
+        pathB.route = SignalChain::routeFromFork(fork);
+        pathB.left = leftB.data();
+        pathB.right = rightB.data();
+        pathB.numSamples = numSamples;
+        pathB.pathB = true;
+        pathB.sharedGain = false;
+        pathB.ampGain = ampGain;
+        pathB.lane = 1;
+        pathB.cursor = cursorB;
+        processBranch(pathB);
+
+        const auto mix = juce::jlimit(0.0f, 1.0f, fork.mix);
+        for (int sample = 0; sample < numSamples; ++sample) {
+            left[sample] = (1.0f - mix) * leftA[static_cast<size_t>(sample)] + mix * leftB[static_cast<size_t>(sample)];
+            if (right != nullptr) {
+                right[sample] = (1.0f - mix) * rightA[static_cast<size_t>(sample)] + mix * rightB[static_cast<size_t>(sample)];
+            }
+        }
+        stageCursor = pathA.cursor;
+        for (int index = 0; index < fork.columnCount(); ++index) {
+            noteStage(fork.laneAt(index), stageCursor);
+        }
+        cursor = end;
+    }
+    if (cursor < SignalChain::movableSlotCount) {
+        BranchTask tail;
+        tail.processor = this;
+        tail.layout = layout;
+        tail.left = left;
+        tail.right = right;
+        tail.numSamples = numSamples;
+        tail.begin = cursor;
+        tail.end = SignalChain::movableSlotCount;
+        tail.sharedGain = true;
+        tail.ampGain = ampGain;
+        tail.cursor = stageCursor;
+        processBranch(tail);
+    }
+}
+
 void ProfilerAudioProcessor::processParallel(const SignalChain::Layout& layout,
                                              const SignalChain::ParallelRoute& route,
                                              float* left,
@@ -1487,12 +1643,15 @@ void ProfilerAudioProcessor::processParallel(const SignalChain::Layout& layout,
     const float levelB = juce::Decibels::decibelsToGain(getParameterValue(_routeBLevelParam, 0.0f)) *
                          (getParameterValue(_routeBPolarityParam, 0.0f) > 0.5f ? -1.0f : 1.0f);
     const float levelMerge = juce::Decibels::decibelsToGain(getParameterValue(_routeLevelParam, 0.0f));
+    const float forkMix = juce::jlimit(0.0f, 1.0f, route.mix);
+    const float mixA = runA && runB ? 1.0f - forkMix : 1.0f;
+    const float mixB = runA && runB ? forkMix : 1.0f;
     for (int sample = 0; sample < numSamples; ++sample) {
-        const auto mixedL = (leftA[static_cast<size_t>(sample)] * balanceAL * levelA +
-                             leftB[static_cast<size_t>(sample)] * balanceBL * levelB) *
+        const auto mixedL = (mixA * leftA[static_cast<size_t>(sample)] * balanceAL * levelA +
+                             mixB * leftB[static_cast<size_t>(sample)] * balanceBL * levelB) *
                             levelMerge;
-        const auto mixedR = (rightA[static_cast<size_t>(sample)] * balanceAR * levelA +
-                             rightB[static_cast<size_t>(sample)] * balanceBR * levelB) *
+        const auto mixedR = (mixA * rightA[static_cast<size_t>(sample)] * balanceAR * levelA +
+                             mixB * rightB[static_cast<size_t>(sample)] * balanceBR * levelB) *
                             levelMerge;
         left[sample] = mixedL;
         if (right != nullptr) {

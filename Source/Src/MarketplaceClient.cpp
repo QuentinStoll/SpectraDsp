@@ -194,6 +194,10 @@ LibraryItem parseItem(const juce::var& item) {
     libraryItem.id = jsonString(item, "id");
     libraryItem.title = jsonString(item, "title");
     libraryItem.authorName = jsonString(item, "authorName");
+    libraryItem.summary = jsonString(item, "description");
+    if (libraryItem.summary.isEmpty()) {
+        libraryItem.summary = jsonString(item, "summary");
+    }
     libraryItem.fileUrl = jsonString(item, "fileUrl");
     libraryItem.irFileUrl = jsonString(item, "irFileUrl");
     libraryItem.hasIntegratedIr = jsonBool(item, "hasIntegratedIr", false);

@@ -251,6 +251,23 @@ SignalChainStrip::RouteNode::RouteNode() : juce::Button({}) {
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
 }
 
+void SignalChainStrip::RouteNode::mouseDrag(const juce::MouseEvent& event) {
+    _dragging = true;
+    if (onNodeDrag) {
+        onNodeDrag(event);
+    }
+}
+
+void SignalChainStrip::RouteNode::mouseUp(const juce::MouseEvent& event) {
+    if (_dragging && onNodeDragEnd) {
+        _dragging = false;
+        onNodeDragEnd();
+        return;
+    }
+    _dragging = false;
+    juce::Button::mouseUp(event);
+}
+
 void SignalChainStrip::RouteNode::paintButton(juce::Graphics& g, bool isMouseOverButton, bool) {
     auto bounds = getLocalBounds().toFloat().reduced(7.0f);
     g.setColour(isMouseOverButton ? ProfilerStyle::Colors::accent : juce::Colour(0xffF4F4F5));
@@ -354,6 +371,19 @@ SignalChainStrip::SignalChainStrip() {
             _dragActive = false;
             _dragToPathB = false;
             _dropSlot = -1;
+            _dragFrom = {};
+            int visual = 0;
+            for (const auto& fork : _forks.forks) {
+                for (int column = fork.splitGap; column < fork.mergeGap; ++column) {
+                    if (visual == index) {
+                        _dragFrom.laneB = true;
+                        _dragFrom.row = fork.row;
+                        _dragFrom.column = column;
+                        _dragFrom.forkId = fork.id;
+                    }
+                    ++visual;
+                }
+            }
             _dragStart = event.getEventRelativeTo(this).getPosition();
             _dragOrigin = _pathB[static_cast<size_t>(index)].getBounds();
         };
@@ -361,16 +391,62 @@ SignalChainStrip::SignalChainStrip() {
         block.onDragEnd = [this](const juce::MouseEvent& event) { finishBlockDrag(event); };
     }
 
-    addAndMakeVisible(_splitNode);
-    addAndMakeVisible(_mergeNode);
-    _splitNode.setVisible(false);
-    _mergeNode.setVisible(false);
-    _splitNode.onClick = [this]() {
-        if (onEditRouteMix) {
-            onEditRouteMix();
-        }
-    };
-    _mergeNode.onClick = _splitNode.onClick;
+    for (int index = 0; index < kMaxForkHandles; ++index) {
+        auto bind = [this, index](RouteNode& node, bool split) {
+            addAndMakeVisible(node);
+            node.setVisible(false);
+            node.split = split;
+            node.onClick = [this, index, split]() {
+                if (onEditRouteMix) {
+                    onEditRouteMix();
+                }
+                juce::ignoreUnused(index, split);
+            };
+            node.onNodeDrag = [this, index, split, &node](const juce::MouseEvent& event) {
+                const auto id = split ? _splitNodes[static_cast<size_t>(index)].forkId
+                                      : _mergeNodes[static_cast<size_t>(index)].forkId;
+                if (id < 0) {
+                    return;
+                }
+                const SignalChain::Bifurcation* fork = nullptr;
+                for (const auto& candidate : _forks.forks) {
+                    if (candidate.id == id) {
+                        fork = &candidate;
+                    }
+                }
+                if (fork == nullptr) {
+                    return;
+                }
+                const auto gap = gapAtX(fork->row, event.getEventRelativeTo(this).getPosition().x);
+                const auto clamped = split ? SignalChain::clampSplit(_forks, id, gap) : SignalChain::clampMerge(_forks, id, gap);
+                const auto x = juce::roundToInt(gapCentreX(fork->row, clamped));
+                auto bounds = node.getBounds();
+                bounds.setCentre(x, bounds.getCentreY());
+                node.setBounds(bounds);
+            };
+            node.onNodeDragEnd = [this, index, split]() {
+                const auto id = split ? _splitNodes[static_cast<size_t>(index)].forkId
+                                      : _mergeNodes[static_cast<size_t>(index)].forkId;
+                if (id < 0 || onForkEdgeMoved == nullptr) {
+                    return;
+                }
+                const SignalChain::Bifurcation* fork = nullptr;
+                for (const auto& candidate : _forks.forks) {
+                    if (candidate.id == id) {
+                        fork = &candidate;
+                    }
+                }
+                if (fork == nullptr) {
+                    return;
+                }
+                const auto gap = split ? gapAtX(fork->row, _splitNodes[static_cast<size_t>(index)].getBounds().getCentreX())
+                                       : gapAtX(fork->row, _mergeNodes[static_cast<size_t>(index)].getBounds().getCentreX());
+                onForkEdgeMoved(id, split, gap);
+            };
+        };
+        bind(_splitNodes[static_cast<size_t>(index)], true);
+        bind(_mergeNodes[static_cast<size_t>(index)], false);
+    }
 
     auto addFlowNode = [](SignalChainBlock& block, SignalChainBlock::FlowMark mark) {
         block.setIoNode(true);
@@ -394,20 +470,33 @@ SignalChainStrip::SignalChainStrip() {
 void SignalChainStrip::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
     auto* laf = dynamic_cast<CustomLookAndFeel*>(&getLookAndFeel());
+    auto drawEmptySlot = [&](juce::Rectangle<float> bounds) {
+        if (laf != nullptr) {
+            laf->drawEmptySignalSlot(g, bounds);
+            return;
+        }
+        g.setColour(ProfilerStyle::Colors::border.withAlpha(0.55f));
+        const auto side = juce::jmin(bounds.getWidth(), bounds.getHeight()) / 2.5f;
+        g.drawRoundedRectangle(bounds.withSizeKeepingCentre(side, side), 3.0f, 1.2f);
+    };
 
     for (int slot = 0; slot < kSlotCount; ++slot) {
         if (isOccupiedSlot(slot) || _slotBounds[static_cast<size_t>(slot)].isEmpty()) {
             continue;
         }
+        drawEmptySlot(_slotBounds[static_cast<size_t>(slot)].toFloat());
+    }
 
-        if (laf != nullptr) {
-            laf->drawEmptySignalSlot(g, _slotBounds[static_cast<size_t>(slot)].toFloat());
-        } else {
-            g.setColour(ProfilerStyle::Colors::border.withAlpha(0.55f));
-            auto outline = _slotBounds[static_cast<size_t>(slot)].toFloat();
-            const auto side = juce::jmin(outline.getWidth(), outline.getHeight()) / 2.5f;
-            g.drawRoundedRectangle(outline.withSizeKeepingCentre(side, side), 3.0f, 1.2f);
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        const auto bounds = _pathBBounds[static_cast<size_t>(index)];
+        if (bounds.isEmpty()) {
+            continue;
         }
+        const auto& block = _pathB[static_cast<size_t>(index)];
+        if (block.isVisible() && block.getBounds() == bounds) {
+            continue;
+        }
+        drawEmptySlot(bounds.toFloat());
     }
 
     if (SignalChain::isMovableSlot(_dropSlot)) {
@@ -416,64 +505,72 @@ void SignalChainStrip::paint(juce::Graphics& g) {
         g.drawRoundedRectangle(dropBounds, 6.0f, 1.6f);
     }
 
-    if (!_route.active() || !_splitNode.isVisible()) {
-        return;
+    if (_previewFork) {
+        const auto row = _hoverPreview.target.row;
+        const auto column = _hoverPreview.target.column;
+        const auto slot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(row, column));
+        const auto columnBounds = _slotBounds[static_cast<size_t>(slot)];
+        const auto laneTop = _laneTopForRow[row] >= 0 ? _laneTopForRow[row] : columnBounds.getBottom() + 8;
+        auto ghost = columnBounds.withY(laneTop);
+        g.setColour(juce::Colours::white.withAlpha(0.28f));
+        g.drawRoundedRectangle(ghost.toFloat().reduced(4.0f), 6.0f, 1.4f);
+        const auto splitX = gapCentreX(row, column);
+        const auto mergeX = gapCentreX(row, column + 1);
+        const auto anchorY = static_cast<float>(columnBounds.getCentreY());
+        const auto laneY = static_cast<float>(laneTop + columnBounds.getHeight() / 2);
+        g.setColour(juce::Colours::white.withAlpha(0.45f));
+        g.drawLine(splitX, anchorY, splitX, laneY, 1.3f);
+        g.drawLine(splitX, laneY, mergeX, laneY, 1.3f);
+        g.drawLine(mergeX, laneY, mergeX, anchorY, 1.3f);
     }
 
-    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-        if (_route.pathBAt(index) != SignalChain::Stage::Empty) {
+    for (const auto& fork : _forks.forks) {
+        if (fork.columnCount() <= 0) {
             continue;
         }
-        const auto bounds = _pathBBounds[static_cast<size_t>(index)];
-        if (bounds.isEmpty()) {
-            continue;
-        }
-        if (laf != nullptr) {
-            laf->drawEmptySignalSlot(g, bounds.toFloat());
-        }
+        const auto firstSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, fork.splitGap));
+        const auto lastSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, fork.mergeGap - 1));
+        const auto anchorY = static_cast<float>(_slotBounds[static_cast<size_t>(firstSlot)].getCentreY());
+        const auto laneTop = _laneTopForRow[fork.row] >= 0 ? _laneTopForRow[fork.row]
+                                                           : _slotBounds[static_cast<size_t>(firstSlot)].getBottom() + 8;
+        const auto laneY = static_cast<float>(laneTop + _slotBounds[static_cast<size_t>(firstSlot)].getHeight() / 2);
+        const auto splitX = gapCentreX(fork.row, fork.splitGap);
+        const auto mergeX = gapCentreX(fork.row, fork.mergeGap);
+        g.setColour(juce::Colour(0xffF4F4F5).withAlpha(0.9f));
+        g.drawLine(splitX, anchorY, splitX, laneY, 1.3f);
+        g.drawLine(splitX, laneY, mergeX, laneY, 1.3f);
+        g.drawLine(mergeX, static_cast<float>(_slotBounds[static_cast<size_t>(lastSlot)].getCentreY()), mergeX, laneY, 1.3f);
     }
-
-    const auto split = _splitNode.getBounds().toFloat().getCentre();
-    const auto merge = _mergeNode.getBounds().toFloat().getCentre();
-    const auto laneY = static_cast<float>(_laneTop) + static_cast<float>(_laneSquare) * 0.5f;
-    g.setColour(juce::Colour(0xffF4F4F5).withAlpha(0.9f));
-    g.drawLine(split.x, split.y, split.x, laneY, 1.3f);
-    g.drawLine(split.x, laneY, merge.x, laneY, 1.3f);
-    g.drawLine(merge.x, laneY, merge.x, merge.y, 1.3f);
 }
 
 int SignalChainStrip::parallelRow() const noexcept {
-    if (!_route.active()) {
+    if (_forks.forks.empty()) {
         return -1;
     }
-    const auto first = juce::jmax(0, _route.splitAfter + 1);
-    return SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(first));
+    return _forks.forks.front().row;
 }
 
 void SignalChainStrip::resized() {
     auto area = getLocalBounds().reduced(4, 8);
-    const auto laneRow = parallelRow();
-    const auto bands = laneRow >= 0 ? 3 : SignalChain::rowCount;
+    // The two rows always sit with one lane between them, which is the spacing a split
+    // uses. Creating a split then only draws into that lane.
+    constexpr int bands = 3;
     const auto slotWidth = area.getWidth() / static_cast<float>(SignalChain::columnsPerRow);
     constexpr int kRowGap = 16;
     const auto squareByWidth = juce::jlimit(44, 78, juce::roundToInt(slotWidth) - 16);
     const auto squareByHeight = juce::jmax(34, (area.getHeight() - kRowGap * (bands - 1)) / bands);
     const auto square = juce::jmin(squareByWidth, squareByHeight);
     const auto contentHeight = square * bands + kRowGap * (bands - 1);
-    const auto top = area.getY() + juce::jmax(0, (area.getHeight() - contentHeight) / 2);
+    const auto extra = juce::jmax(0, area.getHeight() - contentHeight);
+    const auto laneRoom = square + kRowGap;
+    const auto top = area.getY() + (extra >= laneRoom ? (extra - laneRoom) / 2 : extra / 2);
     const auto bandY = [top, square](int band) { return top + band * (square + kRowGap); };
 
-    int serialBand[2] = {0, 1};
-    if (laneRow == 0) {
-        serialBand[1] = 2;
-        _laneTop = bandY(1);
-    } else if (laneRow == 1) {
-        serialBand[1] = 1;
-        _laneTop = bandY(2);
-    } else {
-        _laneTop = 0;
-    }
-    _laneSquare = laneRow >= 0 ? square : 0;
+    const int serialBand[2] = {0, 2};
+    _laneTopForRow[0] = bandY(1);
+    _laneTopForRow[1] = bandY(2) + square + kRowGap;
+    _laneTop = _laneTopForRow[0];
+    _laneSquare = square;
 
     for (int chainSlot = 0; chainSlot < SignalChain::slotCount; ++chainSlot) {
         const auto row = SignalChain::visualRow(chainSlot);
@@ -540,88 +637,83 @@ void SignalChainStrip::placeBlocks() {
 
 void SignalChainStrip::layoutParallelLane() {
     _pathBBounds.fill({});
-    if (!_route.active() || _laneSquare <= 0) {
-        _splitNode.setVisible(false);
-        _mergeNode.setVisible(false);
+    if (_forks.forks.empty() || _laneSquare <= 0) {
+        for (auto& node : _splitNodes) {
+            node.setVisible(false);
+        }
+        for (auto& node : _mergeNodes) {
+            node.setVisible(false);
+        }
         for (auto& block : _pathB) {
             block.setVisible(false);
         }
         return;
     }
 
-    const auto first = juce::jmax(0, _route.splitAfter + 1);
-    auto last = _route.mergeAfter;
-    const auto row = SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(first));
-    while (last > first && SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(last)) != row) {
-        --last;
-    }
+    const auto& primary = _forks.forks.front();
+    const auto first = SignalChain::movableForFork(primary.row, primary.splitGap);
+    const auto last = SignalChain::movableForFork(primary.row, primary.mergeGap - 1);
     auto centreOf = [this](int index) {
         return _slotBounds[static_cast<size_t>(SignalChain::chainSlotForMovableIndex(index))].getCentre();
     };
     const auto anchor = centreOf(first);
     const auto current = centreOf(last);
-    const auto before = _route.splitAfter >= 0 &&
-                                SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(_route.splitAfter)) == row
-                            ? centreOf(_route.splitAfter)
-                            : _slotBounds[static_cast<size_t>(row == 0 ? SignalChain::inputSlot : SignalChain::returnSlot)]
-                                  .getCentre();
-    const auto after = last + 1 < SignalChain::movableSlotCount &&
-                               SignalChain::visualRow(SignalChain::chainSlotForMovableIndex(last + 1)) == row
-                           ? centreOf(last + 1)
-                           : _slotBounds[static_cast<size_t>(row == 0 ? SignalChain::downSlot : SignalChain::outputSlot)]
-                                 .getCentre();
-    const auto split = juce::Point<int>((before.x + anchor.x) / 2, anchor.y);
-    const auto merge = juce::Point<int>((current.x + after.x) / 2, current.y);
+    juce::ignoreUnused(anchor, current);
+    const auto split = juce::Point<int>(juce::roundToInt(gapCentreX(primary.row, primary.splitGap)), anchor.y);
+    const auto merge = juce::Point<int>(juce::roundToInt(gapCentreX(primary.row, primary.mergeGap)), current.y);
     constexpr int node = 28;
-    _splitNode.setBounds(split.x - node / 2, split.y - node / 2, node, node);
-    _mergeNode.setBounds(merge.x - node / 2, merge.y - node / 2, node, node);
-    _splitNode.setVisible(true);
-    _mergeNode.setVisible(true);
-    _splitNode.toFront(false);
-    _mergeNode.toFront(false);
+    int handle = 0;
+    for (const auto& fork : _forks.forks) {
+        if (handle >= kMaxForkHandles) {
+            break;
+        }
+        const auto splitPoint = juce::Point<int>(juce::roundToInt(gapCentreX(fork.row, fork.splitGap)),
+                                                 _slotBounds[static_cast<size_t>(SignalChain::chainSlotForMovableIndex(
+                                                                 SignalChain::movableForFork(fork.row, fork.splitGap)))]
+                                                     .getCentreY());
+        const auto mergePoint = juce::Point<int>(juce::roundToInt(gapCentreX(fork.row, fork.mergeGap)),
+                                                 _slotBounds[static_cast<size_t>(SignalChain::chainSlotForMovableIndex(
+                                                                 SignalChain::movableForFork(fork.row, fork.mergeGap - 1)))]
+                                                     .getCentreY());
+        auto& splitNode = _splitNodes[static_cast<size_t>(handle)];
+        auto& mergeNode = _mergeNodes[static_cast<size_t>(handle)];
+        splitNode.forkId = fork.id;
+        mergeNode.forkId = fork.id;
+        splitNode.setBounds(splitPoint.x - node / 2, splitPoint.y - node / 2, node, node);
+        mergeNode.setBounds(mergePoint.x - node / 2, mergePoint.y - node / 2, node, node);
+        splitNode.setVisible(true);
+        mergeNode.setVisible(true);
+        splitNode.toFront(false);
+        mergeNode.toFront(false);
+        ++handle;
+    }
+    juce::ignoreUnused(split, merge);
 
-    int shown = _route.occupiedPathB();
-    if (shown < SignalChain::ParallelRoute::pathBCount) {
-        ++shown;
-    }
-    shown = juce::jmax(1, shown);
-    const auto span = juce::jmax(1, merge.x - split.x);
-    auto blockSize = juce::jmin(_laneSquare, (span / shown) - 8);
-    if (blockSize < 30 && shown > _route.occupiedPathB()) {
-        shown = juce::jmax(1, _route.occupiedPathB());
-        blockSize = juce::jmin(_laneSquare, (span / shown) - 8);
-    }
-    blockSize = juce::jmax(28, blockSize);
-    const auto step = span / shown;
     int visual = 0;
-    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-        auto& block = _pathB[static_cast<size_t>(index)];
-        const auto stage = _route.pathBAt(index);
-        if (stage == SignalChain::Stage::Empty) {
-            block.setVisible(false);
-            continue;
-        }
-        const auto centreX = split.x + step * visual + step / 2;
-        _pathBBounds[static_cast<size_t>(index)] = {centreX - blockSize / 2, _laneTop, blockSize, blockSize};
-        ++visual;
-        if (_dragActive && _dragPathBIndex == index) {
-            block.setVisible(true);
-            continue;
-        }
-        const auto appearance = appearanceFor(stage);
-        block.setAppearance(appearance.colour, appearance.icon);
-        block.setCaption(Fx::captionFor(stage));
-        block.setBounds(_pathBBounds[static_cast<size_t>(index)]);
-        block.setVisible(true);
-    }
-    if (visual < shown) {
-        const auto centreX = split.x + step * visual + step / 2;
-        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-            if (_route.pathBAt(index) == SignalChain::Stage::Empty) {
-                _pathBBounds[static_cast<size_t>(index)] = {centreX - blockSize / 2, _laneTop, blockSize, blockSize};
-                break;
+    for (const auto& fork : _forks.forks) {
+        for (int column = fork.splitGap; column < fork.mergeGap && visual < SignalChain::ParallelRoute::pathBCount; ++column) {
+            auto& block = _pathB[static_cast<size_t>(visual)];
+            const auto columnSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, column));
+            const auto columnBounds = _slotBounds[static_cast<size_t>(columnSlot)];
+            const auto laneTop = _laneTopForRow[fork.row] >= 0 ? _laneTopForRow[fork.row] : columnBounds.getBottom() + 8;
+            _pathBBounds[static_cast<size_t>(visual)] = {columnBounds.getX(), laneTop, columnBounds.getWidth(), columnBounds.getHeight()};
+            const auto stage = fork.laneAt(column - fork.splitGap);
+            if (stage == SignalChain::Stage::Empty || (_dragActive && _dragPathBIndex == visual)) {
+                block.setVisible(stage != SignalChain::Stage::Empty);
+                ++visual;
+                continue;
             }
+            const auto appearance = appearanceFor(stage);
+            block.setAppearance(appearance.colour, appearance.icon);
+            block.setCaption(Fx::captionFor(stage));
+            block.setBounds(_pathBBounds[static_cast<size_t>(visual)]);
+            block.setVisible(true);
+            ++visual;
         }
+    }
+    for (int index = visual; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        _pathB[static_cast<size_t>(index)].setVisible(false);
+        _pathBBounds[static_cast<size_t>(index)] = {};
     }
 }
 
@@ -786,6 +878,19 @@ void SignalChainStrip::setIoMeterLevels(float inputDb, float outputDb) {
 void SignalChainStrip::setRoute(const SignalChain::ParallelRoute& route) {
     const auto previousRow = parallelRow();
     _route = route;
+    _forks = SignalChain::graphFromRoute(route);
+    if (previousRow != parallelRow()) {
+        resized();
+    } else {
+        placeBlocks();
+        repaint();
+    }
+}
+
+void SignalChainStrip::setForks(const SignalChain::ForkGraph& graph) {
+    const auto previousRow = parallelRow();
+    _forks = graph;
+    _route = graph.forks.empty() ? SignalChain::ParallelRoute{} : SignalChain::routeFromFork(graph.forks.front());
     if (previousRow != parallelRow()) {
         resized();
     } else {
@@ -996,6 +1101,123 @@ void SignalChainStrip::startEffectDrag(int movableIndex, const juce::MouseEvent&
     _dragOrigin = _effects[static_cast<size_t>(movableIndex)].getBounds();
 }
 
+float SignalChainStrip::gapCentreX(int row, int gap) const noexcept {
+    auto centreX = [this](int rowIndex, int column) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(rowIndex, column));
+        return static_cast<float>(_slotBounds[static_cast<size_t>(slot)].getCentreX());
+    };
+    auto width = [this](int rowIndex) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(rowIndex, 0));
+        return static_cast<float>(_slotBounds[static_cast<size_t>(slot)].getWidth());
+    };
+    if (gap <= 0) {
+        return centreX(row, 0) - width(row) * 0.5f;
+    }
+    if (gap >= SignalChain::forkColumns) {
+        return centreX(row, SignalChain::forkColumns - 1) + width(row) * 0.5f;
+    }
+    return (centreX(row, gap - 1) + centreX(row, gap)) * 0.5f;
+}
+
+int SignalChainStrip::gapAtX(int row, int x) const noexcept {
+    int best = 0;
+    auto bestDistance = std::numeric_limits<float>::max();
+    for (int gap = 0; gap <= SignalChain::forkColumns; ++gap) {
+        const auto distance = std::abs(gapCentreX(row, gap) - static_cast<float>(x));
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = gap;
+        }
+    }
+    return best;
+}
+
+int SignalChainStrip::laneYForRow(int row) const noexcept {
+    if (row >= 0 && row < 2 && _laneTopForRow[row] >= 0) {
+        return _laneTopForRow[row] + juce::jmax(0, _laneSquare) / 2;
+    }
+    const auto slot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(juce::jlimit(0, 1, row), 0));
+    return _slotBounds[static_cast<size_t>(slot)].getBottom() + 8;
+}
+
+bool SignalChainStrip::hoverTarget(juce::Point<int> position, int& row, int& column, bool& laneB) const noexcept {
+    int nearest = -1;
+    auto best = std::numeric_limits<float>::max();
+    for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
+        const auto slot = SignalChain::chainSlotForMovableIndex(index);
+        const auto bounds = _slotBounds[static_cast<size_t>(slot)];
+        if (bounds.isEmpty()) {
+            continue;
+        }
+        const auto distance = bounds.getCentre().toFloat().getDistanceFrom(position.toFloat());
+        if (distance < best) {
+            best = distance;
+            nearest = index;
+        }
+    }
+    if (nearest < 0) {
+        return false;
+    }
+    row = SignalChain::forkRowForMovable(nearest);
+    column = SignalChain::forkColumnForMovable(nearest);
+    const auto slot = _slotBounds[static_cast<size_t>(SignalChain::chainSlotForMovableIndex(nearest))];
+    const auto laneTop = _laneTopForRow[row] >= 0 ? _laneTopForRow[row] : slot.getBottom() + 4;
+    const auto laneBounds = slot.withY(laneTop);
+    if (laneBounds.expanded(10, 16).contains(position) && position.y > slot.getCentreY()) {
+        laneB = true;
+        return true;
+    }
+    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
+        if (_pathBBounds[static_cast<size_t>(index)].expanded(8).contains(position)) {
+            int visual = 0;
+            for (const auto& fork : _forks.forks) {
+                for (int forkColumn = fork.splitGap; forkColumn < fork.mergeGap; ++forkColumn) {
+                    if (visual == index) {
+                        row = fork.row;
+                        column = forkColumn;
+                        laneB = true;
+                        return true;
+                    }
+                    ++visual;
+                }
+            }
+        }
+    }
+    laneB = false;
+    return slot.expanded(12).contains(position) || best < static_cast<float>(slot.getWidth());
+}
+
+void SignalChainStrip::updateHover(juce::Point<int> position) {
+    int row = 0;
+    int column = 0;
+    bool laneB = false;
+    _previewFork = false;
+    _previewForbidden = false;
+    _hoverPreview = {};
+    if (_swapPreviewSlot >= 0) {
+        const auto restore = SignalChain::chainSlotForMovableIndex(_swapPreviewSlot);
+        if (SignalChain::isMovableSlot(restore)) {
+            _effects[static_cast<size_t>(_swapPreviewSlot)].setBounds(_slotBounds[static_cast<size_t>(restore)]);
+        }
+        _swapPreviewSlot = -1;
+    }
+    if (!hoverTarget(position, row, column, laneB)) {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+        return;
+    }
+    _hoverPreview = SignalChain::previewDrop(_layout, _forks, row, column, laneB);
+    _previewFork = _hoverPreview.kind == SignalChain::DropKind::NewFork;
+    _previewForbidden = laneB && _hoverPreview.kind == SignalChain::DropKind::Forbidden;
+    setMouseCursor(_previewForbidden ? juce::MouseCursor::NoCursor : juce::MouseCursor::DraggingHandCursor);
+    if (_hoverPreview.kind == SignalChain::DropKind::Slot && _hoverPreview.swap && !_hoverPreview.target.laneB) {
+        const auto index = SignalChain::movableForFork(_hoverPreview.target.row, _hoverPreview.target.column);
+        if (index != _dragMovableIndex && index >= 0 && index < SignalChain::movableSlotCount) {
+            _effects[static_cast<size_t>(index)].setBounds(_dragOrigin);
+            _swapPreviewSlot = index;
+        }
+    }
+}
+
 void SignalChainStrip::updateBlockDrag(const juce::MouseEvent& event) {
     if (!_dragTracking || (_dragMovableIndex < 0 && _dragPathBIndex < 0)) {
         return;
@@ -1007,43 +1229,22 @@ void SignalChainStrip::updateBlockDrag(const juce::MouseEvent& event) {
     }
 
     const auto delta = position - _dragStart;
-    if (_dragPathBIndex >= 0) {
-        auto& branch = _pathB[static_cast<size_t>(_dragPathBIndex)];
-        if (!_dragActive) {
-            _dragActive = true;
-            branch.toFront(false);
-        }
-        branch.setBounds(_dragOrigin.translated(delta.x, delta.y));
-        const bool upward = delta.y < -kDragDownThresholdPx && std::abs(delta.y) > std::abs(delta.x);
-        _dropSlot = upward ? nearestMovableSlot(position) : -1;
-        repaint();
-        return;
-    }
-
-    auto& block = _effects[static_cast<size_t>(_dragMovableIndex)];
+    auto& dragged = _dragPathBIndex >= 0 ? _pathB[static_cast<size_t>(_dragPathBIndex)]
+                                         : _effects[static_cast<size_t>(_dragMovableIndex)];
     if (!_dragActive) {
         _dragActive = true;
-        block.toFront(false);
-        selectChainSlot(_dragChainSlot);
+        dragged.toFront(false);
+        if (_dragChainSlot >= 0) {
+            selectChainSlot(_dragChainSlot);
+        }
+        if (_dragMovableIndex >= 0) {
+            _dragFrom.laneB = false;
+            _dragFrom.row = SignalChain::forkRowForMovable(_dragMovableIndex);
+            _dragFrom.column = SignalChain::forkColumnForMovable(_dragMovableIndex);
+        }
     }
-    _dragToPathB = delta.y > kDragDownThresholdPx && delta.y > std::abs(delta.x);
-    if (_dragToPathB) {
-        auto preview = _dragOrigin;
-        const auto laneY = _laneSquare > 0 ? _laneTop + _laneSquare / 2 : _dragOrigin.getBottom() + _dragOrigin.getHeight() / 2 + 10;
-        preview.setCentre(_dragOrigin.getCentreX(), laneY);
-        block.setBounds(preview);
-        _dropSlot = -1;
-        repaint();
-        return;
-    }
-
-    auto bounds = _dragOrigin.translated(delta.x, 0);
-    const auto area = movableDragArea();
-    if (!area.isEmpty()) {
-        bounds.setCentre(area.getConstrainedPoint(bounds.getCentre()).x, _dragOrigin.getCentreY());
-    }
-    block.setBounds(bounds);
-    _dropSlot = nearestMovableSlot(bounds.getCentre());
+    dragged.setBounds(_dragOrigin.translated(delta.x, delta.y));
+    updateHover(position);
     repaint();
 }
 
@@ -1052,34 +1253,28 @@ void SignalChainStrip::finishBlockDrag(const juce::MouseEvent&) {
         return;
     }
 
+    const auto preview = _hoverPreview;
+    const auto from = _dragFrom;
     const auto wasDragging = _dragActive;
-    const auto dropSlot = _dropSlot;
-    const auto fromSlot = _dragChainSlot;
-    const auto movableIndex = _dragMovableIndex;
-    const auto pathBIndex = _dragPathBIndex;
-    const auto toPathB = _dragToPathB;
     _dragTracking = false;
     _dragActive = false;
     _dragToPathB = false;
+    _previewFork = false;
+    _previewForbidden = false;
     _dropSlot = -1;
     _dragMovableIndex = -1;
     _dragChainSlot = -1;
     _dragPathBIndex = -1;
+    _swapPreviewSlot = -1;
 
-    if (wasDragging && pathBIndex >= 0 && SignalChain::isMovableSlot(dropSlot) && onPathBReturned) {
-        onPathBReturned(pathBIndex, dropSlot);
-    } else if (wasDragging && toPathB && movableIndex >= 0 && onBlockDraggedDown) {
-        onBlockDraggedDown(movableIndex);
-    } else if (wasDragging && SignalChain::isMovableSlot(dropSlot)) {
-        commitDrop(fromSlot, dropSlot);
+    if (wasDragging && preview.kind != SignalChain::DropKind::Forbidden && onRouteDrop) {
+        onRouteDrop(from, preview);
     }
 
     placeBlocks();
     updateBusLayer();
     _busLayer.toBack();
-    if (movableIndex >= 0 && _effects[static_cast<size_t>(movableIndex)].isVisible()) {
-        _effects[static_cast<size_t>(movableIndex)].toFront(false);
-    }
+    setMouseCursor(juce::MouseCursor::NormalCursor);
     repaint();
 }
 

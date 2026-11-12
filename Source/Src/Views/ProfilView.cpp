@@ -14,21 +14,26 @@ std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marke
         ProfileCatalog::Listing listing;
         listing.id = item.id;
         listing.title = item.title;
+        listing.author = item.authorName;
+        listing.summary = item.summary;
         listing.conditionProfile = Marketplace::conditionProfileIndex(item.conditionProfile);
         listing.conditionAmount = item.conditionAmount;
         if (item.kind == "ir") {
             listing.kind = ProfileCatalog::Kind::Ir;
+            listing.badge = "IR";
             listings.push_back(listing);
             continue;
         }
 
         listing.kind = ProfileCatalog::Kind::Amp;
+        listing.badge = item.hasIntegratedIr || item.hasSeparateIr ? "AMP + IR" : "AMP";
         listings.push_back(listing);
         if (item.hasSeparateIr && !item.hasIntegratedIr) {
             ProfileCatalog::Listing impulse = listing;
             impulse.id = item.id + "-cab";
             impulse.title = item.title + " IR";
             impulse.kind = ProfileCatalog::Kind::Ir;
+            impulse.badge = "IR";
             impulse.conditionProfile = 0;
             impulse.conditionAmount = 0.0f;
             listings.push_back(impulse);

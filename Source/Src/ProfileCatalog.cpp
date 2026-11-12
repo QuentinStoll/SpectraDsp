@@ -13,6 +13,9 @@ const juce::Identifier kindId{"kind"};
 const juce::Identifier conditionProfileId{"conditionProfile"};
 const juce::Identifier conditionAmountId{"conditionAmount"};
 const juce::Identifier localId{"local"};
+const juce::Identifier authorId{"author"};
+const juce::Identifier summaryId{"summary"};
+const juce::Identifier badgeId{"badge"};
 
 juce::String kindToString(ProfileCatalog::Kind kind) {
     return kind == ProfileCatalog::Kind::Ir ? "ir" : "amp";
@@ -49,6 +52,9 @@ void ProfileCatalog::syncAccount(const std::vector<Listing>& listings) {
         entry.id = listing.id;
         entry.title = listing.title.isNotEmpty() ? listing.title : listing.id;
         entry.kind = listing.kind;
+        entry.author = listing.author;
+        entry.summary = listing.summary;
+        entry.badge = listing.badge;
         entry.conditionProfile = listing.conditionProfile;
         entry.conditionAmount = listing.conditionAmount;
         entry.local = false;
@@ -122,6 +128,12 @@ bool ProfileCatalog::storeCipher(const juce::String& id,
     entry->conditionAmount = conditionAmount;
     entry->cipherOnDisk = true;
     entry->local = local;
+    if (entry->badge.isEmpty()) {
+        entry->badge = kind == Kind::Ir ? "IR" : "AMP";
+    }
+    if (local && kind == Kind::Ir && entry->summary.isEmpty()) {
+        entry->summary = "Captured in Spectra.";
+    }
     saveIndex();
     sendChangeMessage();
     return true;
@@ -251,6 +263,9 @@ void ProfileCatalog::loadIndex() {
             entry.conditionProfile = static_cast<int>(object->getProperty(conditionProfileId));
             entry.conditionAmount = static_cast<float>(static_cast<double>(object->getProperty(conditionAmountId)));
             entry.local = static_cast<bool>(object->getProperty(localId));
+            entry.author = object->getProperty(authorId).toString();
+            entry.summary = object->getProperty(summaryId).toString();
+            entry.badge = object->getProperty(badgeId).toString();
             if (entry.id.isEmpty()) {
                 continue;
             }
@@ -278,6 +293,9 @@ void ProfileCatalog::saveIndex() const {
         object->setProperty(conditionProfileId, entry.conditionProfile);
         object->setProperty(conditionAmountId, entry.conditionAmount);
         object->setProperty(localId, entry.local);
+        object->setProperty(authorId, entry.author);
+        object->setProperty(summaryId, entry.summary);
+        object->setProperty(badgeId, entry.badge);
         list.add(juce::var(object.release()));
     }
 

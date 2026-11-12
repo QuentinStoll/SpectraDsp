@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace SignalChain {
 constexpr int rowCount = 2;
@@ -300,6 +302,7 @@ struct ParallelRoute {
     int splitAfter = -1;
     int mergeAfter = -1;
     std::array<Stage, pathBCount> pathB{};
+    float mix = 0.5f;
 
     constexpr bool active() const noexcept {
         return mergeAfter >= 0 && mergeAfter < movableSlotCount && splitAfter < mergeAfter && splitAfter >= -1;
@@ -395,5 +398,378 @@ inline constexpr int pathBSlotForIndex(int index) noexcept {
         return -1;
     }
     return ParallelRoute::pathBBase + index;
+}
+
+// One visual row of the chain. Columns are the movable slots on that row.
+constexpr int forkRowCount = 2;
+constexpr int forkColumns = 6;
+
+inline constexpr int forkRowForMovable(int movableIndex) noexcept {
+    return movableIndex >= forkColumns ? 1 : 0;
+}
+
+inline constexpr int forkColumnForMovable(int movableIndex) noexcept {
+    return movableIndex >= forkColumns ? movableIndex - forkColumns : movableIndex;
+}
+
+inline constexpr int movableForFork(int row, int column) noexcept {
+    return row * forkColumns + column;
+}
+
+// splitGap and mergeGap are gaps between columns. The fork covers columns
+// [splitGap, mergeGap). Lane B has exactly that many slots, one per column.
+struct Bifurcation {
+    int id = 0;
+    int row = 0;
+    int splitGap = 0;
+    int mergeGap = 1;
+    float mix = 0.5f;
+    std::array<Stage, forkColumns> laneB{};
+
+    constexpr int columnCount() const noexcept { return mergeGap - splitGap; }
+
+    constexpr bool covers(int column) const noexcept {
+        return column >= splitGap && column < mergeGap;
+    }
+
+    constexpr Stage laneAt(int index) const noexcept {
+        if (index < 0 || index >= columnCount()) {
+            return Stage::Empty;
+        }
+        return laneB[static_cast<size_t>(index)];
+    }
+};
+
+struct ForkGraph {
+    std::vector<Bifurcation> forks;
+};
+
+struct BlockRef {
+    bool laneB = false;
+    int row = 0;
+    int column = 0;
+    int forkId = -1;
+};
+
+enum class DropKind {
+    Forbidden,
+    Slot,
+    NewFork
+};
+
+struct DropPreview {
+    DropKind kind = DropKind::Forbidden;
+    bool swap = false;
+    BlockRef target{};
+    int splitGap = 0;
+    int mergeGap = 0;
+};
+
+inline void sortForks(ForkGraph& graph) {
+    std::sort(graph.forks.begin(), graph.forks.end(), [](const Bifurcation& left, const Bifurcation& right) {
+        if (left.row != right.row) {
+            return left.row < right.row;
+        }
+        return left.splitGap < right.splitGap;
+    });
+}
+
+inline int clampInt(int value, int minimum, int maximum) noexcept {
+    if (value < minimum) {
+        return minimum;
+    }
+    if (value > maximum) {
+        return maximum;
+    }
+    return value;
+}
+
+inline bool forkIntervalFits(const ForkGraph& graph, int row, int splitGap, int mergeGap, int ignoreId = -1) {
+    if (row < 0 || row >= forkRowCount || splitGap < 0 || mergeGap > forkColumns || mergeGap <= splitGap) {
+        return false;
+    }
+    for (const auto& fork : graph.forks) {
+        if (fork.row != row || fork.id == ignoreId) {
+            continue;
+        }
+        const bool leftOf = mergeGap <= fork.splitGap - 1;
+        const bool rightOf = splitGap >= fork.mergeGap + 1;
+        if (!leftOf && !rightOf) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline int clampSplit(const ForkGraph& graph, int forkId, int proposed) {
+    const Bifurcation* fork = nullptr;
+    const Bifurcation* previous = nullptr;
+    for (const auto& candidate : graph.forks) {
+        if (candidate.id == forkId) {
+            fork = &candidate;
+        }
+    }
+    if (fork == nullptr) {
+        return proposed;
+    }
+    for (const auto& candidate : graph.forks) {
+        if (candidate.row == fork->row && candidate.id != forkId && candidate.mergeGap <= fork->splitGap) {
+            if (previous == nullptr || candidate.mergeGap > previous->mergeGap) {
+                previous = &candidate;
+            }
+        }
+    }
+    auto limit = previous != nullptr ? previous->mergeGap + 1 : 0;
+    auto maxSplit = fork->mergeGap - 1;
+    for (int index = 0; index < fork->columnCount(); ++index) {
+        if (fork->laneAt(index) != Stage::Empty) {
+            maxSplit = fork->splitGap + index;
+            break;
+        }
+    }
+    return clampInt(proposed, limit, maxSplit);
+}
+
+inline int clampMerge(const ForkGraph& graph, int forkId, int proposed) {
+    const Bifurcation* fork = nullptr;
+    const Bifurcation* next = nullptr;
+    for (const auto& candidate : graph.forks) {
+        if (candidate.id == forkId) {
+            fork = &candidate;
+        }
+    }
+    if (fork == nullptr) {
+        return proposed;
+    }
+    for (const auto& candidate : graph.forks) {
+        if (candidate.row == fork->row && candidate.id != forkId && candidate.splitGap >= fork->mergeGap) {
+            if (next == nullptr || candidate.splitGap < next->splitGap) {
+                next = &candidate;
+            }
+        }
+    }
+    auto limit = next != nullptr ? next->splitGap - 1 : forkColumns;
+    auto minMerge = fork->splitGap + 1;
+    for (int index = 0; index < fork->columnCount(); ++index) {
+        if (fork->laneAt(index) != Stage::Empty) {
+            minMerge = fork->splitGap + index + 1;
+        }
+    }
+    return clampInt(proposed, minMerge, limit);
+}
+
+inline bool createBifurcation(ForkGraph& graph, int row, int splitGap, int mergeGap, int* createdId = nullptr) {
+    if (!forkIntervalFits(graph, row, splitGap, mergeGap)) {
+        return false;
+    }
+    Bifurcation fork;
+    fork.row = row;
+    fork.splitGap = splitGap;
+    fork.mergeGap = mergeGap;
+    fork.mix = 0.5f;
+    int nextId = 1;
+    for (const auto& existing : graph.forks) {
+        nextId = nextId > existing.id + 1 ? nextId : existing.id + 1;
+    }
+    fork.id = nextId;
+    graph.forks.push_back(fork);
+    sortForks(graph);
+    if (createdId != nullptr) {
+        *createdId = fork.id;
+    }
+    return true;
+}
+
+inline bool moveSplit(ForkGraph& graph, int forkId, int proposedGap) {
+    for (auto& fork : graph.forks) {
+        if (fork.id != forkId) {
+            continue;
+        }
+        const auto gap = clampSplit(graph, forkId, proposedGap);
+        if (!forkIntervalFits(graph, fork.row, gap, fork.mergeGap, forkId)) {
+            return false;
+        }
+        const auto shift = gap - fork.splitGap;
+        if (shift > 0) {
+            for (int index = 0; index < forkColumns - shift; ++index) {
+                fork.laneB[static_cast<size_t>(index)] = fork.laneB[static_cast<size_t>(index + shift)];
+            }
+            for (int index = forkColumns - shift; index < forkColumns; ++index) {
+                fork.laneB[static_cast<size_t>(index)] = Stage::Empty;
+            }
+        } else if (shift < 0) {
+            for (int index = forkColumns - 1; index >= -shift; --index) {
+                fork.laneB[static_cast<size_t>(index)] = fork.laneB[static_cast<size_t>(index + shift)];
+            }
+            for (int index = 0; index < -shift; ++index) {
+                fork.laneB[static_cast<size_t>(index)] = Stage::Empty;
+            }
+        }
+        fork.splitGap = gap;
+        return true;
+    }
+    return false;
+}
+
+inline bool moveMerge(ForkGraph& graph, int forkId, int proposedGap) {
+    for (auto& fork : graph.forks) {
+        if (fork.id != forkId) {
+            continue;
+        }
+        const auto gap = clampMerge(graph, forkId, proposedGap);
+        if (!forkIntervalFits(graph, fork.row, fork.splitGap, gap, forkId)) {
+            return false;
+        }
+        fork.mergeGap = gap;
+        return true;
+    }
+    return false;
+}
+
+inline Bifurcation* findForkAt(ForkGraph& graph, int row, int column) {
+    for (auto& fork : graph.forks) {
+        if (fork.row == row && fork.covers(column)) {
+            return &fork;
+        }
+    }
+    return nullptr;
+}
+
+inline const Bifurcation* findForkAt(const ForkGraph& graph, int row, int column) {
+    for (const auto& fork : graph.forks) {
+        if (fork.row == row && fork.covers(column)) {
+            return &fork;
+        }
+    }
+    return nullptr;
+}
+
+inline Stage stageAt(const Layout& layout, const ForkGraph& graph, BlockRef ref) {
+    if (!ref.laneB) {
+        return layout.atSlot(chainSlotForMovableIndex(movableForFork(ref.row, ref.column)));
+    }
+    if (const auto* fork = findForkAt(graph, ref.row, ref.column)) {
+        return fork->laneAt(ref.column - fork->splitGap);
+    }
+    return Stage::Empty;
+}
+
+inline void writeStage(Layout& layout, ForkGraph& graph, BlockRef ref, Stage stage) {
+    if (!ref.laneB) {
+        const auto slot = chainSlotForMovableIndex(movableForFork(ref.row, ref.column));
+        if (stage == Stage::Empty) {
+            layout.clear(slot);
+        } else {
+            layout.place(stage, slot);
+        }
+        return;
+    }
+    if (auto* fork = findForkAt(graph, ref.row, ref.column)) {
+        const auto index = ref.column - fork->splitGap;
+        if (index >= 0 && index < forkColumns) {
+            fork->laneB[static_cast<size_t>(index)] = isEffectStage(stage) ? stage : Stage::Empty;
+        }
+    }
+}
+
+// Occupied targets swap with the source. Empty targets move the block.
+inline bool moveBlock(Layout& layout, ForkGraph& graph, BlockRef from, BlockRef to) {
+    if (from.laneB == to.laneB && from.row == to.row && from.column == to.column) {
+        return false;
+    }
+    const auto source = stageAt(layout, graph, from);
+    if (!isEffectStage(source)) {
+        return false;
+    }
+    const auto destination = stageAt(layout, graph, to);
+    writeStage(layout, graph, to, source);
+    writeStage(layout, graph, from, destination);
+    return true;
+}
+
+inline DropPreview previewDrop(const Layout& layout, const ForkGraph& graph, int row, int column, bool ontoLaneB) {
+    DropPreview preview;
+    if (row < 0 || row >= forkRowCount || column < 0 || column >= forkColumns) {
+        return preview;
+    }
+    preview.target.row = row;
+    preview.target.column = column;
+    preview.target.laneB = ontoLaneB;
+    if (!ontoLaneB) {
+        preview.kind = DropKind::Slot;
+        preview.swap = isEffectStage(stageAt(layout, graph, preview.target));
+        return preview;
+    }
+    if (const auto* fork = findForkAt(graph, row, column)) {
+        preview.kind = DropKind::Slot;
+        preview.target.forkId = fork->id;
+        preview.swap = fork->laneAt(column - fork->splitGap) != Stage::Empty;
+        return preview;
+    }
+    const int splitGap = column;
+    const int mergeGap = column + 1;
+    if (!forkIntervalFits(graph, row, splitGap, mergeGap)) {
+        return preview;
+    }
+    preview.kind = DropKind::NewFork;
+    preview.splitGap = splitGap;
+    preview.mergeGap = mergeGap;
+    return preview;
+}
+
+inline bool removeFork(ForkGraph& graph, int forkId) {
+    const auto before = graph.forks.size();
+    graph.forks.erase(std::remove_if(graph.forks.begin(),
+                                     graph.forks.end(),
+                                     [forkId](const Bifurcation& fork) { return fork.id == forkId; }),
+                      graph.forks.end());
+    return graph.forks.size() != before;
+}
+
+inline ParallelRoute routeFromFork(const Bifurcation& fork) {
+    ParallelRoute route;
+    if (fork.columnCount() <= 0) {
+        return route;
+    }
+    const auto first = movableForFork(fork.row, fork.splitGap);
+    const auto last = movableForFork(fork.row, fork.mergeGap - 1);
+    route.splitAfter = first - 1;
+    route.mergeAfter = last;
+    route.mix = fork.mix;
+    for (int index = 0; index < fork.columnCount() && index < ParallelRoute::pathBCount; ++index) {
+        route.placePathB(fork.laneAt(index), index);
+    }
+    return route;
+}
+
+inline ForkGraph graphFromRoute(const ParallelRoute& route) {
+    ForkGraph graph;
+    if (!route.active()) {
+        return graph;
+    }
+    const auto first = route.splitAfter + 1;
+    auto last = route.mergeAfter;
+    if (first < 0 || first >= movableSlotCount) {
+        return graph;
+    }
+    const auto row = forkRowForMovable(first);
+    const auto rowLast = movableForFork(row, forkColumns - 1);
+    if (last > rowLast) {
+        last = rowLast;
+    }
+    if (last < first) {
+        return graph;
+    }
+    Bifurcation fork;
+    fork.id = 1;
+    fork.row = row;
+    fork.splitGap = forkColumnForMovable(first);
+    fork.mergeGap = forkColumnForMovable(last) + 1;
+    fork.mix = route.mix;
+    for (int index = 0; index < fork.columnCount() && index < ParallelRoute::pathBCount; ++index) {
+        fork.laneB[static_cast<size_t>(index)] = route.pathBAt(index);
+    }
+    graph.forks.push_back(fork);
+    return graph;
 }
 }  // namespace SignalChain

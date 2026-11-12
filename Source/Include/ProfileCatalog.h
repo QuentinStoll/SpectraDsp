@@ -16,6 +16,9 @@ class ProfileCatalog : public juce::ChangeBroadcaster {
     struct Entry {
         juce::String id;
         juce::String title;
+        juce::String author;
+        juce::String summary;
+        juce::String badge;
         Kind kind = Kind::Amp;
         int conditionProfile = 0;
         float conditionAmount = 0.0f;
@@ -26,6 +29,9 @@ class ProfileCatalog : public juce::ChangeBroadcaster {
     struct Listing {
         juce::String id;
         juce::String title;
+        juce::String author;
+        juce::String summary;
+        juce::String badge;
         Kind kind = Kind::Amp;
         int conditionProfile = 0;
         float conditionAmount = 0.0f;

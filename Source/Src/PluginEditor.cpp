@@ -259,81 +259,106 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         if (stage == SignalChain::Stage::Empty) {
             return;
         }
-        const auto existing = _audioProcessor.getParallelRoute();
-        auto room = false;
-        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-            if (existing.pathBAt(index) == SignalChain::Stage::Empty) {
-                room = true;
-                break;
-            }
-        }
-        if (!room) {
+        auto graph = _audioProcessor.getForkGraph();
+        const auto row = SignalChain::forkRowForMovable(movableIndex);
+        const auto column = SignalChain::forkColumnForMovable(movableIndex);
+        const auto preview = SignalChain::previewDrop(layout, graph, row, column, true);
+        if (preview.kind == SignalChain::DropKind::Forbidden) {
             return;
         }
-        layout.clear(slot);
-        _audioProcessor.setChainLayout(layout);
-
-        auto route = _audioProcessor.getParallelRoute();
-        const int rowStart = movableIndex < 6 ? 0 : 6;
-        const int rowEnd = movableIndex < 6 ? 5 : 11;
-        const int regionFirst = route.active() ? juce::jmax(0, route.splitAfter + 1) : -1;
-        const bool sameRow = regionFirst >= rowStart && regionFirst <= rowEnd;
-        auto split = movableIndex - 1;
-        auto merge = movableIndex;
-        if (route.active() && sameRow) {
-            split = juce::jmin(route.splitAfter, split);
-            merge = juce::jmax(route.mergeAfter, merge);
-        }
-        merge = juce::jlimit(rowStart, rowEnd, merge);
-        if (split >= merge) {
-            split = merge - 1;
-        }
-        route.splitAfter = split;
-        route.mergeAfter = merge;
-        for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-            if (route.pathBAt(index) == SignalChain::Stage::Empty) {
-                route.placePathB(stage, index);
-                break;
+        if (preview.kind == SignalChain::DropKind::NewFork) {
+            int createdId = 0;
+            if (!SignalChain::createBifurcation(graph, row, preview.splitGap, preview.mergeGap, &createdId)) {
+                return;
             }
+            layout.clear(slot);
+            if (auto* fork = SignalChain::findForkAt(graph, row, column)) {
+                fork->laneB[0] = stage;
+            }
+            _audioProcessor.setChainLayout(layout);
+            _audioProcessor.setForkGraph(graph);
+            refreshChainView();
+            return;
         }
-        _audioProcessor.setParallelRoute(route);
+        SignalChain::BlockRef from;
+        from.row = row;
+        from.column = column;
+        if (!SignalChain::moveBlock(layout, graph, from, preview.target)) {
+            return;
+        }
+        _audioProcessor.setChainLayout(layout);
+        _audioProcessor.setForkGraph(graph);
         refreshChainView();
     };
     _signalChain.onPathBReturned = [this](int pathBIndex, int chainSlot) {
-        auto route = _audioProcessor.getParallelRoute();
-        const auto stage = route.pathBAt(pathBIndex);
-        if (stage == SignalChain::Stage::Empty || !SignalChain::isMovableSlot(chainSlot)) {
-            return;
-        }
-        route.clearPathB(pathBIndex);
+        auto graph = _audioProcessor.getForkGraph();
+        SignalChain::sortForks(graph);
         auto layout = _audioProcessor.getChainLayout();
-        auto destination = chainSlot;
-        if (layout.atSlot(chainSlot) != SignalChain::Stage::Empty) {
-            destination = -1;
-            const auto begin = juce::jmax(0, route.splitAfter + 1);
-            for (int index = begin; index <= route.mergeAfter && index < SignalChain::movableSlotCount; ++index) {
-                const auto candidate = SignalChain::chainSlotForMovableIndex(index);
-                if (layout.atSlot(candidate) == SignalChain::Stage::Empty) {
-                    destination = candidate;
-                    break;
-                }
-            }
-        }
-        if (destination < 0) {
-            route.placePathB(stage, pathBIndex);
+        if (graph.forks.empty() || !SignalChain::isMovableSlot(chainSlot)) {
             return;
         }
-        layout.place(stage, destination);
-        _audioProcessor.setChainLayout(layout);
-        if (route.occupiedPathB() == 0) {
-            _audioProcessor.clearParallelRoute();
-            _routeMixPanel.setVisible(false);
-        } else {
-            _audioProcessor.setParallelRoute(route);
+        int remaining = pathBIndex;
+        const SignalChain::Bifurcation* owner = nullptr;
+        for (const auto& fork : graph.forks) {
+            if (remaining < fork.columnCount()) {
+                owner = &fork;
+                break;
+            }
+            remaining -= fork.columnCount();
         }
+        if (owner == nullptr) {
+            return;
+        }
+        SignalChain::BlockRef from;
+        from.laneB = true;
+        from.row = owner->row;
+        from.column = owner->splitGap + remaining;
+        from.forkId = owner->id;
+        SignalChain::BlockRef to;
+        const auto movable = SignalChain::movableIndexForSlot(chainSlot);
+        to.row = SignalChain::forkRowForMovable(movable);
+        to.column = SignalChain::forkColumnForMovable(movable);
+        if (!SignalChain::moveBlock(layout, graph, from, to)) {
+            return;
+        }
+        _audioProcessor.setChainLayout(layout);
+        _audioProcessor.setForkGraph(graph);
         refreshChainView();
     };
-    _signalChain.onEditRouteMix = [this]() { showRouteMix(); };
+    _signalChain.onRouteDrop = [this](SignalChain::BlockRef from, const SignalChain::DropPreview& preview) {
+        auto layout = _audioProcessor.getChainLayout();
+        auto graph = _audioProcessor.getForkGraph();
+        if (preview.kind == SignalChain::DropKind::NewFork) {
+            int createdId = 0;
+            if (!SignalChain::createBifurcation(graph, preview.target.row, preview.splitGap, preview.mergeGap, &createdId)) {
+                return;
+            }
+            const auto stage = SignalChain::stageAt(layout, graph, from);
+            SignalChain::writeStage(layout, graph, from, SignalChain::Stage::Empty);
+            if (auto* fork = SignalChain::findForkAt(graph, preview.target.row, preview.target.column)) {
+                fork->laneB[0] = stage;
+            }
+        } else if (preview.kind == SignalChain::DropKind::Slot) {
+            if (!SignalChain::moveBlock(layout, graph, from, preview.target)) {
+                return;
+            }
+        } else {
+            return;
+        }
+        _audioProcessor.setChainLayout(layout);
+        _audioProcessor.setForkGraph(graph);
+        refreshChainView();
+    };
+    _signalChain.onForkEdgeMoved = [this](int forkId, bool isSplit, int gap) {
+        auto graph = _audioProcessor.getForkGraph();
+        if (isSplit) {
+            SignalChain::moveSplit(graph, forkId, gap);
+        } else {
+            SignalChain::moveMerge(graph, forkId, gap);
+        }
+        _audioProcessor.setForkGraph(graph);
+        refreshChainView();
+    };
     _blockPicker.onBlockChosen = [this](int slot, SignalChain::Stage stage) {
         placeChosenBlock(slot, stage);
     };
@@ -520,7 +545,7 @@ void ProfilerAudioProcessorEditor::resized() {
     _topBar.setBounds(area.removeFromTop(48));
 
     if (_overlayMode == OverlayMode::None) {
-        constexpr int editHeight = 228;
+        constexpr int editHeight = 248;
         _editHost.setBounds(area.removeFromBottom(juce::jmin(editHeight, juce::jmax(0, area.getHeight() - 160))));
         _signalChain.setBounds(area);
 
@@ -611,7 +636,7 @@ void ProfilerAudioProcessorEditor::showOverlay(OverlayMode mode) {
 
 void ProfilerAudioProcessorEditor::refreshChainView() {
     _signalChain.setLayout(_audioProcessor.getChainLayout());
-    _signalChain.setRoute(_audioProcessor.getParallelRoute());
+    _signalChain.setForks(_audioProcessor.getForkGraph());
     updateChainStatus();
 }
 
@@ -1002,11 +1027,11 @@ void ProfilerAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&,
         _signalChain.setLayout(_audioProcessor.getChainLayout());
     }
     if (routeChanged) {
-        _signalChain.setRoute(_audioProcessor.getParallelRoute());
+        _signalChain.setForks(_audioProcessor.getForkGraph());
     }
 }
 
 void ProfilerAudioProcessorEditor::valueTreeRedirected(juce::ValueTree&) {
     _signalChain.setLayout(_audioProcessor.getChainLayout());
-    _signalChain.setRoute(_audioProcessor.getParallelRoute());
+    _signalChain.setForks(_audioProcessor.getForkGraph());
 }

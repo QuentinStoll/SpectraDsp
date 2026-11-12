@@ -24,55 +24,6 @@ void configureBypassLabel(juce::Label& label) {
     label.setInterceptsMouseClicks(false, false);
 }
 
-FileDropZone::Options makeAmpDropOptions(ProfilerAudioProcessor& processor) {
-    FileDropZone::Options options;
-    options.title = "Amp Model";
-    options.emptyDetail = "No Model Loaded";
-    options.chooserTitle = "Select an Amp file";
-    options.filePattern = "*.nam;*.json;*.txt";
-    options.icon = CustomLookAndFeel::RigIcon::AmpHead;
-    options.categoryColour = ProfilerStyle::Colors::rigAmp;
-    options.loadFile = [&processor](const juce::File& file) {
-        return processor.loadAmpFile(file);
-    };
-    options.unloadFile = [&processor]() {
-        processor.unloadAmpFile();
-    };
-    options.isLoaded = [&processor]() {
-        return processor.isAmpFileLoaded();
-    };
-    options.getCurrentFile = [&processor]() {
-        return processor.getCurrentAmpFile();
-    };
-    options.successMessage = "Amp loaded";
-    options.failureMessage = "Could not load amp file";
-    return options;
-}
-
-FileDropZone::Options makeIrDropOptions(ProfilerAudioProcessor& processor) {
-    FileDropZone::Options options;
-    options.title = "Impulse Response";
-    options.emptyDetail = "No IR Loaded";
-    options.chooserTitle = "Select an IR file";
-    options.filePattern = "*.wav;*.aiff;*.aif;*.flac";
-    options.icon = CustomLookAndFeel::RigIcon::Cabinet;
-    options.categoryColour = ProfilerStyle::Colors::rigCab;
-    options.loadFile = [&processor](const juce::File& file) {
-        return processor.loadIRFile(file);
-    };
-    options.unloadFile = [&processor]() {
-        processor.unloadIRFile();
-    };
-    options.isLoaded = [&processor]() {
-        return processor.isIRLoaded();
-    };
-    options.getCurrentFile = [&processor]() {
-        return processor.getCurrentIRFile();
-    };
-    options.successMessage = "IR loaded";
-    options.failureMessage = "Could not load IR file";
-    return options;
-}
 }  // namespace
 
 namespace {
@@ -581,19 +532,17 @@ void InputGatePanel::resized() {
 }
 
 AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
-    : _processor(processor),
-      _ampDrop(makeAmpDropOptions(processor)) {
+    : _processor(processor) {
     configurePanelTitle(_title, "Amp");
     configureBypassLabel(_bypassLabel);
     _ampEnabled.setLabelVisible(false);
     addAndMakeVisible(_title);
     addAndMakeVisible(_bypassLabel);
-    addAndMakeVisible(_profileMenu);
     addAndMakeVisible(_ampEnabled);
-    addAndMakeVisible(_ampDrop);
+    addAndMakeVisible(_library);
     addAndMakeVisible(_outputKnob);
     _processor.getProfileCatalog().addChangeListener(this);
-    _profileMenu.onChange = [this]() { selectProfileFromMenu(); };
+    _library.onCardClicked = [this](const juce::String& id) { loadProfile(id); };
 
     _ampEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         processor._apvts, "isAmpEnabled", _ampEnabled);
@@ -606,20 +555,8 @@ AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
             onAssetsChanged();
         }
     };
-    _ampDrop.onStatusMessage = [this](const juce::String& message, bool success) {
-        if (onStatusMessage) {
-            onStatusMessage(message, success);
-        }
-    };
-    _ampDrop.onChanged = [this]() {
-        _processor.clearActiveAmpProfile();
-        refreshAssets();
-        if (onAssetsChanged) {
-            onAssetsChanged();
-        }
-    };
 
-    refreshProfileMenu();
+    showProfiles();
     refreshAssets();
 }
 
@@ -627,50 +564,23 @@ AmpProfilerPanel::~AmpProfilerPanel() {
     _processor.getProfileCatalog().removeChangeListener(this);
 }
 
-void AmpProfilerPanel::refreshProfileMenu() {
-    const juce::ScopedValueSetter<bool> updating(_updatingMenu, true);
-    const auto profiles = _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Amp);
-    _profileIds.clear();
-    _profileMenu.clear(juce::dontSendNotification);
-    _profileMenu.addItem("Amp profiles", 1);
-    for (int index = 0; index < static_cast<int>(profiles.size()); ++index) {
-        _profileIds.push_back(profiles[static_cast<size_t>(index)].id);
-        const auto title = profiles[static_cast<size_t>(index)].title;
-        _profileMenu.addItem(title.isNotEmpty() ? title : "Amp profile", index + 2);
-    }
-
+void AmpProfilerPanel::showProfiles() {
+    std::vector<ProfileLibraryView::Card> cards;
     const auto activeId = _processor.getActiveAmpProfileId();
-    auto selected = 1;
-    for (int index = 0; index < static_cast<int>(_profileIds.size()); ++index) {
-        if (_profileIds[static_cast<size_t>(index)] == activeId) {
-            selected = index + 2;
-            break;
-        }
+    for (const auto& entry : _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Amp)) {
+        ProfileLibraryView::Card card;
+        card.id = entry.id;
+        card.title = entry.title.isNotEmpty() ? entry.title : "Amp profile";
+        card.author = entry.author;
+        card.summary = entry.summary;
+        card.badge = entry.badge.isNotEmpty() ? entry.badge : "AMP";
+        card.selected = entry.id == activeId;
+        cards.push_back(std::move(card));
     }
-    _profileMenu.setSelectedId(selected, juce::dontSendNotification);
+    _library.setCards(std::move(cards));
 }
 
-void AmpProfilerPanel::selectProfileFromMenu() {
-    if (_updatingMenu) {
-        return;
-    }
-
-    const auto selected = _profileMenu.getSelectedId();
-    if (selected <= 1) {
-        _processor.unloadAmpFile();
-        refreshAssets();
-        if (onAssetsChanged) {
-            onAssetsChanged();
-        }
-        return;
-    }
-
-    const auto index = selected - 2;
-    if (index < 0 || index >= static_cast<int>(_profileIds.size())) {
-        return;
-    }
-
-    const auto id = _profileIds[static_cast<size_t>(index)];
+void AmpProfilerPanel::loadProfile(const juce::String& id) {
     juce::String error;
     if (_processor.loadCatalogProfile(ProfileCatalog::Kind::Amp, id, &error)) {
         if (onStatusMessage) {
@@ -689,14 +599,12 @@ void AmpProfilerPanel::selectProfileFromMenu() {
 
 void AmpProfilerPanel::changeListenerCallback(juce::ChangeBroadcaster* source) {
     if (source == &_processor.getProfileCatalog()) {
-        refreshProfileMenu();
         refreshAssets();
     }
 }
 
 void AmpProfilerPanel::refreshAssets() {
-    _ampDrop.refresh();
-    refreshProfileMenu();
+    showProfiles();
     const auto loaded = _processor.isAmpModelLoaded();
     const auto enabled = _ampEnabled.getToggleState();
     _ampEnabled.setVisible(loaded);
@@ -718,35 +626,29 @@ void AmpProfilerPanel::resized() {
     auto header = area.removeFromTop(22);
     _ampEnabled.setBounds(header.removeFromRight(48).withSizeKeepingCentre(48, 20));
     header.removeFromRight(8);
-    _bypassLabel.setBounds(header.removeFromRight(130));
+    _bypassLabel.setBounds(header.removeFromRight(160));
     header.removeFromRight(8);
     _title.setBounds(header);
-    area.removeFromTop(4);
-
-    auto profiles = area.removeFromTop(28);
-    _profileMenu.setBounds(profiles);
     area.removeFromTop(6);
 
-    auto side = area.removeFromRight(112);
-    area.removeFromRight(10);
-    _ampDrop.setBounds(area);
-    _outputKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(92, side.getHeight())));
+    auto side = area.removeFromRight(100);
+    area.removeFromRight(8);
+    _library.setBounds(area);
+    _outputKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(96, side.getHeight())));
 }
 
 CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
-    : _processor(processor),
-      _irDrop(makeIrDropOptions(processor)) {
+    : _processor(processor) {
     configurePanelTitle(_title, "Cab");
     configureBypassLabel(_bypassLabel);
     _cabEnabled.setLabelVisible(false);
     addAndMakeVisible(_title);
     addAndMakeVisible(_bypassLabel);
-    addAndMakeVisible(_profileMenu);
     addAndMakeVisible(_cabEnabled);
-    addAndMakeVisible(_irDrop);
+    addAndMakeVisible(_library);
     addAndMakeVisible(_lowCutKnob);
     _processor.getProfileCatalog().addChangeListener(this);
-    _profileMenu.onChange = [this]() { selectProfileFromMenu(); };
+    _library.onCardClicked = [this](const juce::String& id) { loadProfile(id); };
 
     _cabEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         processor._apvts, "isCabEnabled", _cabEnabled);
@@ -759,20 +661,8 @@ CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
             onAssetsChanged();
         }
     };
-    _irDrop.onStatusMessage = [this](const juce::String& message, bool success) {
-        if (onStatusMessage) {
-            onStatusMessage(message, success);
-        }
-    };
-    _irDrop.onChanged = [this]() {
-        _processor.clearActiveIrProfile();
-        refreshAssets();
-        if (onAssetsChanged) {
-            onAssetsChanged();
-        }
-    };
 
-    refreshProfileMenu();
+    showProfiles();
     refreshAssets();
 }
 
@@ -780,50 +670,38 @@ CabinetIrPanel::~CabinetIrPanel() {
     _processor.getProfileCatalog().removeChangeListener(this);
 }
 
-void CabinetIrPanel::refreshProfileMenu() {
-    const juce::ScopedValueSetter<bool> updating(_updatingMenu, true);
-    const auto profiles = _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Ir);
-    _profileIds.clear();
-    _profileMenu.clear(juce::dontSendNotification);
-    _profileMenu.addItem("IR profiles", 1);
-    for (int index = 0; index < static_cast<int>(profiles.size()); ++index) {
-        _profileIds.push_back(profiles[static_cast<size_t>(index)].id);
-        const auto title = profiles[static_cast<size_t>(index)].title;
-        _profileMenu.addItem(title.isNotEmpty() ? title : "IR profile", index + 2);
-    }
+void CabinetIrPanel::showProfiles() {
+    std::vector<ProfileLibraryView::Card> cards;
+    ProfileLibraryView::Card importCard;
+    importCard.id = ProfileLibraryView::importWavId;
+    importCard.title = "Import WAV IR";
+    importCard.summary = "Load a wav, aiff, or flac impulse response.";
+    importCard.badge = "WAV";
+    importCard.spectra = false;
+    importCard.importWav = true;
+    importCard.selected = _processor.isIRLoaded() && _processor.getActiveIrProfileId().isEmpty();
+    cards.push_back(std::move(importCard));
 
     const auto activeId = _processor.getActiveIrProfileId();
-    auto selected = 1;
-    for (int index = 0; index < static_cast<int>(_profileIds.size()); ++index) {
-        if (_profileIds[static_cast<size_t>(index)] == activeId) {
-            selected = index + 2;
-            break;
-        }
+    for (const auto& entry : _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Ir)) {
+        ProfileLibraryView::Card card;
+        card.id = entry.id;
+        card.title = entry.title.isNotEmpty() ? entry.title : "IR profile";
+        card.author = entry.author;
+        card.summary = entry.summary;
+        card.badge = entry.badge.isNotEmpty() ? entry.badge : "IR";
+        card.selected = entry.id == activeId;
+        cards.push_back(std::move(card));
     }
-    _profileMenu.setSelectedId(selected, juce::dontSendNotification);
+    _library.setCards(std::move(cards));
 }
 
-void CabinetIrPanel::selectProfileFromMenu() {
-    if (_updatingMenu) {
+void CabinetIrPanel::loadProfile(const juce::String& id) {
+    if (id == ProfileLibraryView::importWavId) {
+        importWavIr();
         return;
     }
 
-    const auto selected = _profileMenu.getSelectedId();
-    if (selected <= 1) {
-        _processor.unloadIRFile();
-        refreshAssets();
-        if (onAssetsChanged) {
-            onAssetsChanged();
-        }
-        return;
-    }
-
-    const auto index = selected - 2;
-    if (index < 0 || index >= static_cast<int>(_profileIds.size())) {
-        return;
-    }
-
-    const auto id = _profileIds[static_cast<size_t>(index)];
     juce::String error;
     if (_processor.loadCatalogProfile(ProfileCatalog::Kind::Ir, id, &error)) {
         if (onStatusMessage) {
@@ -840,16 +718,37 @@ void CabinetIrPanel::selectProfileFromMenu() {
     }
 }
 
+void CabinetIrPanel::importWavIr() {
+    _irChooser = std::make_unique<juce::FileChooser>("Select an IR file", juce::File{}, "*.wav;*.aiff;*.aif;*.flac");
+    const juce::Component::SafePointer<CabinetIrPanel> safeThis(this);
+    _irChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                            [safeThis](const juce::FileChooser& chooser) {
+                                if (safeThis == nullptr) {
+                                    return;
+                                }
+                                const auto file = chooser.getResult();
+                                if (file.existsAsFile()) {
+                                    const auto loaded = safeThis->_processor.loadIRFile(file);
+                                    if (safeThis->onStatusMessage) {
+                                        safeThis->onStatusMessage(loaded ? "IR loaded" : "Could not load IR file", loaded);
+                                    }
+                                    safeThis->refreshAssets();
+                                    if (safeThis->onAssetsChanged) {
+                                        safeThis->onAssetsChanged();
+                                    }
+                                }
+                                safeThis->_irChooser.reset();
+                            });
+}
+
 void CabinetIrPanel::changeListenerCallback(juce::ChangeBroadcaster* source) {
     if (source == &_processor.getProfileCatalog()) {
-        refreshProfileMenu();
         refreshAssets();
     }
 }
 
 void CabinetIrPanel::refreshAssets() {
-    _irDrop.refresh();
-    refreshProfileMenu();
+    showProfiles();
     const auto loaded = _processor.isIRLoaded();
     const auto enabled = _cabEnabled.getToggleState();
     _cabEnabled.setVisible(loaded);
@@ -857,10 +756,12 @@ void CabinetIrPanel::refreshAssets() {
     const auto* entry = _processor.getProfileCatalog().find(_processor.getActiveIrProfileId(), ProfileCatalog::Kind::Ir);
     if (loaded && entry != nullptr) {
         _bypassLabel.setText(enabled ? entry->title : "BYPASSED", juce::dontSendNotification);
+    } else if (loaded && _processor.getActiveIrProfileId().isEmpty()) {
+        _bypassLabel.setText(enabled ? "IMPORT WAV IR" : "BYPASSED", juce::dontSendNotification);
     } else {
         _bypassLabel.setText(loaded ? "BYPASSED" : "NO IR LOADED", juce::dontSendNotification);
     }
-    _bypassLabel.setVisible(!loaded || !enabled || entry != nullptr);
+    _bypassLabel.setVisible(!loaded || !enabled || entry != nullptr || _processor.getActiveIrProfileId().isEmpty());
     resized();
 }
 
@@ -871,19 +772,15 @@ void CabinetIrPanel::resized() {
     auto header = area.removeFromTop(22);
     _cabEnabled.setBounds(header.removeFromRight(48).withSizeKeepingCentre(48, 20));
     header.removeFromRight(8);
-    _bypassLabel.setBounds(header.removeFromRight(110));
+    _bypassLabel.setBounds(header.removeFromRight(160));
     header.removeFromRight(8);
     _title.setBounds(header);
-    area.removeFromTop(4);
-
-    auto profiles = area.removeFromTop(28);
-    _profileMenu.setBounds(profiles);
     area.removeFromTop(6);
 
-    auto side = area.removeFromRight(112);
-    area.removeFromRight(10);
-    _irDrop.setBounds(area);
-    _lowCutKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(92, side.getHeight())));
+    auto side = area.removeFromRight(100);
+    area.removeFromRight(8);
+    _library.setBounds(area);
+    _lowCutKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(96, side.getHeight())));
 }
 
 EqPostFxPanel::EqPostFxPanel(juce::AudioProcessorValueTreeState& apvts)

@@ -108,6 +108,10 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         runCase("audio processor parallel route", [this] {
             testParallelRoute();
         });
+
+        runCase("fork graph keeps bifurcations apart", [this] {
+            testForkGraph();
+        });
     }
 
    private:
@@ -1143,6 +1147,43 @@ class AudioProcessorUnitTests : public juce::UnitTest {
             expect(allSamplesFinite(buffer), "Spectra amp sine should stay finite.");
         }
         return getMaximumRmsLevel(buffer);
+    }
+
+    void testForkGraph() {
+        SignalChain::ForkGraph graph;
+        int firstId = 0;
+        int secondId = 0;
+        expect(SignalChain::createBifurcation(graph, 0, 0, 1, &firstId));
+        expect(SignalChain::createBifurcation(graph, 0, 2, 4, &secondId));
+        expect(!SignalChain::createBifurcation(graph, 0, 1, 2));
+        expect(SignalChain::moveMerge(graph, secondId, 6));
+        const auto* second = SignalChain::findForkAt(graph, 0, 2);
+        expect(second != nullptr && second->mergeGap == 6);
+        expect(second->mix == 0.5f);
+
+        const auto created = SignalChain::previewDrop(SignalChain::Layout{}, graph, 0, 5, true);
+        expect(created.kind == SignalChain::DropKind::Slot);
+        SignalChain::ForkGraph spaced;
+        expect(SignalChain::createBifurcation(spaced, 0, 0, 1));
+        expect(SignalChain::createBifurcation(spaced, 0, 2, 4));
+        const auto openColumn = SignalChain::previewDrop(SignalChain::Layout{}, spaced, 0, 5, true);
+        expect(openColumn.kind == SignalChain::DropKind::NewFork);
+        const auto blocked = SignalChain::previewDrop(SignalChain::Layout{}, spaced, 0, 1, true);
+        expect(blocked.kind == SignalChain::DropKind::Forbidden);
+        const auto inside = SignalChain::previewDrop(SignalChain::Layout{}, spaced, 0, 2, true);
+        expect(inside.kind == SignalChain::DropKind::Slot);
+
+        SignalChain::Layout layout;
+        layout.clearAll();
+        layout.place(SignalChain::Stage::Amp, SignalChain::chainSlotForMovableIndex(0));
+        layout.place(SignalChain::Stage::Cab, SignalChain::chainSlotForMovableIndex(3));
+        SignalChain::BlockRef from;
+        from.column = 0;
+        SignalChain::BlockRef to;
+        to.column = 3;
+        expect(SignalChain::moveBlock(layout, graph, from, to));
+        expect(layout.atSlot(SignalChain::chainSlotForMovableIndex(0)) == SignalChain::Stage::Cab);
+        expect(layout.atSlot(SignalChain::chainSlotForMovableIndex(3)) == SignalChain::Stage::Amp);
     }
 
     void testParallelRoute() {

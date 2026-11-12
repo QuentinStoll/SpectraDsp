@@ -10,7 +10,7 @@
 #include "Components/CustomKnob.h"
 #include "Components/CustomLevelMeter.h"
 #include "Components/CustomToggleButton.h"
-#include "Components/FileDropZone.h"
+#include "Components/ProfileLibraryView.h"
 #include "Modules/BasicEqModule.h"
 
 class ProfilerAudioProcessor;
@@ -109,14 +109,11 @@ class AmpProfilerPanel : public juce::Component,
     ProfilerAudioProcessor& _processor;
     juce::Label _title{"", "Amp"};
     juce::Label _bypassLabel{"", "No model loaded"};
-    CustomComboBox _profileMenu;
     CustomToggleButton _ampEnabled{"Amp Enabled"};
-    FileDropZone _ampDrop;
-    bool _updatingMenu = false;
-    std::vector<juce::String> _profileIds;
+    ProfileLibraryView _library;
 
-    void refreshProfileMenu();
-    void selectProfileFromMenu();
+    void showProfiles();
+    void loadProfile(const juce::String& id);
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     CustomKnob _outputKnob{"Gain", -12.0f, 12.0f, 0.0f, "dB"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _ampEnabledAttachment;
@@ -144,14 +141,13 @@ class CabinetIrPanel : public juce::Component,
     ProfilerAudioProcessor& _processor;
     juce::Label _title{"", "Cabinet / IR"};
     juce::Label _bypassLabel{"", "No IR loaded"};
-    CustomComboBox _profileMenu;
     CustomToggleButton _cabEnabled{"Cab Enabled"};
-    FileDropZone _irDrop;
-    bool _updatingMenu = false;
-    std::vector<juce::String> _profileIds;
+    ProfileLibraryView _library;
+    std::unique_ptr<juce::FileChooser> _irChooser;
 
-    void refreshProfileMenu();
-    void selectProfileFromMenu();
+    void showProfiles();
+    void loadProfile(const juce::String& id);
+    void importWavIr();
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     CustomKnob _lowCutKnob{"Low Cut", 20.0f, 250.0f, 80.0f, "Hz", 1.0f};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _cabEnabledAttachment;
