@@ -196,7 +196,7 @@ bool decryptWith(int (*function)(const uint8_t*, size_t, SpectraBuffer*),
         return false;
     }
 
-    plain.replaceWith(buffer.data, buffer.size);
+    plain.replaceAll(buffer.data, buffer.size);
     if (freeBuffer != nullptr) {
         freeBuffer(&buffer);
     }
@@ -259,7 +259,7 @@ bool SpectraEngine::sealIr(const float* recorded,
         return false;
     }
 
-    sealed.replaceWith(buffer.data, buffer.size);
+    sealed.replaceAll(buffer.data, buffer.size);
     _functions->bufferFree(&buffer);
     return sealed.getSize() > 0;
 }
@@ -283,7 +283,7 @@ bool SpectraEngine::openIr(const uint8_t* key,
         return false;
     }
 
-    plain.replaceWith(buffer.data, buffer.size);
+    plain.replaceAll(buffer.data, buffer.size);
     _functions->bufferFree(&buffer);
     return plain.getSize() > 0;
 }
@@ -311,7 +311,7 @@ bool SpectraEngine::openModel(const uint8_t* key,
         return false;
     }
 
-    plain.replaceWith(buffer.data, buffer.size);
+    plain.replaceAll(buffer.data, buffer.size);
     _functions->bufferFree(&buffer);
     return plain.getSize() > 0;
 }

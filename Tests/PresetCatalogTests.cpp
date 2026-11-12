@@ -100,7 +100,7 @@ class PresetCatalogTests : public juce::UnitTest {
         cipher.fillWith(0x11);
         juce::MemoryBlock key;
         key.setSize(32);
-        key.fillWith(static_cast<char>(0xAB));
+        key.fillWith(0xAB);
 
         juce::String error;
         expect(catalog.storeCipher("amp-1", "Clean", ProfileCatalog::Kind::Amp, cipher, 1, 40.0f, false, &error), error);

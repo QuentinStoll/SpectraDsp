@@ -617,7 +617,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 return;
             }
 
-            const auto profileKind = kind == "ir" ? "ir" : "amp";
+            const juce::String profileKind = kind == "ir" ? "ir" : "amp";
             juce::MemoryBlock emptyKey;
             juce::String errorMessage;
             const auto stored = safeThis->onEncryptedProfile != nullptr &&
