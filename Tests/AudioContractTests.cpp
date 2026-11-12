@@ -235,8 +235,8 @@ class AudioContractUnitTests : public juce::UnitTest {
         const juce::File file = env.isNotEmpty()
                                     ? juce::File(env)
                                     : juce::File::getCurrentWorkingDirectory().getChildFile("build/audio-metrics.json");
-        file.getParentDirectory().createDirectory();
-        file.replaceWithText(juce::JSON::toString(juce::var(rows), true));
+        expect(file.getParentDirectory().createDirectory().wasOk(), "Create audio metrics directory");
+        expect(file.replaceWithText(juce::JSON::toString(juce::var(rows), true)), "Write audio metrics");
     }
 
     int msToSamples(float milliseconds) const {

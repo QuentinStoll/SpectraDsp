@@ -10,8 +10,8 @@ CACHE_DIR="$SCRIPT_DIR/.cache"
 BUILD_PRESET="default"
 
 set -e
-mkdir -p $BUILD_DIR
-mkdir -p $CACHE_DIR
+mkdir -p "$BUILD_DIR"
+mkdir -p "$CACHE_DIR"
 
 
 usage() {
@@ -51,6 +51,9 @@ dev )
 debug )
 	BUILD_PRESET="debug"
 	;;
+--coverage )
+	if [ "$1" != "test" ]; then usage; exit 1; fi
+	;;
 -h|--help )
 	usage
 	exit 0
@@ -63,9 +66,12 @@ debug )
 esac
 
 
+BUILD_CONFIG="Release"
+if [ "$BUILD_PRESET" = "debug" ]; then BUILD_CONFIG="Debug"; fi
+
 config() {
 	echo "[INFO] Configuring cmake"
-	cmake -DPROFILER_ENABLE_COVERAGE=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S $SCRIPT_DIR -B $BUILD_DIR -DPRESET_NAME=$BUILD_PRESET
+	cmake -DPROFILER_ENABLE_COVERAGE=OFF -DCMAKE_BUILD_TYPE="$BUILD_CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DPRESET_NAME="$BUILD_PRESET"
 	echo "[OK] cmake configured"
 }
 
@@ -74,13 +80,13 @@ coverage_is_enabled() {
 }
 
 ensure_normal_config() {
-	if [ ! -f "$BUILD_DIR/CMakeCache.txt" ] || coverage_is_enabled; then
+	if [ ! -f "$BUILD_DIR/cmake_install.cmake" ] || [ ! -f "$BUILD_DIR/CMakeCache.txt" ] || coverage_is_enabled || ! grep -q "^PRESET_NAME:.*=$BUILD_PRESET$" "$BUILD_DIR/CMakeCache.txt"; then
 		config
 	fi
 }
 
 ensure_coverage_config() {
-	if [ ! -f "$BUILD_DIR/CMakeCache.txt" ] || ! coverage_is_enabled; then
+	if [ ! -f "$BUILD_DIR/cmake_install.cmake" ] || [ ! -f "$BUILD_DIR/CMakeCache.txt" ] || ! coverage_is_enabled; then
 		echo "[INFO] Configuring coverage"
 		cmake -DPROFILER_BUILD_TESTS=ON -DPROFILER_ENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S "$SCRIPT_DIR" -B "$BUILD_DIR"
 	fi
@@ -89,25 +95,16 @@ ensure_coverage_config() {
 build() {
 	ensure_normal_config
 	echo "[INFO] Building project"
-	cmake --build $BUILD_DIR -j8
+	cmake --build "$BUILD_DIR" --config "$BUILD_CONFIG" --parallel 8
 	echo "[OK] Done building project"
 }
 
 test_project() {
 	ensure_normal_config
 	echo "[INFO] Building automated tests"
-	cmake --build "$BUILD_DIR" --target ProfilerTests
+	cmake --build "$BUILD_DIR" --target ProfilerTests --config "$BUILD_CONFIG"
 	echo "[INFO] Running automated tests"
-	ctest --test-dir "$BUILD_DIR" --output-on-failure
-	echo "[INFO] Test summary"
-	TEST_EXE="$BUILD_DIR/Tests/ProfilerTests"
-	if [ ! -x "$TEST_EXE" ] && [ -x "$BUILD_DIR/Tests/Release/ProfilerTests" ]; then
-		TEST_EXE="$BUILD_DIR/Tests/Release/ProfilerTests"
-	fi
-	if [ ! -x "$TEST_EXE" ] && [ -x "$BUILD_DIR/Tests/Release/ProfilerTests.exe" ]; then
-		TEST_EXE="$BUILD_DIR/Tests/Release/ProfilerTests.exe"
-	fi
-	"$TEST_EXE" --quiet
+	ctest --test-dir "$BUILD_DIR" -C "$BUILD_CONFIG" --output-on-failure
 	echo "[OK] Tests passed"
 }
 
@@ -119,7 +116,7 @@ test_project_with_coverage() {
 }
 
 case "$1" in
-	all )
+	""|all )
 		config
 		build
 		;;
@@ -137,8 +134,8 @@ case "$1" in
 		fi
 		;;
 	re )
-		rm -fr $BUILD_DIR
-		rm -fr $CACHE_DIR
+		rm -fr -- "$BUILD_DIR"
+		rm -fr -- "$CACHE_DIR"
 		build
 		;;
 	-h|--help )

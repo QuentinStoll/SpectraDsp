@@ -46,8 +46,6 @@ target_include_directories(ProfilerTests PRIVATE
 target_compile_definitions(ProfilerTests PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_UNIT_TESTS=1
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_REPORT_APP_USAGE=0
     PROFILER_HEADLESS_TESTS=1
     JucePlugin_IsSynth=0
     JucePlugin_WantsMidiInput=0
@@ -121,7 +119,6 @@ if(PROFILER_ENABLE_COVERAGE)
                 --export_type "html:${PROFILER_COVERAGE_HTML_DIR}"
                 --export_type "cobertura:${PROFILER_COVERAGE_XML}"
                 -- "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}" -C "$<CONFIG>" --output-on-failure
-            COMMAND "$<TARGET_FILE:ProfilerTests>" --quiet
             COMMAND "${CMAKE_COMMAND}"
                 -DPROFILER_COVERAGE_XML="${PROFILER_COVERAGE_DIR}/coverage.xml"
                 -DPROFILER_COVERAGE_MINIMUM=${PROFILER_COVERAGE_MINIMUM}
@@ -135,8 +132,7 @@ if(PROFILER_ENABLE_COVERAGE)
         add_custom_target(ProfilerCoverage
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROFILER_COVERAGE_DIR}"
             COMMAND "${PROFILER_LCOV_EXE}" --directory "${CMAKE_BINARY_DIR}" --zerocounters
-            COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}" --output-on-failure
-            COMMAND "$<TARGET_FILE:ProfilerTests>" --quiet
+            COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}" -C "$<CONFIG>" --output-on-failure
             COMMAND "${PROFILER_LCOV_EXE}" --directory "${CMAKE_BINARY_DIR}" --capture --output-file "${PROFILER_COVERAGE_DIR}/coverage.info"
             COMMAND "${PROFILER_LCOV_EXE}" --remove "${PROFILER_COVERAGE_DIR}/coverage.info"
                 "*/Tests/*"
@@ -158,141 +154,12 @@ if(PROFILER_ENABLE_COVERAGE)
     endif()
 endif()
 
-function(add_profiler_profile_manager_test test_name case_name)
-    add_test(NAME ProfilerTests.ProfileManager.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_profile_manager_test(CreateProfile "create profile")
-add_profiler_profile_manager_test(UpdateProfile "update profile")
-add_profiler_profile_manager_test(DeleteProfile "delete profile")
-add_profiler_profile_manager_test(ExportProfile "export profile")
-add_profiler_profile_manager_test(ImportProfile "import profile")
-add_profiler_profile_manager_test(RejectOutOfRangeNumericValue "reject out-of-range numeric value")
-add_profiler_profile_manager_test(RejectNonStringPathValue "reject non-string path value")
-add_profiler_profile_manager_test(RejectInvalidProfileJson "reject invalid profile JSON")
-add_profiler_profile_manager_test(RejectUnsupportedProfileFormat "reject unsupported profile format")
-add_profiler_profile_manager_test(ApplyParameterMapping "apply profile values to APVTS parameters")
-add_profiler_profile_manager_test(SaveCurrentProfileSetting "save current profile setting")
-add_profiler_profile_manager_test(ClearCurrentProfileSetting "clear current profile setting")
-add_profiler_profile_manager_test(CaptureCurrentValues "capture current APVTS values with profile file paths")
-
-function(add_profiler_preset_test test_name case_name)
-    add_test(NAME ProfilerTests.Preset.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_preset_test(RestoreChain "preset restores the chain")
-add_profiler_preset_test(EncryptedCatalog "catalog keeps profiles encrypted")
-
-function(add_profiler_audio_processor_test test_name case_name)
-    add_test(NAME ProfilerTests.AudioProcessor.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_audio_processor_test(Metadata "audio processor metadata")
-add_profiler_audio_processor_test(BusLayouts "audio processor bus layouts")
-add_profiler_audio_processor_test(ParameterDefaults "audio processor parameter defaults")
-add_profiler_audio_processor_test(StateRoundTrip "audio processor state round trip")
-add_profiler_audio_processor_test(ChainLayoutRoundTrip "audio processor chain layout round trip")
-add_profiler_audio_processor_test(ProcessBlockSmoke "audio processor process block smoke")
-add_profiler_audio_processor_test(MuteClearsBuffer "audio processor mute clears buffer")
-add_profiler_audio_processor_test(MasterZeroSilencesBuffer "audio processor master zero silences buffer")
-add_profiler_audio_processor_test(NoiseGateZeroBypasses "audio processor noise gate zero bypasses")
-add_profiler_audio_processor_test(GainChangesOutputLevel "audio processor gain changes output level")
-add_profiler_audio_processor_test(SilentInputStaysSilent "audio processor silent input stays silent")
-add_profiler_audio_processor_test(PrepareBlockSizes "audio processor handles prepare block sizes")
-add_profiler_audio_processor_test(ReleaseAndReprepare "audio processor release and reprepare")
-add_profiler_audio_processor_test(RejectMissingAssetFiles "audio processor rejects missing asset files")
-add_profiler_audio_processor_test(AmpModelResidualAndBypass "audio processor amp model residual and bypass")
-add_profiler_audio_processor_test(SpectraNeuralAmp "audio processor spectra neural amp")
-add_profiler_audio_processor_test(NamA2Realtime "audio processor nam a2 realtime")
-add_profiler_audio_processor_test(NamCloneQuality "audio processor nam clone quality")
-add_profiler_audio_processor_test(CabinetIrReachesSignal "audio processor cabinet ir reaches the signal")
-add_profiler_audio_processor_test(EffectChain "audio processor effect chain")
-add_profiler_audio_processor_test(ParallelRoute "audio processor parallel route")
-
-function(add_profiler_audio_contract_test test_name case_name)
-    add_test(NAME ProfilerTests.AudioContract.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_audio_contract_test(DryLatencyIsZero "audio contract dry latency is zero")
-add_profiler_audio_contract_test(PedalLatencyMatchesTheDrive "audio contract pedal latency matches the drive")
-add_profiler_audio_contract_test(HarmonizerLatencyMatchesTheParameter "audio contract harmonizer latency matches the parameter")
-add_profiler_audio_contract_test(DropLatencyMatchesTheParameter "audio contract drop latency matches the parameter")
-add_profiler_audio_contract_test(GateLookaheadMatchesTheParameter "audio contract gate lookahead matches the parameter")
-add_profiler_audio_contract_test(BlockBoundariesStayContinuous "audio contract block boundaries stay continuous")
-add_profiler_audio_contract_test(BypassSettlesWithoutAClick "audio contract bypass settles without a click")
-add_profiler_audio_contract_test(OversizedBlockStaysFinite "audio contract oversized block stays finite")
-add_profiler_audio_contract_test(SilenceStaysSilent "audio contract silence stays silent")
-add_profiler_audio_contract_test(StagesStayRealtime "audio contract stages stay realtime")
-add_profiler_audio_contract_test(HarmonizerOctaveStaysInTune "audio contract harmonizer octave stays in tune")
-add_profiler_audio_contract_test(DropStaysInTune "audio contract drop stays in tune")
-
-function(add_profiler_amp_capture_test test_name case_name)
-    add_test(NAME ProfilerTests.AmpCapture.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_amp_capture_test(FindsLatency "amp capture finds the blip latency")
-add_profiler_amp_capture_test(SilentReturn "amp capture rejects a silent return")
-add_profiler_amp_capture_test(ReplicateAndOutput "amp capture checks the replicate and writes a nam output")
-add_profiler_amp_capture_test(StandaloneLoopback "amp capture records a standalone loopback")
-
-function(add_profiler_profile_processor_integration_test test_name case_name)
-    add_test(NAME ProfilerTests.ProfileProcessorIntegration.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_profile_processor_integration_test(ApplyMapsProfileValues "profile processor apply maps profile values")
-add_profiler_profile_processor_integration_test(TracksProfileAssetPaths "profile processor tracks profile asset paths")
-add_profiler_profile_processor_integration_test(AppliedProfileAffectsAudio "profile processor applied profile affects audio")
-add_profiler_profile_processor_integration_test(SyncsCurrentProfileSelection "profile processor syncs current profile selection")
-
-function(add_profiler_logging_test test_name case_name)
-    add_test(NAME ProfilerTests.Logging.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_logging_test(CreateAndFind "create and find logger")
-add_profiler_logging_test(DuplicateCreateThrows "duplicate create throws")
-add_profiler_logging_test(GetMissingThrows "get non-existent throws")
-add_profiler_logging_test(FormatLabels "format log labels")
-add_profiler_logging_test(ConfigAndFileOutput "parse config and write log file")
-
-function(add_profiler_ui_settings_test test_name case_name)
-    add_test(NAME ProfilerTests.UiSettings.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_ui_settings_test(DefaultsAndNormalisation "ui settings defaults and normalisation")
-add_profiler_ui_settings_test(Persistence "ui settings persistence")
-add_profiler_ui_settings_test(InvalidJson "ui settings invalid JSON")
-
-function(add_profiler_notification_banner_test test_name case_name)
-    add_test(NAME ProfilerTests.NotificationBanner.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_notification_banner_test(Lifecycle "notification banner lifecycle")
-add_profiler_notification_banner_test(Painting "notification banner painting")
-
-function(add_profiler_marketplace_test test_name case_name)
-    add_test(NAME ProfilerTests.Marketplace.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_marketplace_test(Login "marketplace login")
-add_profiler_marketplace_test(Mfa "marketplace mfa")
-add_profiler_marketplace_test(Library "marketplace library")
-add_profiler_marketplace_test(Session "marketplace session file")
-add_profiler_marketplace_test(IrCapture "marketplace ir capture")
-
-function(add_profiler_app_update_test test_name case_name)
-    add_test(NAME ProfilerTests.AppUpdate.${test_name}
-        COMMAND ProfilerTests --case "${case_name}")
-endfunction()
-
-add_profiler_app_update_test(TagOrder "app update tag order")
-add_profiler_app_update_test(ParseLatest "app update parse latest")
+# Run the whole registered JUCE category once: no hand-maintained list can omit
+# cases, and AudioContract emits its complete metrics in this same invocation.
+add_test(NAME ProfilerTests.All COMMAND ProfilerTests)
+set_tests_properties(ProfilerTests.All PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    ENVIRONMENT "PROFILER_AUDIO_METRICS=${CMAKE_BINARY_DIR}/audio-metrics.json"
+    RUN_SERIAL TRUE
+    TIMEOUT 600
+)

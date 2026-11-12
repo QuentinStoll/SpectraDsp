@@ -11,8 +11,8 @@ set "BUILD_DIR=%SCRIPT_DIR%build"
 set "CACHE_DIR=%SCRIPT_DIR%.cache"
 set BUILD_PRESET="default"
 
-if not exist %BUILD_DIR% mkdir %BUILD_DIR%
-if not exist %CACHE_DIR% mkdir %CACHE_DIR%
+if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+if not exist "%CACHE_DIR%" mkdir "%CACHE_DIR%"
 
 if "%2"=="" set BUILD_PRESET="default"
 if /I "%2"=="default" set BUILD_PRESET="default"
@@ -22,6 +22,9 @@ if /I "%2"=="dev" set BUILD_PRESET="dev"
 if /I "%2"=="debug" set BUILD_PRESET="debug"
 if /I "%2"=="-h" goto usage
 if /I "%2"=="--help" goto usage
+
+set "BUILD_CONFIG=Release"
+if /I "%2"=="debug" set "BUILD_CONFIG=Debug"
 
 if "%1"=="" goto default
 if /I "%1"=="all" goto default
@@ -52,7 +55,7 @@ goto end
 
 :config
 echo [INFO] Configuring cmake
-cmake -DPROFILER_ENABLE_COVERAGE=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S %SCRIPT_DIR% -B "%BUILD_DIR%" -DPRESET_NAME=%BUILD_PRESET%
+cmake -DPROFILER_ENABLE_COVERAGE=OFF -DCMAKE_BUILD_TYPE=%BUILD_CONFIG% -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S "%~dp0." -B "%BUILD_DIR%" -DPRESET_NAME=%BUILD_PRESET%
 if errorlevel 1 (
     echo [ERROR] cmake configuration failed
     exit /b 1
@@ -61,7 +64,16 @@ echo [OK] cmake configured
 exit /b 0
 
 :ensure_normal_config
+if not exist "%BUILD_DIR%\cmake_install.cmake" (
+    call :config
+    exit /b !errorlevel!
+)
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
+    call :config
+    exit /b !errorlevel!
+)
+findstr /X /C:"PRESET_NAME:UNINITIALIZED=%BUILD_PRESET:"=%" /C:"PRESET_NAME:STRING=%BUILD_PRESET:"=%" "%BUILD_DIR%\CMakeCache.txt" >nul
+if errorlevel 1 (
     call :config
     exit /b !errorlevel!
 )
@@ -73,6 +85,7 @@ if not errorlevel 1 (
 exit /b 0
 
 :ensure_coverage_config
+if not exist "%BUILD_DIR%\cmake_install.cmake" goto configure_coverage
 if not exist "%BUILD_DIR%\CMakeCache.txt" goto configure_coverage
 findstr /C:"PROFILER_ENABLE_COVERAGE:BOOL=ON" "%BUILD_DIR%\CMakeCache.txt" >nul
 if errorlevel 1 goto configure_coverage
@@ -91,7 +104,7 @@ exit /b 0
 call :ensure_normal_config
 if errorlevel 1 exit /b 1
 echo [INFO] Building project
-cmake --build "%BUILD_DIR%" -j8
+cmake --build "%BUILD_DIR%" --config %BUILD_CONFIG% --parallel 8
 if errorlevel 1 (
     echo [ERROR] Build failed
     exit /b 1
@@ -104,21 +117,15 @@ if /I "%2"=="--coverage" goto test_coverage
 call :ensure_normal_config
 if errorlevel 1 exit /b 1
 echo [INFO] Building automated tests
-cmake --build "%BUILD_DIR%" --target ProfilerTests --config Release
+cmake --build "%BUILD_DIR%" --target ProfilerTests --config %BUILD_CONFIG%
 if errorlevel 1 (
     echo [ERROR] Test build failed
     exit /b 1
 )
 echo [INFO] Running automated tests
-ctest --test-dir "%BUILD_DIR%" -C Release --output-on-failure
+ctest --test-dir "%BUILD_DIR%" -C %BUILD_CONFIG% --output-on-failure
 if errorlevel 1 (
     echo [ERROR] Tests failed
-    exit /b 1
-)
-echo [INFO] Test summary
-"%BUILD_DIR%\Tests\Release\ProfilerTests.exe" --quiet
-if errorlevel 1 (
-    echo [ERROR] Test summary failed
     exit /b 1
 )
 echo [OK] Tests passed
