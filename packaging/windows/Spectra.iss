@@ -87,8 +87,8 @@ Source: "{#StandaloneDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubd
 Source: "{#Vst3Dir}\*"; DestDir: "{commoncf64}\VST3\Spectra.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs uninsrestartdelete; Components: vst3
 
 [Icons]
-Name: "{autoprograms}\Spectra"; Filename: "{app}\Spectra.exe"; Components: standalone
-Name: "{autodesktop}\Spectra"; Filename: "{app}\Spectra.exe"; Components: standalone; Tasks: desktopicon
+Name: "{autoprograms}\Spectra"; Filename: "{app}\Spectra.exe"; IconFilename: "{app}\Spectra.ico"; Components: standalone
+Name: "{autodesktop}\Spectra"; Filename: "{app}\Spectra.exe"; IconFilename: "{app}\Spectra.ico"; Components: standalone; Tasks: desktopicon
 
 [InstallDelete]
 Type: files; Name: "{app}\Profiler.exe"
@@ -106,3 +106,17 @@ Type: files; Name: "{autodesktop}\Spectra.lnk"
 
 [Run]
 Filename: "{app}\Spectra.exe"; Description: "Launch Spectra"; Flags: nowait postinstall skipifsilent; Components: standalone
+
+[Code]
+const
+  SHCNE_ASSOCCHANGED = $08000000;
+  SHCNF_IDLIST = $0000;
+
+procedure SHChangeNotify(wEventId: Integer; uFlags: Cardinal; dwItem1, dwItem2: Pointer);
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nil, nil);
+end;

@@ -75,10 +75,12 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     OverlayMode _overlayMode = OverlayMode::None;
     int _hostChromePasses = 0;
     bool _standaloneFullscreenRequested = false;
+    bool _windowIconApplied = false;
     bool _updateInProgress = false;
     std::shared_ptr<std::atomic<bool>> _updateAlive;
 
     void applyStandaloneWindowChrome();
+    void applyWindowIcon();
     void applyHostWindowChrome();
     void requestStandaloneFullscreen();
     void openStandaloneFullscreen();

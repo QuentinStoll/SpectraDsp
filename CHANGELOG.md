@@ -20,6 +20,7 @@ Notable changes for every published release are recorded below, newest first. Re
 ### Changed
 
 - The skull mark sits to the left of SPECTRA in the top bar, and it replaces the cyan dot as the application icon.
+- The standalone window sets that icon itself, so the taskbar does not keep the previous cyan dot after an update.
 - Issue forms add an area badge: audio, interface, documentation, build, or security.
 - Limited GTK, WebKitGTK, and libcurl to Linux so macOS can configure with the Xcode SDK alone.
 - Plugin formats now follow the selected preset. Audio Unit is requested by the default preset and skipped outside macOS.
