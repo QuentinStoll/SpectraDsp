@@ -42,6 +42,7 @@ class StudioTopBar : public juce::Component,
     ProfilerAudioProcessor& _audioProcessor;
     juce::AudioProcessorValueTreeState& _apvts;
 
+    juce::ImageComponent _logoMark;
     juce::Label _logoLabel;
     CustomComboBox _presetMenu;
     IconButton _libraryButton{"Library", IconButton::Icon::Library};

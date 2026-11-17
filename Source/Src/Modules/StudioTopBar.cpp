@@ -1,5 +1,6 @@
 #include "Modules/StudioTopBar.h"
 
+#include "BinaryData.h"
 #include "Components/CustomLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
@@ -37,6 +38,12 @@ void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverBu
 StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
     : _audioProcessor(processor),
       _apvts(processor._apvts) {
+    _logoMark.setImage(juce::ImageFileFormat::loadFrom(BinaryData::SpectraWordmark_png,
+                                                       BinaryData::SpectraWordmark_pngSize),
+                       juce::RectanglePlacement::centred);
+    _logoMark.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(_logoMark);
+
     _logoLabel.setText("SPECTRA", juce::dontSendNotification);
     _logoLabel.setFont(ProfilerStyle::Fonts::logo(18.0f));
     _logoLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
@@ -85,7 +92,11 @@ void StudioTopBar::paint(juce::Graphics& g) {
 
 void StudioTopBar::resized() {
     auto area = getLocalBounds().reduced(12, 6);
-    _logoLabel.setBounds(area.removeFromLeft(196));
+    auto brand = area.removeFromLeft(240);
+    const auto markSide = juce::jmin(36, brand.getHeight());
+    _logoMark.setBounds(brand.removeFromLeft(markSide).withSizeKeepingCentre(markSide, markSide));
+    brand.removeFromLeft(8);
+    _logoLabel.setBounds(brand);
 
     auto right = area.removeFromRight(94);
     _settingsButton.setBounds(right.removeFromRight(32).withSizeKeepingCentre(32, 32));
