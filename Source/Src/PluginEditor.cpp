@@ -7,6 +7,7 @@
 #include <windows.h>
 #endif
 
+#include "BinaryData.h"
 #include "Fx/FxCatalog.h"
 #include "ProfileManager.h"
 #include "ProfilerConstantValues.h"
@@ -514,10 +515,30 @@ void ProfilerAudioProcessorEditor::applyStandaloneWindowChrome() {
                              : juce::DocumentWindow::minimiseButton | juce::DocumentWindow::closeButton;
     window->setTitleBarButtonsRequired(buttons, false);
     window->repaint();
+    applyWindowIcon();
 
     if (_audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
         requestStandaloneFullscreen();
     }
+}
+
+void ProfilerAudioProcessorEditor::applyWindowIcon() {
+    if (_windowIconApplied || _audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Standalone) {
+        return;
+    }
+
+    auto* window = findParentComponentOfClass<juce::DocumentWindow>();
+    if (window == nullptr) {
+        return;
+    }
+
+    const auto icon = juce::ImageFileFormat::loadFrom(BinaryData::SpectraIcon_png, BinaryData::SpectraIcon_pngSize);
+    if (!icon.isValid()) {
+        return;
+    }
+
+    window->setIcon(icon);
+    _windowIconApplied = true;
 }
 
 void ProfilerAudioProcessorEditor::requestStandaloneFullscreen() {
