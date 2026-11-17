@@ -106,17 +106,3 @@ Type: files; Name: "{autodesktop}\Spectra.lnk"
 
 [Run]
 Filename: "{app}\Spectra.exe"; Description: "Launch Spectra"; Flags: nowait postinstall skipifsilent; Components: standalone
-
-[Code]
-const
-  SHCNE_ASSOCCHANGED = $08000000;
-  SHCNF_IDLIST = $0000;
-
-procedure SHChangeNotify(wEventId: Integer; uFlags: Cardinal; dwItem1, dwItem2: Pointer);
-  external 'SHChangeNotify@shell32.dll stdcall';
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nil, nil);
-end;
