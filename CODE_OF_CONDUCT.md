@@ -2,7 +2,7 @@
 
 ## Our commitment
 
-The VSTProfiler community aims to be welcoming and respectful to contributors of all backgrounds and experience levels. Participation in issues, pull requests, reviews, and project discussions is subject to this code.
+The SpectraDsp community aims to be welcoming and respectful to contributors of all backgrounds and experience levels. Participation in issues, pull requests, reviews, and project discussions is subject to this code.
 
 ## Expected behavior
 

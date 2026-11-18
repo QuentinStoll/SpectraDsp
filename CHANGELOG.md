@@ -26,6 +26,7 @@ Notable changes for every published release are recorded below, newest first. Re
 - Plugin formats now follow the selected preset. Audio Unit is requested by the default preset and skipped outside macOS.
 - Documented `install.bat` on Windows and `install.sh` on Linux and macOS as the installation entry points, including preset selection and the Windows build-configuration behavior.
 - README setup, usage, architecture, testing, limitations, project status, and documentation links.
+- Project docs, the license notice, and contributor policies use the SpectraDsp name and logo. The application and plugin remain Spectra.
 - Corrected standalone/VST3 output paths to match the project's CMake overrides.
 - Clarified contribution conventions and acknowledged existing version tags in the roadmap and security policy.
 - Switched contribution to a single `main` branch. Feature branches open pull requests directly against `main`, and a release is published only by running the CI workflow manually.
@@ -33,7 +34,7 @@ Notable changes for every published release are recorded below, newest first. Re
 - Replaced the generic email token with `quentin.stoll@epitech.eu`, explicitly marked as an unconfirmed placeholder in both reporting policies.
 - Reconstructed the changelog for all seven published releases, from `0.1.0` through `v2026.07.15-112`.
 
-## [v2026.07.15-112](https://github.com/QuentinStoll/VstProfiler/releases/tag/v2026.07.15-112) - 2026-07-15
+## [v2026.07.15-112](https://github.com/QuentinStoll/SpectraDsp/releases/tag/v2026.07.15-112) - 2026-07-15
 
 ### Added
 
@@ -60,15 +61,15 @@ Notable changes for every published release are recorded below, newest first. Re
 - Added missing CURL/Tracy dependencies for test builds and corrected Linux file handling in tests.
 - Updated audio test expectations for mono processing and removed a duplicate GUI function call.
 
-[Full comparison](https://github.com/QuentinStoll/VstProfiler/compare/v2026.07.14-98...v2026.07.15-112)
+[Full comparison](https://github.com/QuentinStoll/SpectraDsp/compare/v2026.07.14-98...v2026.07.15-112)
 
-## [v2026.07.14-98](https://github.com/QuentinStoll/VstProfiler/releases/tag/v2026.07.14-98) - 2026-07-14
+## [v2026.07.14-98](https://github.com/QuentinStoll/SpectraDsp/releases/tag/v2026.07.14-98) - 2026-07-14
 
 ### Added
 
 - Responsive output level meter in the Play view.
 - Settings view with background-color customization and logging controls.
-- VSTProfiler banner and application/plugin icon assets.
+- Application banner and plugin icon assets.
 
 ### Changed
 
@@ -84,9 +85,9 @@ Notable changes for every published release are recorded below, newest first. Re
 
 - Legacy `Profiler.jucer` project and checked-in `JuceLibraryCode` generated files.
 
-[Full comparison](https://github.com/QuentinStoll/VstProfiler/compare/v2026.07.10-69...v2026.07.14-98)
+[Full comparison](https://github.com/QuentinStoll/SpectraDsp/compare/v2026.07.10-69...v2026.07.14-98)
 
-## [v2026.07.10-69](https://github.com/QuentinStoll/VstProfiler/releases/tag/v2026.07.10-69) - 2026-07-10
+## [v2026.07.10-69](https://github.com/QuentinStoll/SpectraDsp/releases/tag/v2026.07.10-69) - 2026-07-10
 
 ### Changed
 
@@ -104,9 +105,9 @@ Notable changes for every published release are recorded below, newest first. Re
 - Legacy amp engine, amp profiling, and sweep-generator code.
 - Unused path-selector component and obsolete image asset.
 
-[Full comparison](https://github.com/QuentinStoll/VstProfiler/compare/v2026.07.07-57...v2026.07.10-69)
+[Full comparison](https://github.com/QuentinStoll/SpectraDsp/compare/v2026.07.07-57...v2026.07.10-69)
 
-## [v2026.07.07-57](https://github.com/QuentinStoll/VstProfiler/releases/tag/v2026.07.07-57) - 2026-07-07
+## [v2026.07.07-57](https://github.com/QuentinStoll/SpectraDsp/releases/tag/v2026.07.07-57) - 2026-07-07
 
 ### Fixed
 
@@ -114,9 +115,9 @@ Notable changes for every published release are recorded below, newest first. Re
 
 This release only changes documentation; there are no audio-processing or UI code changes relative to the previous tag.
 
-[Full comparison](https://github.com/QuentinStoll/VstProfiler/compare/v2026.07.06-56...v2026.07.07-57)
+[Full comparison](https://github.com/QuentinStoll/SpectraDsp/compare/v2026.07.06-56...v2026.07.07-57)
 
-## [v2026.07.06-56](https://github.com/QuentinStoll/VstProfiler/releases/tag/v2026.07.06-56) - 2026-07-06
+## [v2026.07.06-56](https://github.com/QuentinStoll/SpectraDsp/releases/tag/v2026.07.06-56) - 2026-07-06
 
 ### Added
 
@@ -144,9 +145,9 @@ This release only changes documentation; there are no audio-processing or UI cod
 - Added locking when unloading an amp model.
 - Corrected Linux compilation issues, header casing, and build warnings.
 
-[Full comparison](https://github.com/QuentinStoll/VstProfiler/compare/v2026.04.14-12...v2026.07.06-56)
+[Full comparison](https://github.com/QuentinStoll/SpectraDsp/compare/v2026.04.14-12...v2026.07.06-56)
 
-## [v2026.04.14-12](https://github.com/QuentinStoll/VstProfiler/releases/tag/v2026.04.14-12) - 2026-04-14
+## [v2026.04.14-12](https://github.com/QuentinStoll/SpectraDsp/releases/tag/v2026.04.14-12) - 2026-04-14
 
 ### Added
 
@@ -176,9 +177,9 @@ This release only changes documentation; there are no audio-processing or UI cod
 
 - Checked-in generated Visual Studio build projects and superseded setup scripts.
 
-[Full comparison](https://github.com/QuentinStoll/VstProfiler/compare/0.1.0...v2026.04.14-12)
+[Full comparison](https://github.com/QuentinStoll/SpectraDsp/compare/0.1.0...v2026.04.14-12)
 
-## [0.1.0](https://github.com/QuentinStoll/VstProfiler/releases/tag/0.1.0) - 2025-12-11
+## [0.1.0](https://github.com/QuentinStoll/SpectraDsp/releases/tag/0.1.0) - 2025-12-11
 
 The release notes describe this initial release as an experimental beta (`v0.1.0-beta`); its actual Git tag is `0.1.0`.
 
@@ -190,11 +191,11 @@ The release notes describe this initial release as an experimental beta (`v0.1.0
 - Early LUT-based amp simulation and loading of paired DI/amplifier audio files.
 - Initial cloning, selection, and playing screens, with rotary controls connected to processing.
 - Projucer/Visual Studio project files and platform setup scripts.
-- Published `Profiler.vst3` and raw/processed guitar and sweep WAV examples.
+- Published the first VST3 build and raw/processed guitar and sweep WAV examples.
 
 ### Known limitations at release
 
 - Sweep capture required an external DAW; automatic capture was not implemented.
 - Amp processing and sound quality were preliminary. Complete automatic profiling and dynamic amp-behavior modeling remained future work.
 
-[Initial release history](https://github.com/QuentinStoll/VstProfiler/commits/0.1.0)
+[Initial release history](https://github.com/QuentinStoll/SpectraDsp/commits/0.1.0)

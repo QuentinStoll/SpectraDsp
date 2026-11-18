@@ -11,5 +11,5 @@ GitHub Releases as:
 python packaging/build_installer.py --plugin-root build/bin --os-arch linux-x64 --output-dir dist
 ```
 
-`marketplace-site/` is the drop-in for ProfilerMarketplace so spectradsp.com
+`marketplace-site/` is the drop-in for SpectraMarketplace so spectradsp.com
 `/downloads/{macos,windows,linux}` 302s to those assets.

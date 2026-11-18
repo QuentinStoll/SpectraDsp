@@ -1,10 +1,10 @@
 # spectradsp.com download cards
 
-Copy these files into the ProfilerMarketplace repo (this cloud environment cannot
+Copy these files into the SpectraMarketplace repo (this cloud environment cannot
 open that repository). They replace the placeholder `/downloads/placeholder/...`
 links with redirects to the latest GitHub Release of SpectraDsp.
 
-| This folder | Destination in ProfilerMarketplace |
+| This folder | Destination in SpectraMarketplace |
 | --- | --- |
 | `lib/github-releases.ts` | `lib/github-releases.ts` |
 | `app/downloads/[os]/route.ts` | `app/downloads/[os]/route.ts` |

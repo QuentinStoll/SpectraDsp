@@ -2,9 +2,9 @@
 
 Version 3, 29 June 2007
 
-## VSTProfiler - Guitar Amp Emulation VST
+## SpectraDsp - Guitar Amplifier
 
-Copyright (C) 2026 VST PROFILER Team
+Copyright (C) 2026 Spectra DSP
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software

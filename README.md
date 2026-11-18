@@ -4,13 +4,15 @@
 [![C++20](https://img.shields.io/badge/C++-20-blue)](CMakeLists.txt)
 [![JUCE](https://img.shields.io/badge/JUCE-8.0.12-red)](cmake/dependencies.cmake)
 
-![VSTProfiler banner](Source/Assets/png/ProfilerBanner.png)
+<p align="center">
+  <img src="docs/logo.png" alt="SpectraDsp" width="280">
+</p>
 
-# Spectra - Guitar Amplifier Simulator
+# SpectraDsp
 
-Spectra is an open-source audio plugin for guitarists who want to shape and save amplifier tones using neural amp models, cabinet impulse responses, and real-time controls, in a DAW or a standalone application.
+SpectraDsp is an open-source guitar amplifier plugin. The standalone application and the plugin are named **Spectra**. It plays neural amp models and cabinet impulse responses in a DAW or on its own, keeps tones as profiles, and loads tones from the [spectradsp.com](https://spectradsp.com) library. The standalone app can also clone a cabinet or capture an amplifier.
 
-[Getting started](#getting-started) · [Usage](#usage) · [Contributing](#contributing) · [Report a bug](https://github.com/QuentinStoll/VstProfiler/issues) · [Request a feature](https://github.com/QuentinStoll/VstProfiler/issues)
+[Getting started](#getting-started) · [Usage](#usage) · [Contributing](#contributing) · [Report a bug](https://github.com/QuentinStoll/SpectraDsp/issues) · [Request a feature](https://github.com/QuentinStoll/SpectraDsp/issues)
 
 ## Table of contents
 
@@ -29,26 +31,24 @@ Spectra is an open-source audio plugin for guitarists who want to shape and save
 
 **EIP 2025-2026 - Technical Track.** This final-year engineering project was started in fourth year by four students at Epitech Paris.
 
-The goal is to give guitarists a free, customizable way to explore amplifier and cabinet sounds. Musicians can combine external models and impulse responses, adjust their tone, and reuse saved profiles. Developers and audio enthusiasts can inspect and extend the C++ processing chain and JUCE interface.
-
-Reproducing the tone and dynamic behavior of real amplifiers is the project's longer-term ambition; the current implementation and its limits are described below.
+SpectraDsp is the guitar rig: play an amp model through a cabinet, shape the chain, and come back to the same tone later. The marketplace at spectradsp.com is where account tones live. Cloning a cabinet or an amplifier, from the standalone app, is how a real piece of gear becomes a tone inside Spectra. Developers and audio enthusiasts can inspect and extend the C++ processing chain and the JUCE interface.
 
 ## Features and current limitations
 
 ### Implemented features
 
-- Load cabinet impulse responses through the **Clone** view and process audio with JUCE convolution.
-- Load compatible neural amplifier models through RTNeural.
-- Adjust gain, noise gate, master volume, mute, and a five-band EQ through the **Play** view.
+- Load a neural amplifier model on the amp block and a cabinet impulse response on the cabinet block. Cabinet processing uses JUCE convolution. Amp files go through RTNeural.
+- Adjust input trim, noise gate, amp gain, mute, master volume, and a five-band EQ from the studio.
 - Arrange amp, cabinet, EQ, and pedal blocks on a two-row signal chain. The path stays serial, a type can be used more than once, and a block can be removed from the picker.
-- Create, edit, import, export, and delete `.profilerprofile` profiles containing parameter values and external asset paths.
-- Use a JUCE interface with **Clone**, **Play**, **Profil**, and settings views.
+- Recall a tone from the profile menu in the top bar. Profiles are `.profilerprofile` files: parameter values plus paths to external amp and IR files.
+- Sign in from **Library** and use tones from the spectradsp.com account.
+- From the standalone **Settings** view, clone a cabinet impulse response or capture an amplifier and send it for training. The sealed tone shows up in Library when it is ready.
 - Build a standalone application and a VST3 plugin on Windows, macOS, and Linux. macOS builds also produce an Audio Unit.
 
 ### Current limitations
 
 - This is an experimental project. Audio quality, performance, and host compatibility still need validation for each use case.
-- The **Clone** view loads existing files; it does not currently provide an amplifier capture or model-training workflow.
+- Cloning an IR or capturing an amp runs in the standalone application, which owns the audio device, and needs a signed-in spectradsp.com account. The plugin plays models and impulse responses; it does not run the capture.
 - Amp files must contain a model that the RTNeural JSON parser accepts, with one input and at least one output. The file chooser lists `.nam`, `.json`, and `.txt`, but an extension alone does not guarantee compatibility.
 - Profiles reference external amp and IR files rather than embedding them. Keep those files available when reopening or sharing a profile.
 - The processor currently requires mono input and stereo output. Configure the host's channel layout accordingly.
@@ -88,9 +88,11 @@ Prebuilt installers are attached to [GitHub Releases](https://github.com/Quentin
 To build from source, clone the repository and enter its directory:
 
 ```sh
-git clone https://github.com/QuentinStoll/VstProfiler.git
-cd VstProfiler
+git clone https://github.com/QuentinStoll/SpectraDsp.git
+cd SpectraDsp
 ```
+
+GitHub still accepts the previous repository URL and redirects it here.
 
 Configure and build on Windows using `install.bat`:
 
@@ -139,27 +141,36 @@ For DAW use, copy the entire `build/bin/lib/VST3/Spectra.vst3` bundle to a VST3 
 ### Play through an amp model and cabinet IR
 
 1. Launch the standalone application and select your audio device, or load the plugin in your DAW and route your guitar input to it.
-2. Open **Clone**, choose **Load Amp**, and select a compatible RTNeural model file.
-3. Choose **Load IR** to select a cabinet impulse response. The chooser lists WAV, AIFF, AIF, and FLAC files.
-4. Open **Play** and adjust gain, noise gate, EQ, and master volume while monitoring your input.
-5. Check the file status cards if a model or IR does not load, and verify that the selected file still exists and is compatible.
+2. In the studio, open the amp block and choose a compatible model. Open the cabinet block and choose an impulse response. The chooser lists WAV, AIFF, AIF, and FLAC files.
+3. Adjust input trim, noise gate, gain, EQ, and master volume while monitoring your input.
+4. Recall a saved tone from the profile menu in the top bar. Open **Library** to sign in and use tones from the spectradsp.com account.
 
-### Save and reuse a tone
+### Clone a cabinet or an amplifier
 
-Use the export controls in **Play** to save the current settings as a profile or export a `.profilerprofile` file. Open **Profil** to create, import, edit, or delete profiles, and use the profile selector in **Play** to recall one. When sharing a profile, provide its referenced assets separately and update their paths on the receiving machine.
+Cloning is in **Settings**, and only in the standalone app.
+
+1. Sign in from **Library**.
+2. Open **Settings**, then **Clone IR** or **Clone amp**.
+3. Name the tone. Clone IR plays a sweep, stores an encrypted IR profile, and sends a sealed copy to My creations. Clone amp checks the round trip, records the amp, and sends it for training.
+4. Open **Library** again when the sealed profile is ready.
+
+### Profiles
+
+Profiles use the `.profilerprofile` extension and live in the Spectra application-data `Profiles` folder. They store parameter values and the paths of the amp and IR files they use. When sharing a profile, provide those files separately and update their paths on the receiving machine.
 
 ## Architecture
 
 | Component | Responsibility |
 | --- | --- |
 | [PluginProcessor](Source/Src/PluginProcessor.cpp) | Audio processing, host parameters, model/IR loading, and plugin state. |
-| [PluginEditor](Source/Src/PluginEditor.cpp), [Views](Source/Src/Views), and [Modules](Source/Src/Modules) | JUCE interface, controls, file selection, and profile workflows. |
+| [PluginEditor](Source/Src/PluginEditor.cpp), the studio, and [Modules](Source/Src/Modules) | JUCE interface, signal chain, file selection, Library, and Settings. |
 | [ProfileManager](Source/Src/ProfileManager.cpp) | Profile validation, local JSON storage, import/export, and parameter recall. |
+| Marketplace client | spectradsp.com sign-in, the account library, and sealed tone download. |
 | [Source/Include](Source/Include) | Shared interfaces, settings paths, and styling definitions. |
 | [cmake](cmake) | Dependency fetching, build presets, and compiler configuration. |
-| [Tests](Tests) | Automated checks for audio processing, profiles, settings, logging, and UI components. |
+| [Tests](Tests) | Automated checks for audio processing, profiles, settings, logging, marketplace, and UI components. |
 
-Audio flows from the host or standalone audio device through gain, noise gate, and EQ processing, then the amp-model stage and cabinet convolution, before reaching the output. UI controls and recalled profiles update the processor's parameter state. Settings and profiles are stored locally; this workflow has no backend or database service.
+Audio flows from the host or standalone audio device through the signal chain: input and noise gate, the amp-model stage, cabinet convolution, EQ, and level, before the output. UI controls and recalled profiles update the processor's parameter state. Settings and profiles are stored locally. Account tones come from spectradsp.com.
 
 ## Tests
 
@@ -175,7 +186,7 @@ On Linux or macOS:
 bash ./install.sh test
 ```
 
-These commands build `ProfilerTests` and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job. A manual workflow dispatch on main publishes installers on the GitHub Release. Commits on main publish the 48 kHz latencies and realtime ratios at https://quentinstoll.github.io/VstProfiler/dev/bench/.
+These commands build the `ProfilerTests` executable and run the CTest suite. Tests are enabled by default through `PROFILER_BUILD_TESTS`. The [CI workflow](.github/workflows/CI.yml) defines Windows, Linux, and macOS test jobs, plus a Windows coverage job. A manual workflow dispatch on main publishes installers on the GitHub Release. Commits on main publish the 48 kHz latencies and realtime ratios at https://quentinstoll.github.io/SpectraDsp/dev/bench/.
 
 ## Contributing
 
@@ -186,7 +197,7 @@ Contributions to code, tests, documentation, and compatibility testing are welco
 3. Make a focused change, update relevant documentation, and run the tests. For audio or UI changes, also verify affected behavior manually.
 4. Submit a pull request describing the change and how to reproduce your checks. A founder-team member must approve it before merging.
 
-See the [issue tracker](https://github.com/QuentinStoll/VstProfiler/issues) for bugs, feature requests, and questions, and the [project board](https://github.com/users/QuentinStoll/projects/5) for ongoing work.
+See the [issue tracker](https://github.com/QuentinStoll/SpectraDsp/issues) for bugs, feature requests, and questions, and the [project board](https://github.com/users/QuentinStoll/projects/5) for ongoing work.
 
 Use the repository's issue and pull request templates when submitting changes or feedback. Participation follows the [code of conduct](CODE_OF_CONDUCT.md).
 
@@ -201,7 +212,7 @@ The project's [license notice](LICENCE.md) specifies **GNU GPL version 3 or late
 ## Project status
 
 - **Maturity:** experimental; the CMake project version is currently `0.0.0`.
-- **Maintenance:** an Epitech Paris student project developed by the VSTProfiler team.
+- **Maintenance:** an Epitech Paris student project developed by the SpectraDsp team.
 - **Support:** use the issue tracker for questions and reproducible reports; no response-time guarantee is documented.
 - **Planning and history:** see the proposed [roadmap](ROADMAP.md) and [changelog](CHANGELOG.md).
 - **Open setup tasks:** confirm or replace the placeholder reporting email in the security and conduct policies, and check the macOS standalone app and Audio Unit in a host on a Mac.

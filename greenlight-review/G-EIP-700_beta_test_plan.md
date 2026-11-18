@@ -1,13 +1,13 @@
 ---
 title:          Beta Test Plan  
-subtitle:       VSTProfiler (Audio Plugin & Standalone)  
+subtitle:       SpectraDsp (Audio Plugin & Standalone)  
 author:         Quentin STOLL, Laurent ZHANG, Lucas RYCHLEWSKI, Sebastien PICHOT  
 module:         G-EIP-700  
 version:        1.0  
 ---
 
 ## **1. Project context**
-**VSTProfiler** is an open-source software project dedicated to the digital cloning of hardware amplifiers. Developed using the **JUCE framework**, that can operates as both a standalone application and a plugin (VST3/AU). The project focuses on high-fidelity sonic reproduction, **ultra-low latency** performance, and a robust architecture designed for community contribution. It integrates a professional workflow including multi-platform CI/CD (Windows, macOS, Linux), real-time performance metrics, and comprehensive technical documentation.
+**SpectraDsp** is an open-source guitar amplifier plugin, shipped as the standalone application and plugin **Spectra** (VST3/AU). Developed using the **JUCE framework**, it plays neural amplifier models and cabinet impulse responses, saves tones as profiles, and can clone a cabinet or an amplifier from the standalone app. The project focuses on high-fidelity playback, low latency, and a structure other people can build on. It includes multi-platform CI/CD (Windows, macOS, Linux), real-time performance metrics, and technical documentation.
 
 ## **2. User Roles**
 The following roles are involved in the beta testing phase.
