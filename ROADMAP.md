@@ -1,12 +1,12 @@
 # Roadmap
 
-This is a proposed roadmap based on the repository's current limitations, not a committed release schedule. Maintainers should confirm priorities through the [project board](https://github.com/users/QuentinStoll/projects/5) and [issues](https://github.com/QuentinStoll/VstProfiler/issues).
+This is a proposed roadmap based on the repository's current limitations, not a committed release schedule. Maintainers should confirm priorities through the [project board](https://github.com/users/QuentinStoll/projects/5) and [issues](https://github.com/QuentinStoll/SpectraDsp/issues).
 
 ## Now
 
 - Validate the documented Windows and Linux setup from clean checkouts.
 - Establish private security and conduct reporting channels.
-- Verify model-loading, IR-loading, and profile workflows in supported hosts.
+- Verify model loading, IR loading, profile recall, and the Library workflow in supported hosts.
 - Keep critical automated checks passing and document reproducible failures.
 
 ## Next
@@ -18,7 +18,7 @@ This is a proposed roadmap based on the repository's current limitations, not a 
 
 ## Later
 
-- Explore an amplifier capture and model-training workflow.
+- Harden standalone amplifier and cabinet cloning: the round trip, the training handoff, and the sealed tone that comes back to Library.
 - Evaluate audio quality, latency, CPU use, and broader host compatibility.
 - Expand usage examples and contributor-facing DSP documentation.
 

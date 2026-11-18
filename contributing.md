@@ -1,4 +1,4 @@
-# Contributing to VSTProfiler
+# Contributing to SpectraDsp
 
 Contributions to code, tests, documentation, and compatibility testing are welcome. Please follow the [code of conduct](CODE_OF_CONDUCT.md). For suspected vulnerabilities, follow the [security policy](SECURITY.md) instead of opening a public bug report.
 
@@ -22,7 +22,7 @@ Discuss significant features, breaking changes, and architectural decisions in a
 
 ## Open an issue
 
-Use the forms under [Issues](https://github.com/QuentinStoll/VstProfiler/issues/new/choose). Each issue gets a type badge and one area badge.
+Use the forms under [Issues](https://github.com/QuentinStoll/SpectraDsp/issues/new/choose). Each issue gets a type badge and one area badge.
 
 | Type | Use it for |
 | --- | --- |
@@ -118,7 +118,7 @@ bash ./install.sh test
 
 ### Build and manual checks
 
-Verify that affected application and plugin targets still build. Manually check affected profiling/model-loading, UI, and performance behavior. Record the commands, results, and steps needed to reproduce your checks, including relevant platform, host, audio-device, sample-rate, and buffer-size details.
+Verify that affected application and plugin targets still build. Manually check affected model loading, cabinet loading, capture, UI, and performance behavior. Record the commands, results, and steps needed to reproduce your checks, including relevant platform, host, audio-device, sample-rate, and buffer-size details.
 
 For documentation-only changes, verify links, examples, and claims against the repository. Explain any build or audio checks you did not run and why.
 

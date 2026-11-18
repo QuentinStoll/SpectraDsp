@@ -2,7 +2,7 @@
 
 ## Project status and scope
 
-VSTProfiler is experimental. Existing version tags do not establish a security-support commitment: this repository does not document a supported-release schedule. Reports should identify the affected tag or commit and whether the issue reproduces on the current development code. Older snapshots do not have a guaranteed backport policy.
+SpectraDsp is experimental. Existing version tags do not establish a security-support commitment: this repository does not document a supported-release schedule. Reports should identify the affected tag or commit and whether the issue reproduces on the current development code. Older snapshots do not have a guaranteed backport policy.
 
 This policy covers code maintained in this repository, including model/IR loading, profile import/export, and plugin processing. Vulnerabilities in dependencies may also need to be reported to their upstream maintainers.
 
@@ -10,7 +10,7 @@ This policy covers code maintained in this repository, including model/IR loadin
 
 The designated private reporting contact is Quentin. The proposed email is **`quentin.stoll@epitech.eu` (PLACEHOLDER - unconfirmed reporting address)**. Confirm this address and its use for security reports before publication or sending sensitive information.
 
-Until the address is confirmed, use **Report a vulnerability** on the repository's [Security page](https://github.com/QuentinStoll/VstProfiler/security) if that option is available. Otherwise, ask for a private contact without posting vulnerability details. Do not include exploit files, credentials, or personal data in a public issue.
+Until the address is confirmed, use **Report a vulnerability** on the repository's [Security page](https://github.com/QuentinStoll/SpectraDsp/security) if that option is available. Otherwise, ask for a private contact without posting vulnerability details. Do not include exploit files, credentials, or personal data in a public issue.
 
 Once a private channel is available, include:
 

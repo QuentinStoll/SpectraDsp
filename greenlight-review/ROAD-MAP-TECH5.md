@@ -20,8 +20,8 @@
 * **Weeks 7-9: Real-time SIMD Optimization (JUCE/C++)**
   * Integrate SIMD vectorization frameworks (e.g., `xsimd` or Eigen vectorization flags) within your RTNeural implementation.
   * Force 32-bit `float` precision calculations throughout the audio thread, bypassing expensive double-to-float conversions.
-* **Weeks 10-13: Comparative Benchmarking (VstProfiler)**
-  * Use your `VstProfiler` tool to run comparative CPU load tests of your plugin against industry standards (e.g., NAM, ChowTape) under various buffer sizes (32 to 512 samples).
+* **Weeks 10-13: Comparative Benchmarking (SpectraDsp)**
+  * Use SpectraDsp to run comparative CPU load tests of the plugin against industry standards (e.g., NAM, ChowTape) under various buffer sizes (32 to 512 samples).
   * Publish performance/latency benchmark graphs on GitHub to establish technical credibility.
 
 ### Phase 2 - Local No-Code Training Pipeline (Weeks 14-26)
