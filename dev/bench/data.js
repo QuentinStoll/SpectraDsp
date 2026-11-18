@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794953085596,
+  "lastUpdate": 1795014999134,
   "repoUrl": "https://github.com/QuentinStoll/SpectraDsp",
   "entries": {
     "Profiler audio": [
@@ -898,6 +898,72 @@ window.BENCHMARK_DATA = {
           {
             "name": "Drop realtime ratio",
             "value": 0.0048212,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "114921049+QuentinStoll@users.noreply.github.com",
+            "name": "Quentin Stoll",
+            "username": "QuentinStoll"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "342b661429a1f603b42a418c70f246a2161f09ce",
+          "message": "Merge pull request #174 from QuentinStoll/docs/spectradsp-rebrand\n\ndocs: rebrand the repository docs to SpectraDsp",
+          "timestamp": "2026-11-18T15:48:41+01:00",
+          "tree_id": "3057e40b230e29f5b7b48f9d7989a6e8c1f51bbc",
+          "url": "https://github.com/QuentinStoll/SpectraDsp/commit/342b661429a1f603b42a418c70f246a2161f09ce"
+        },
+        "date": 1795014998831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pedal latency",
+            "value": 3,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer latency",
+            "value": 1056,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop latency",
+            "value": 960,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Gate lookahead",
+            "value": 384,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Pedal realtime ratio",
+            "value": 0.0060338,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer realtime ratio",
+            "value": 0.33337195,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop realtime ratio",
+            "value": 0.0061359,
             "unit": "x realtime",
             "extra": "48 kHz"
           }
