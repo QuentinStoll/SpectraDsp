@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795014999134,
+  "lastUpdate": 1795383676543,
   "repoUrl": "https://github.com/QuentinStoll/SpectraDsp",
   "entries": {
     "Profiler audio": [
@@ -964,6 +964,72 @@ window.BENCHMARK_DATA = {
           {
             "name": "Drop realtime ratio",
             "value": 0.0061359,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "114921049+QuentinStoll@users.noreply.github.com",
+            "name": "Quentin Stoll",
+            "username": "QuentinStoll"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "40dc3041b6286106760fcd9ea59d39f1dc65f3a8",
+          "message": "Merge pull request #175 from QuentinStoll/docs/wavenet-product-facts\n\ndocs: describe the real-time WaveNet and one-click clones",
+          "timestamp": "2026-11-22T22:26:57+01:00",
+          "tree_id": "7ac32bc420c6ba91c4e4cd4a9f1cf842ff5982d9",
+          "url": "https://github.com/QuentinStoll/SpectraDsp/commit/40dc3041b6286106760fcd9ea59d39f1dc65f3a8"
+        },
+        "date": 1795383675692,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pedal latency",
+            "value": 3,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer latency",
+            "value": 1056,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop latency",
+            "value": 960,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Gate lookahead",
+            "value": 384,
+            "unit": "samples",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Pedal realtime ratio",
+            "value": 0.0046993,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Harmonizer realtime ratio",
+            "value": 0.2627757,
+            "unit": "x realtime",
+            "extra": "48 kHz"
+          },
+          {
+            "name": "Drop realtime ratio",
+            "value": 0.00466305,
             "unit": "x realtime",
             "extra": "48 kHz"
           }
