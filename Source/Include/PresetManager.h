@@ -36,8 +36,15 @@ class PresetManager : public juce::ChangeBroadcaster {
     const Preset* getPreset(int index) const;
     int getCurrentIndex() const;
     juce::String getCurrentId() const;
+    int indexOfId(const juce::String& presetId) const;
+    bool isNameTaken(const juce::String& name, const juce::String& ignoredId = {}) const;
+    juce::String makeCopyName(const juce::String& sourceName) const;
 
+    // Every write goes through a temporary file that replaces the target, so a failed
+    // save never leaves a half-written preset behind.
     bool savePreset(Preset& preset, juce::String* errorMessage = nullptr);
+    bool renamePreset(int index, const juce::String& newName, juce::String* errorMessage = nullptr);
+    bool duplicatePreset(int index, juce::String* newPresetId = nullptr, juce::String* errorMessage = nullptr);
     bool deletePreset(int index, juce::String* errorMessage = nullptr);
     void setCurrentPresetId(const juce::String& presetId);
     void clearCurrentPreset();

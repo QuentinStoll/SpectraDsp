@@ -1,75 +1,46 @@
 #include "Views/MarketplaceAccountPanel.h"
 
+#include <algorithm>
+
 #include "SettingsPath.h"
 #include "Stylesheet.h"
 
-struct MarketplaceAccountPanel::PackRow : public juce::Component {
-    PackRow(const Marketplace::LibraryItem& item, std::function<void()> download)
-        : _item(item),
-          _downloadButton(item.kind == "amp" ? "Play" : "Download", ProfilerStyle::Theme::Orange) {
-        _title.setText(item.title.isNotEmpty() ? item.title : "Pack", juce::dontSendNotification);
-        _title.setFont(ProfilerStyle::Fonts::medium(15.0f));
-        _title.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
-        addAndMakeVisible(_title);
+namespace {
+constexpr juce::juce_wchar kPasswordBullet = 0x2022;
+constexpr int kRevealButtonWidth = 32;
+constexpr int kStatRowHeight = 30;
+}  // namespace
 
-        const auto sourceLabel = item.kind == "amp"                     ? "Your amp"
-                                 : item.source.equalsIgnoreCase("free") ? "Free"
-                                                                        : "Purchase";
-        auto meta = item.authorName;
-        if (meta.isNotEmpty()) {
-            meta << "  ·  ";
-        }
-        meta << sourceLabel;
-        if (item.hasIntegratedIr) {
-            meta << "  ·  Cabinet included";
-        }
-        const auto condition = item.conditionProfile.toLowerCase();
-        juce::String conditionName;
-        if (condition == "black") {
-            conditionName = "Black";
-        } else if (condition == "death") {
-            conditionName = "Death";
-        } else if (condition == "raw") {
-            conditionName = "Raw";
-        }
-        if (conditionName.isNotEmpty() && item.conditionAmount >= 1.0f) {
-            meta << "  ·  " << conditionName << " " << juce::String(juce::roundToInt(item.conditionAmount)) << "%";
-        }
-        _meta.setText(meta, juce::dontSendNotification);
-        _meta.setFont(ProfilerStyle::Fonts::regular(12.0f));
-        _meta.setColour(juce::Label::textColourId, ProfilerStyle::Colors::textMuted);
-        addAndMakeVisible(_meta);
+MarketplaceAccountPanel::RevealButton::RevealButton()
+    : juce::Button("Show password") {
+    setClickingTogglesState(true);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    setWantsKeyboardFocus(false);
+    setTooltip("Show password");
+}
 
-        _downloadButton.onClick = std::move(download);
-        addAndMakeVisible(_downloadButton);
+void MarketplaceAccountPanel::RevealButton::paintButton(juce::Graphics& g, bool isMouseOverButton, bool) {
+    const auto area = getLocalBounds().toFloat().withSizeKeepingCentre(18.0f, 12.0f);
+    const auto colour = (getToggleState() ? ProfilerStyle::Colors::accent : ProfilerStyle::Colors::textMuted)
+                            .withAlpha(isMouseOverButton || getToggleState() ? 1.0f : 0.8f);
+
+    juce::Path eye;
+    eye.startNewSubPath(area.getX(), area.getCentreY());
+    eye.quadraticTo(area.getCentreX(), area.getY() - area.getHeight() * 0.45f, area.getRight(), area.getCentreY());
+    eye.quadraticTo(area.getCentreX(), area.getBottom() + area.getHeight() * 0.45f, area.getX(), area.getCentreY());
+    eye.closeSubPath();
+
+    g.setColour(colour);
+    g.strokePath(eye, juce::PathStrokeType(1.4f));
+    const auto pupil = area.getHeight() * 0.42f;
+    g.fillEllipse(juce::Rectangle<float>(pupil, pupil).withCentre(area.getCentre()));
+    if (!getToggleState()) {
+        g.drawLine(area.getX() + 1.0f, area.getBottom() + 2.0f, area.getRight() - 1.0f, area.getY() - 2.0f, 1.4f);
     }
-
-    void resized() override {
-        auto area = getLocalBounds().reduced(12, 8);
-        _downloadButton.setBounds(area.removeFromRight(120).withSizeKeepingCentre(120, 32));
-        area.removeFromRight(12);
-        _title.setBounds(area.removeFromTop(22));
-        _meta.setBounds(area.removeFromTop(18));
-    }
-
-    void paint(juce::Graphics& g) override {
-        ProfilerStyle::Surfaces::fillPanel(g, getLocalBounds().toFloat());
-    }
-
-    void setBusy(bool busy) {
-        _downloadButton.setEnabled(!busy);
-    }
-
-    Marketplace::LibraryItem _item;
-
-   private:
-    juce::Label _title;
-    juce::Label _meta;
-    CustomTextButton _downloadButton;
-};
+}
 
 MarketplaceAccountPanel::MarketplaceAccountPanel() {
-    _titleLabel.setText("Marketplace", juce::dontSendNotification);
+    _titleLabel.setText("Account", juce::dontSendNotification);
     _titleLabel.setFont(ProfilerStyle::Fonts::bold(22.0f));
     _titleLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     addAndMakeVisible(_titleLabel);
@@ -78,7 +49,8 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
     _passwordLabel.setText("Password", juce::dontSendNotification);
     _codeLabel.setText("6-digit code", juce::dontSendNotification);
     _accountLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
-    _accountLabel.setFont(ProfilerStyle::Fonts::regular(14.0f));
+    _accountLabel.setFont(ProfilerStyle::Fonts::regular(13.0f));
+    _accountLabel.setMinimumHorizontalScale(0.7f);
     for (auto* label : {&_emailLabel, &_passwordLabel, &_codeLabel}) {
         label->setFont(ProfilerStyle::Fonts::regular(13.0f));
         label->setColour(juce::Label::textColourId, ProfilerStyle::Colors::textMuted);
@@ -88,14 +60,21 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
 
     _statusLabel.setFont(ProfilerStyle::Fonts::regular(13.0f));
     _statusLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::accent);
+    _statusLabel.setJustificationType(juce::Justification::topLeft);
     addAndMakeVisible(_statusLabel);
 
-    _passwordEditor.setPasswordCharacter(static_cast<juce::juce_wchar>(0x2022));
+    _passwordEditor.setPasswordCharacter(kPasswordBullet);
+    _passwordEditor.setBorder(juce::BorderSize<int>(1, 1, 1, kRevealButtonWidth));
     _codeEditor.setInputRestrictions(6, "0123456789");
     _codeEditor.setJustification(juce::Justification::centred);
     addAndMakeVisible(_emailEditor);
     addAndMakeVisible(_passwordEditor);
+    addAndMakeVisible(_revealPasswordButton);
     addAndMakeVisible(_codeEditor);
+
+    _revealPasswordButton.onClick = [this]() {
+        setPasswordRevealed(_revealPasswordButton.getToggleState());
+    };
 
     _submitButton.onClick = [this]() {
         if (_busy) {
@@ -135,6 +114,7 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         }
 
         setBusy(true);
+        _statusLabel.setText("Signing in...", juce::dontSendNotification);
         juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
         _jobs.addJob([safeThis, email, password]() {
             Marketplace::LoginResult result;
@@ -161,14 +141,13 @@ MarketplaceAccountPanel::MarketplaceAccountPanel() {
         Marketplace::clearSession(Marketplace::defaultSessionFile());
         _session = {};
         _challenge = {};
-        _items.clear();
         showLogin({});
     };
     addAndMakeVisible(_signOutButton);
 
     _signupLink.setButtonText(juce::String(u8"Pas de compte ? Créer un compte sur le marketplace"));
     _signupLink.setURL(juce::URL(Marketplace::signupUrl));
-    _signupLink.setFont(ProfilerStyle::Fonts::regular(13.0f), false, juce::Justification::centredLeft);
+    _signupLink.setFont(ProfilerStyle::Fonts::regular(12.0f), false, juce::Justification::centredLeft);
     _signupLink.setColour(juce::HyperlinkButton::textColourId, ProfilerStyle::Colors::accent);
     addAndMakeVisible(_signupLink);
 
@@ -187,34 +166,85 @@ void MarketplaceAccountPanel::start() {
     }
 
     _session = std::move(stored);
-    _accountLabel.setText(_session.email, juce::dontSendNotification);
     showLibrary();
     loadLibrary();
     startTimer(15000);
 }
 
-int MarketplaceAccountPanel::getPreferredHeight(int width) const {
-    juce::ignoreUnused(width);
-    if (_mode == Mode::Login) {
-        return 392;
+void MarketplaceAccountPanel::setSavedPresetCount(int count) {
+    if (_savedPresetCount != count) {
+        _savedPresetCount = count;
+        repaint(_statsBounds);
     }
-    if (_mode == Mode::Code) {
-        return 348;
+}
+
+MarketplaceAccountPanel::LibraryState MarketplaceAccountPanel::getLibraryState() const noexcept {
+    if (_mode != Mode::Library) {
+        return LibraryState::SignedOut;
+    }
+    if (_libraryLoaded) {
+        return LibraryState::Ready;
+    }
+    return _libraryMessage.isNotEmpty() && !_busy ? LibraryState::Failed : LibraryState::Loading;
+}
+
+void MarketplaceAccountPanel::paint(juce::Graphics& g) {
+    if (_mode != Mode::Library) {
+        return;
     }
 
-    return 118 + static_cast<int>(_rows.size()) * 72;
+    if (!_avatarBounds.isEmpty()) {
+        const auto avatar = _avatarBounds.toFloat().reduced(1.0f);
+        g.setColour(ProfilerStyle::Colors::accent.withAlpha(0.12f));
+        g.fillEllipse(avatar);
+        g.setColour(ProfilerStyle::Colors::accent);
+        g.drawEllipse(avatar, 1.6f);
+        const auto initial = _session.email.trim().substring(0, 1).toUpperCase();
+        g.setFont(ProfilerStyle::Fonts::bold(avatar.getHeight() * 0.42f));
+        g.drawText(initial.isNotEmpty() ? initial : "?", avatar, juce::Justification::centred, false);
+    }
+
+    if (_statsBounds.isEmpty()) {
+        return;
+    }
+
+    auto stats = _statsBounds;
+    g.setColour(ProfilerStyle::Colors::caption);
+    g.setFont(ProfilerStyle::Fonts::moduleTitle());
+    g.drawText("STATS", stats.removeFromTop(22), juce::Justification::centredLeft, false);
+
+    auto row = [&g, &stats](const juce::String& label, const juce::String& value) {
+        auto line = stats.removeFromTop(kStatRowHeight);
+        ProfilerStyle::Surfaces::drawHairline(g, line.removeFromTop(1).toFloat());
+        g.setColour(ProfilerStyle::Colors::textMuted);
+        g.setFont(ProfilerStyle::Fonts::regular(12.0f));
+        g.drawText(label, line, juce::Justification::centredLeft, true);
+        g.setColour(ProfilerStyle::Colors::text);
+        g.setFont(ProfilerStyle::Fonts::medium(12.0f));
+        g.drawText(value, line, juce::Justification::centredRight, false);
+    };
+
+    if (_libraryLoaded) {
+        const auto purchases = std::count_if(_items.begin(), _items.end(), [](const Marketplace::LibraryItem& item) {
+            return item.source.equalsIgnoreCase("purchase");
+        });
+        row("Profiles", juce::String(static_cast<int>(_items.size())));
+        row("Purchases", juce::String(static_cast<int>(purchases)));
+    }
+    row("Saved presets", juce::String(_savedPresetCount));
 }
 
 void MarketplaceAccountPanel::resized() {
-    auto area = getLocalBounds();
+    auto area = getLocalBounds().reduced(16);
     _titleLabel.setBounds(area.removeFromTop(32));
-    area.removeFromTop(8);
+    area.removeFromTop(10);
 
     const auto loginFields = _mode != Mode::Library;
     _emailLabel.setVisible(_mode == Mode::Login);
     _passwordLabel.setVisible(_mode == Mode::Login);
     _emailEditor.setVisible(_mode == Mode::Login);
     _passwordEditor.setVisible(_mode == Mode::Login);
+    _revealPasswordButton.setVisible(_mode == Mode::Login);
     _signupLink.setVisible(_mode == Mode::Login);
     _codeLabel.setVisible(_mode == Mode::Code);
     _codeEditor.setVisible(_mode == Mode::Code);
@@ -222,47 +252,46 @@ void MarketplaceAccountPanel::resized() {
     _backButton.setVisible(_mode == Mode::Code);
     _accountLabel.setVisible(_mode == Mode::Library);
     _signOutButton.setVisible(_mode == Mode::Library);
+    _statusLabel.setVisible(loginFields);
+    _avatarBounds = {};
+    _statsBounds = {};
 
     if (_mode == Mode::Login) {
         _emailLabel.setBounds(area.removeFromTop(18));
-        _emailEditor.setBounds(area.removeFromTop(36));
+        _emailEditor.setBounds(area.removeFromTop(34));
         area.removeFromTop(12);
         _passwordLabel.setBounds(area.removeFromTop(18));
-        _passwordEditor.setBounds(area.removeFromTop(36));
+        _passwordEditor.setBounds(area.removeFromTop(34));
+        _revealPasswordButton.setBounds(_passwordEditor.getBounds().removeFromRight(kRevealButtonWidth).reduced(1));
         area.removeFromTop(16);
-        _submitButton.setBounds(area.removeFromTop(36).removeFromLeft(160));
-        area.removeFromTop(16);
-        _signupLink.setBounds(area.removeFromTop(24));
+        _submitButton.setBounds(area.removeFromTop(34));
         area.removeFromTop(12);
-        _statusLabel.setBounds(area.removeFromTop(48));
+        _signupLink.setBounds(area.removeFromTop(36));
+        area.removeFromTop(8);
+        _statusLabel.setBounds(area.removeFromTop(juce::jmin(72, area.getHeight())));
         return;
     }
 
     if (_mode == Mode::Code) {
         _codeLabel.setBounds(area.removeFromTop(18));
-        _codeEditor.setBounds(area.removeFromTop(36).removeFromLeft(180));
+        _codeEditor.setBounds(area.removeFromTop(34));
         area.removeFromTop(16);
-        _submitButton.setBounds(area.removeFromTop(36).removeFromLeft(160));
+        _submitButton.setBounds(area.removeFromTop(34));
+        area.removeFromTop(10);
+        _backButton.setBounds(area.removeFromTop(34));
         area.removeFromTop(12);
-        _backButton.setBounds(area.removeFromTop(36).removeFromLeft(160));
-        area.removeFromTop(12);
-        _statusLabel.setBounds(area.removeFromTop(48));
+        _statusLabel.setBounds(area.removeFromTop(juce::jmin(72, area.getHeight())));
         return;
     }
 
-    auto header = area.removeFromTop(36);
-    _signOutButton.setBounds(header.removeFromRight(120));
-    header.removeFromRight(12);
-    _accountLabel.setBounds(header);
-    area.removeFromTop(8);
-    _statusLabel.setBounds(area.removeFromTop(22));
-    area.removeFromTop(8);
-
-    for (auto& row : _rows) {
-        row->setBounds(area.removeFromTop(64));
-        area.removeFromTop(8);
-        row->setBusy(_busy);
-    }
+    auto identity = area.removeFromTop(44);
+    _avatarBounds = identity.removeFromLeft(44);
+    identity.removeFromLeft(12);
+    _accountLabel.setBounds(identity);
+    area.removeFromTop(14);
+    _signOutButton.setBounds(area.removeFromTop(32));
+    area.removeFromTop(24);
+    _statsBounds = area.removeFromTop(22 + 3 * kStatRowHeight);
 }
 
 void MarketplaceAccountPanel::setBusy(bool busy) {
@@ -273,17 +302,31 @@ void MarketplaceAccountPanel::setBusy(bool busy) {
     _passwordEditor.setEnabled(!busy);
     _codeEditor.setEnabled(!busy);
     _signOutButton.setEnabled(!busy);
-    for (auto& row : _rows) {
-        row->setBusy(busy);
-    }
+    notifyStateChanged();
+}
+
+void MarketplaceAccountPanel::setLibraryMessage(const juce::String& message) {
+    _libraryMessage = message;
+    notifyStateChanged();
+}
+
+void MarketplaceAccountPanel::setPasswordRevealed(bool revealed) {
+    _revealPasswordButton.setToggleState(revealed, juce::dontSendNotification);
+    _revealPasswordButton.setTooltip(revealed ? "Hide password" : "Show password");
+    _passwordEditor.setPasswordCharacter(revealed ? 0 : kPasswordBullet);
 }
 
 void MarketplaceAccountPanel::showLogin(const juce::String& message) {
     _mode = Mode::Login;
+    _items.clear();
+    _libraryLoaded = false;
+    _libraryMessage.clear();
     _submitButton.setButtonText("Sign in");
     _statusLabel.setText(message, juce::dontSendNotification);
+    setPasswordRevealed(false);
     setBusy(false);
-    notifyLayout();
+    resized();
+    repaint();
 }
 
 void MarketplaceAccountPanel::showCodeEntry() {
@@ -293,7 +336,8 @@ void MarketplaceAccountPanel::showCodeEntry() {
     _statusLabel.setText("Enter the 6-digit code from your authenticator. It expires in 5 minutes.",
                          juce::dontSendNotification);
     setBusy(false);
-    notifyLayout();
+    resized();
+    repaint();
 }
 
 void MarketplaceAccountPanel::showLibrary() {
@@ -301,8 +345,8 @@ void MarketplaceAccountPanel::showLibrary() {
     _accountLabel.setText(_session.email.isNotEmpty() ? _session.email : "Signed in",
                           juce::dontSendNotification);
     setBusy(false);
-    rebuildRows();
-    notifyLayout();
+    resized();
+    repaint();
 }
 
 void MarketplaceAccountPanel::applyLoginResult(const Marketplace::LoginResult& result, bool fromCode) {
@@ -318,9 +362,11 @@ void MarketplaceAccountPanel::applyLoginResult(const Marketplace::LoginResult& r
         _challenge = {};
         _passwordEditor.clear();
         _codeEditor.clear();
+        setPasswordRevealed(false);
         Marketplace::saveSession(Marketplace::defaultSessionFile(), _session);
         showLibrary();
         loadLibrary();
+        startTimer(15000);
         return;
     }
 
@@ -330,7 +376,8 @@ void MarketplaceAccountPanel::applyLoginResult(const Marketplace::LoginResult& r
         return;
     }
 
-    _statusLabel.setText(result.message, juce::dontSendNotification);
+    _statusLabel.setText(result.message.isNotEmpty() ? result.message : "Could not sign in. Check your connection and try again.",
+                         juce::dontSendNotification);
     setBusy(false);
 }
 
@@ -391,7 +438,7 @@ void MarketplaceAccountPanel::loadLibrary() {
             }
 
             if (result.status != Marketplace::Status::Success) {
-                safeThis->_statusLabel.setText(result.message, juce::dontSendNotification);
+                safeThis->_libraryMessage = result.message.isNotEmpty() ? result.message : "Could not reach the marketplace.";
                 safeThis->setBusy(false);
                 return;
             }
@@ -404,10 +451,8 @@ void MarketplaceAccountPanel::loadLibrary() {
             if (result.email.isNotEmpty()) {
                 safeThis->_session.email = result.email;
             }
-            safeThis->_statusLabel.setText(safeThis->_items.empty()
-                                               ? "No amp or IR profiles on this account yet."
-                                               : juce::String(safeThis->_items.size()) + " profiles on this account.",
-                                           juce::dontSendNotification);
+            safeThis->_libraryLoaded = true;
+            safeThis->_libraryMessage.clear();
             if (safeThis->onLibraryChanged) {
                 safeThis->onLibraryChanged(safeThis->_items);
             }
@@ -424,7 +469,12 @@ void MarketplaceAccountPanel::downloadById(const juce::String& id) {
             return;
         }
     }
-    _statusLabel.setText("Sign in and refresh the library to open this profile.", juce::dontSendNotification);
+    const juce::String message = "Sign in and refresh the library to open this profile.";
+    if (_mode == Mode::Library) {
+        setLibraryMessage(message);
+    } else {
+        _statusLabel.setText(message, juce::dontSendNotification);
+    }
 }
 
 void MarketplaceAccountPanel::downloadPack(int index) {
@@ -440,8 +490,8 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     const auto listedProfile = Marketplace::conditionProfileIndex(_items[static_cast<size_t>(index)].conditionProfile);
     const auto listedAmount = _items[static_cast<size_t>(index)].conditionAmount;
     if (kind == "amp") {
+        _libraryMessage = "Opening " + title + "...";
         setBusy(true);
-        _statusLabel.setText("Opening " + title + "...", juce::dontSendNotification);
         juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
         _jobs.addJob([safeThis, packId, session, title, listedProfile, listedAmount]() {
             juce::MemoryBlock cipher;
@@ -505,7 +555,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                     cipher.fillWith(0);
                     key.fillWith(0);
                     irCipher.fillWith(0);
-                    safeThis->_statusLabel.setText(error, juce::dontSendNotification);
+                    safeThis->_libraryMessage = error;
                     safeThis->setBusy(false);
                     return;
                 }
@@ -522,14 +572,14 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 cipher.fillWith(0);
                 key.fillWith(0);
                 irCipher.fillWith(0);
-                safeThis->_statusLabel.setText(played && irPlayed ? "Amp profile loaded." : playError, juce::dontSendNotification);
+                safeThis->_libraryMessage = played && irPlayed ? "Amp profile loaded." : playError;
                 safeThis->setBusy(false);
             });
         });
         return;
     }
+    _libraryMessage = "Downloading " + title + "...";
     setBusy(true);
-    _statusLabel.setText("Downloading " + title + "...", juce::dontSendNotification);
 
     juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
     _jobs.addJob([safeThis, packId, entitlementId, title, kind, session]() {
@@ -578,7 +628,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 if (safeThis == nullptr) {
                     return;
                 }
-                safeThis->_statusLabel.setText(message, juce::dontSendNotification);
+                safeThis->_libraryMessage = message;
                 safeThis->setBusy(false);
             };
 
@@ -638,24 +688,8 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     });
 }
 
-void MarketplaceAccountPanel::rebuildRows() {
-    for (auto& row : _rows) {
-        removeChildComponent(row.get());
-    }
-    _rows.clear();
-
-    for (int index = 0; index < static_cast<int>(_items.size()); ++index) {
-        auto row = std::make_unique<PackRow>(_items[static_cast<size_t>(index)], [this, index]() {
-            downloadPack(index);
-        });
-        addAndMakeVisible(*row);
-        _rows.push_back(std::move(row));
-    }
-}
-
-void MarketplaceAccountPanel::notifyLayout() {
-    resized();
-    if (onLayoutChanged != nullptr) {
-        onLayoutChanged();
+void MarketplaceAccountPanel::notifyStateChanged() {
+    if (onStateChanged != nullptr) {
+        onStateChanged();
     }
 }

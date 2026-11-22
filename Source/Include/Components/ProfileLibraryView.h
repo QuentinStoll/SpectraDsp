@@ -21,6 +21,8 @@ class ProfileLibraryView : public juce::Component {
 
     ProfileLibraryView();
 
+    static void paintCard(juce::Graphics& g, juce::Rectangle<float> bounds, const Card& card);
+
     void setCards(std::vector<Card> cards);
     std::function<void(const juce::String& id)> onCardClicked;
 

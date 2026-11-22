@@ -327,7 +327,7 @@ void CustomLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
 
     if (slider.getTextBoxPosition() == juce::Slider::NoTextBox) {
         const auto valueText = slider.getTextFromValue(slider.getValue()).trim();
-        const auto fontHeight = juce::jlimit(9.0f, 10.0f, radius * 0.32f);
+        const auto fontHeight = juce::jlimit(9.0f, 12.0f, radius * 0.3f);
         g.setFont(ProfilerStyle::Fonts::medium(fontHeight));
         g.setColour(ProfilerStyle::Colors::text.withAlpha(enabledAlpha));
         g.drawFittedText(valueText,
@@ -1026,17 +1026,4 @@ void CustomLookAndFeel::drawGearIcon(juce::Graphics& g, juce::Rectangle<float> b
 
     g.setColour(colour);
     g.fillPath(gear);
-}
-
-void CustomLookAndFeel::drawLibraryIcon(juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour) const {
-    auto area = bounds.reduced(bounds.getWidth() * 0.22f, bounds.getHeight() * 0.22f);
-    const auto gap = 3.0f;
-    const auto cellW = (area.getWidth() - gap) * 0.5f;
-    const auto cellH = (area.getHeight() - gap) * 0.5f;
-
-    g.setColour(colour);
-    g.fillRoundedRectangle(area.getX(), area.getY(), cellW, cellH, 1.5f);
-    g.fillRoundedRectangle(area.getX() + cellW + gap, area.getY(), cellW, cellH, 1.5f);
-    g.fillRoundedRectangle(area.getX(), area.getY() + cellH + gap, cellW, cellH, 1.5f);
-    g.fillRoundedRectangle(area.getX() + cellW + gap, area.getY() + cellH + gap, cellW, cellH, 1.5f);
 }

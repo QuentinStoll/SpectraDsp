@@ -77,13 +77,12 @@ class InputGatePanel : public juce::Component {
     void refreshBypassState();
 
    private:
+    juce::AudioProcessorValueTreeState& _apvts;
     juce::Label _title{"", "Input / Gate"};
     juce::Label _summary{"", "Input trim and noise gate before the amp model."};
-    juce::Label _bypassLabel{"", "Bypassed"};
-    CustomToggleButton _gateEnabled{"Gate Enabled"};
+    juce::TextButton _bypass{"Bypass"};
     CustomKnob _inputTrimKnob{"Input Trim", -12.0f, 12.0f, 0.0f, "dB"};
     CustomKnob _noiseGateKnob{"Noise Gate", 0.0f, 60.0f, 10.0f, "dB"};
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _gateAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _inputAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _noiseAttachment;
 

@@ -72,19 +72,43 @@ const Preset* PresetManager::getPreset(int index) const {
 }
 
 int PresetManager::getCurrentIndex() const {
-    if (_currentPresetId.isEmpty()) {
+    return indexOfId(_currentPresetId);
+}
+
+juce::String PresetManager::getCurrentId() const {
+    return _currentPresetId;
+}
+
+int PresetManager::indexOfId(const juce::String& presetId) const {
+    if (presetId.isEmpty()) {
         return -1;
     }
     for (int index = 0; index < getCount(); ++index) {
-        if (_presets[static_cast<size_t>(index)].id == _currentPresetId) {
+        if (_presets[static_cast<size_t>(index)].id == presetId) {
             return index;
         }
     }
     return -1;
 }
 
-juce::String PresetManager::getCurrentId() const {
-    return _currentPresetId;
+bool PresetManager::isNameTaken(const juce::String& name, const juce::String& ignoredId) const {
+    const auto trimmed = name.trim();
+    return std::any_of(_presets.begin(), _presets.end(), [&](const Preset& preset) {
+        return preset.id != ignoredId && preset.name.trim().equalsIgnoreCase(trimmed);
+    });
+}
+
+juce::String PresetManager::makeCopyName(const juce::String& sourceName) const {
+    const auto base = sourceName.trim() + " copy";
+    if (!isNameTaken(base)) {
+        return base;
+    }
+    for (int suffix = 2;; ++suffix) {
+        const auto candidate = base + " " + juce::String(suffix);
+        if (!isNameTaken(candidate)) {
+            return candidate;
+        }
+    }
 }
 
 bool PresetManager::savePreset(Preset& preset, juce::String* errorMessage) {
@@ -116,6 +140,47 @@ bool PresetManager::savePreset(Preset& preset, juce::String* errorMessage) {
 
     refresh();
     sendChangeMessage();
+    return true;
+}
+
+bool PresetManager::renamePreset(int index, const juce::String& newName, juce::String* errorMessage) {
+    const auto* source = getPreset(index);
+    if (source == nullptr) {
+        setError(errorMessage, "Preset not found.");
+        return false;
+    }
+    const auto trimmed = newName.trim();
+    if (trimmed.isEmpty()) {
+        setError(errorMessage, "The preset name cannot be empty.");
+        return false;
+    }
+    if (isNameTaken(trimmed, source->id)) {
+        setError(errorMessage, "A preset named \"" + trimmed + "\" already exists.");
+        return false;
+    }
+
+    auto renamed = *source;
+    renamed.name = trimmed;
+    return savePreset(renamed, errorMessage);
+}
+
+bool PresetManager::duplicatePreset(int index, juce::String* newPresetId, juce::String* errorMessage) {
+    const auto* source = getPreset(index);
+    if (source == nullptr) {
+        setError(errorMessage, "Preset not found.");
+        return false;
+    }
+
+    auto copy = *source;
+    copy.id.clear();
+    copy.createdAt.clear();
+    copy.name = makeCopyName(source->name);
+    if (!savePreset(copy, errorMessage)) {
+        return false;
+    }
+    if (newPresetId != nullptr) {
+        *newPresetId = copy.id;
+    }
     return true;
 }
 

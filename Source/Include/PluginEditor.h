@@ -62,8 +62,6 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     BlockPickerPage _blockPicker;
 
     SettingsView _settingsView;
-    juce::TextButton _resetButton{"Reset Chain"};
-    juce::TextButton _exportButton{"Save Preset"};
     juce::TextButton _closeOverlayButton{"Close"};
     juce::Component _settingsHost;
 
@@ -88,8 +86,10 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     void showStudio();
     void showOverlay(OverlayMode mode);
     void showEditPanel(SignalChainStrip::BlockId blockId);
-    void showRouteMix();
+    void showRouteMix(int forkId);
+    void refreshRouteMixPanel();
     void refreshChainView();
+    void refreshAfterPresetApplied();
     void openBlockPicker(int slot);
     void closeBlockPicker();
     void placeChosenBlock(int slot, SignalChain::Stage stage);

@@ -106,7 +106,7 @@ class SignalChainStrip : public juce::Component {
     std::function<void()> onClearAllBlocks;
     std::function<void(int movableIndex)> onBlockDraggedDown;
     std::function<void(int pathBIndex, int chainSlot)> onPathBReturned;
-    std::function<void()> onEditRouteMix;
+    std::function<void(int forkId)> onEditRouteMix;
     std::function<void(SignalChain::BlockRef from, const SignalChain::DropPreview& preview)> onRouteDrop;
     std::function<void(int forkId, bool isSplit, int gap)> onForkEdgeMoved;
 

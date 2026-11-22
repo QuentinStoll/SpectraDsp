@@ -80,14 +80,11 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Components/FormFields/FormTextField.cpp
     Src/Components/FormFields/FormToggleField.cpp
     Src/Components/FileStatusCard.cpp
-    Src/Components/ModalOverlay.cpp
     Src/Components/NotificationBanner.cpp
     Src/Modules/AddProfilModule.cpp
     Src/Modules/AdvancedEqModule.cpp
     Src/Modules/BasicEqModule.cpp
-    Src/Modules/CardGridModule.cpp
     Src/Modules/CreateProfilModule.cpp
-    Src/Modules/DeleteProfileConfirmationModule.cpp
     Src/Modules/EditProfilModule.cpp
     Src/Modules/ExportProfilModule.cpp
     Src/Modules/FxEditPanel.cpp
@@ -108,7 +105,9 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/AmpCondition.cpp
     Src/Views/CloneView.cpp
     Src/Views/MarketplaceAccountPanel.cpp
+    Src/Views/MarketplaceGridPanel.cpp
     Src/Views/PlayView.cpp
+    Src/Views/PresetListPanel.cpp
     Src/Views/ProfilView.cpp
     Src/Views/AmpCapturePanel.cpp
     Src/Views/IrCapturePanel.cpp

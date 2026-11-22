@@ -2,37 +2,35 @@
 
 #include <JuceHeader.h>
 
-#include "Components/ModalOverlay.h"
 #include "Components/NotificationBanner.h"
-#include "Modules/CardGridModule.h"
 #include "PluginProcessor.h"
 #include "Views/MarketplaceAccountPanel.h"
+#include "Views/MarketplaceGridPanel.h"
+#include "Views/PresetListPanel.h"
 
 class ProfilView : public juce::Component,
                    private juce::ChangeListener {
    public:
     ProfilView(ProfilerAudioProcessor& p);
-    ~ProfilView();
+    ~ProfilView() override;
+
+    std::function<void(const juce::String& warning)> onPresetLoaded;
 
     void downloadAccountProfile(const juce::String& id);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override;
 
    private:
-    juce::Viewport _viewport;
-    juce::Component _libraryPage;
-    MarketplaceAccountPanel _accountPanel;
-    juce::Label _presetHeading;
-    CardGridModule _grid;
-    ModalOverlay _modalOverlay;
-    NotificationBanner _notificationBanner;
     ProfilerAudioProcessor& _audioProcessor;
+    PresetListPanel _presetPanel;
+    MarketplaceGridPanel _marketplacePanel;
+    MarketplaceAccountPanel _accountPanel;
+    NotificationBanner _notificationBanner;
 
-    void showDeletePresetModal(int presetNumber);
-    void deletePreset(int presetNumber);
-    void saveCurrentChain();
-    void refreshPresetGrid();
+    void refreshMarketplace();
+    void showMessage(const juce::String& message, bool success);
     bool storeEncryptedProfile(const juce::String& accessToken,
                                const juce::String& id,
                                const juce::String& title,

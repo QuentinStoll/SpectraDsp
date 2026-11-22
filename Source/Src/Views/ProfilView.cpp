@@ -1,9 +1,12 @@
 #include "Views/ProfilView.h"
 
-#include "Modules/DeleteProfileConfirmationModule.h"
 #include "Stylesheet.h"
 
 namespace {
+constexpr int kColumnGap = 20;
+constexpr int kSideMargin = 12;
+constexpr int kBottomMargin = 16;
+
 std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marketplace::LibraryItem>& items) {
     std::vector<ProfileCatalog::Listing> listings;
     for (const auto& item : items) {
@@ -16,17 +19,16 @@ std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marke
         listing.title = item.title;
         listing.author = item.authorName;
         listing.summary = item.summary;
+        listing.badge = Marketplace::badgeFor(item);
         listing.conditionProfile = Marketplace::conditionProfileIndex(item.conditionProfile);
         listing.conditionAmount = item.conditionAmount;
         if (item.kind == "ir") {
             listing.kind = ProfileCatalog::Kind::Ir;
-            listing.badge = "IR";
             listings.push_back(listing);
             continue;
         }
 
         listing.kind = ProfileCatalog::Kind::Amp;
-        listing.badge = item.hasIntegratedIr || item.hasSeparateIr ? "AMP + IR" : "AMP";
         listings.push_back(listing);
         if (item.hasSeparateIr && !item.hasIntegratedIr) {
             ProfileCatalog::Listing impulse = listing;
@@ -41,24 +43,45 @@ std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marke
     }
     return listings;
 }
+
+bool isDownloaded(const ProfileCatalog& catalog, const Marketplace::LibraryItem& item) {
+    const auto kind = item.kind == "ir" ? ProfileCatalog::Kind::Ir : ProfileCatalog::Kind::Amp;
+    const auto* entry = catalog.find(item.id, kind);
+    if (entry == nullptr || !entry->cipherOnDisk) {
+        return false;
+    }
+    if (item.kind != "amp") {
+        return true;
+    }
+    juce::MemoryBlock key;
+    const auto unlocked = catalog.copyKey(item.id, kind, key);
+    key.fillWith(0);
+    return unlocked;
+}
 }  // namespace
 
 ProfilView::ProfilView(ProfilerAudioProcessor& p)
-    : _audioProcessor(p) {
-    addAndMakeVisible(_viewport);
-    _presetHeading.setText("PRESETS", juce::dontSendNotification);
-    _presetHeading.setFont(ProfilerStyle::Fonts::moduleTitle());
-    _presetHeading.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
-    _presetHeading.setJustificationType(juce::Justification::centredLeft);
-    _libraryPage.addAndMakeVisible(_accountPanel);
-    _libraryPage.addAndMakeVisible(_presetHeading);
-    _libraryPage.addAndMakeVisible(_grid);
-    _viewport.getVerticalScrollBar().setColour(juce::ScrollBar::thumbColourId, ProfilerStyle::Colors::orange);
-    _viewport.setViewedComponent(&_libraryPage, false);
-    _viewport.setScrollBarsShown(true, false);
-    refreshPresetGrid();
+    : _audioProcessor(p),
+      _presetPanel(p) {
+    addAndMakeVisible(_presetPanel);
+    addAndMakeVisible(_marketplacePanel);
+    addAndMakeVisible(_accountPanel);
+    addChildComponent(_notificationBanner);
 
-    _accountPanel.onLayoutChanged = [this]() { resized(); };
+    _presetPanel.onPresetLoaded = [this](const juce::String& warning) {
+        if (onPresetLoaded) {
+            onPresetLoaded(warning);
+        }
+    };
+    _presetPanel.onStatus = [this](const juce::String& message, bool success) { showMessage(message, success); };
+    _presetPanel.onPresetsChanged = [this]() {
+        _accountPanel.setSavedPresetCount(_audioProcessor.getPresetManager().getCount());
+    };
+    _accountPanel.setSavedPresetCount(_audioProcessor.getPresetManager().getCount());
+
+    _marketplacePanel.onDownloadClicked = [this](const juce::String& id) { _accountPanel.downloadById(id); };
+
+    _accountPanel.onStateChanged = [this]() { refreshMarketplace(); };
     _accountPanel.onLibraryChanged = [this](const std::vector<Marketplace::LibraryItem>& items) {
         _audioProcessor.getProfileCatalog().syncAccount(listingsFromAccount(items));
     };
@@ -67,43 +90,13 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
                                               int conditionProfile, float conditionAmount, juce::String* errorMessage) {
         return storeEncryptedProfile(accessToken, id, title, kind, cipher, key, conditionProfile, conditionAmount, errorMessage);
     };
+    _audioProcessor.getProfileCatalog().addChangeListener(this);
     _accountPanel.start();
-    _audioProcessor.getPresetManager().addChangeListener(this);
-
-    _grid.onAddProfileClicked = [this]() { saveCurrentChain(); };
-    _grid.onProfileClicked = [this](int presetNumber) {
-        juce::PopupMenu menu;
-        menu.addItem(1, "Load preset");
-        menu.addItem(2, "Delete preset");
-        const juce::Component::SafePointer<ProfilView> safeThis(this);
-        menu.showMenuAsync(juce::PopupMenu::Options(), [safeThis, presetNumber](int result) {
-            if (safeThis == nullptr) {
-                return;
-            }
-            if (result == 1) {
-                juce::String error;
-                if (safeThis->_audioProcessor.applyPreset(presetNumber - 1, &error)) {
-                    safeThis->_notificationBanner.showMessage(error.isNotEmpty() ? error : "Preset loaded",
-                                                              error.isNotEmpty() ? NotificationBanner::Type::Error
-                                                                                 : NotificationBanner::Type::Success,
-                                                              5000);
-                } else {
-                    safeThis->_notificationBanner.showMessage(error.isEmpty() ? "Could not load the preset." : error,
-                                                              NotificationBanner::Type::Error,
-                                                              5000);
-                }
-            } else if (result == 2) {
-                safeThis->showDeletePresetModal(presetNumber);
-            }
-        });
-    };
-
-    addChildComponent(_modalOverlay);
-    addChildComponent(_notificationBanner);
+    refreshMarketplace();
 }
 
 ProfilView::~ProfilView() {
-    _audioProcessor.getPresetManager().removeChangeListener(this);
+    _audioProcessor.getProfileCatalog().removeChangeListener(this);
 }
 
 void ProfilView::downloadAccountProfile(const juce::String& id) {
@@ -111,26 +104,22 @@ void ProfilView::downloadAccountProfile(const juce::String& id) {
 }
 
 void ProfilView::paint(juce::Graphics& g) {
-    ProfilerStyle::Surfaces::fillPanel(g, getLocalBounds().toFloat());
+    for (auto* column : {static_cast<juce::Component*>(&_presetPanel),
+                         static_cast<juce::Component*>(&_marketplacePanel),
+                         static_cast<juce::Component*>(&_accountPanel)}) {
+        ProfilerStyle::Surfaces::fillPanel(g, column->getBounds().toFloat());
+    }
 }
 
 void ProfilView::resized() {
-    const auto area = getLocalBounds().reduced(25);
-    constexpr auto scrollbarOffset = 15;
-    const auto viewportArea = area.withRight(juce::jmin(getLocalBounds().getRight(), area.getRight() + scrollbarOffset));
-    _viewport.setBounds(viewportArea);
+    auto area = getLocalBounds().reduced(kSideMargin, 0).withTrimmedBottom(kBottomMargin);
+    const auto unit = juce::jmax(0, area.getWidth() - 2 * kColumnGap) / 4;
+    _presetPanel.setBounds(area.removeFromLeft(unit));
+    area.removeFromLeft(kColumnGap);
+    _marketplacePanel.setBounds(area.removeFromLeft(unit * 2));
+    area.removeFromLeft(kColumnGap);
+    _accountPanel.setBounds(area);
 
-    const auto contentWidth = area.getWidth();
-    const auto accountHeight = _accountPanel.getPreferredHeight(contentWidth);
-    constexpr auto headingHeight = 28;
-    const auto gridHeight = _grid.getRequiredHeight(contentWidth);
-    const auto pageHeight = juce::jmax(area.getHeight(), accountHeight + 16 + headingHeight + gridHeight);
-    _libraryPage.setBounds(0, 0, contentWidth, pageHeight);
-    _accountPanel.setBounds(0, 0, contentWidth, accountHeight);
-    _presetHeading.setBounds(0, accountHeight + 16, contentWidth, headingHeight);
-    _grid.setBounds(0, accountHeight + 16 + headingHeight, contentWidth, gridHeight);
-
-    _modalOverlay.setBounds(getLocalBounds());
     const auto bannerWidth = juce::jmin(_notificationBanner.getIdealWidth(), juce::jmax(220, getWidth() - 50));
     _notificationBanner.setBounds(getLocalBounds()
                                       .withSizeKeepingCentre(bannerWidth, _notificationBanner.getIdealHeight())
@@ -138,39 +127,32 @@ void ProfilView::resized() {
                                       .withY(25));
 }
 
-void ProfilView::saveCurrentChain() {
-    juce::String error;
-    const auto name = "Preset " + juce::String(_audioProcessor.getPresetManager().getCount() + 1);
-    if (_audioProcessor.saveCurrentPreset(name, &error)) {
-        refreshPresetGrid();
-        _notificationBanner.showMessage("Preset saved", NotificationBanner::Type::Success, 5000);
-    } else {
-        _notificationBanner.showMessage(error.isNotEmpty() ? error : "Could not save the preset.",
-                                        NotificationBanner::Type::Error,
-                                        5000);
+void ProfilView::visibilityChanged() {
+    if (isShowing()) {
+        _presetPanel.grabKeyboardFocus();
     }
 }
 
-void ProfilView::showDeletePresetModal(int presetNumber) {
-    const auto* preset = _audioProcessor.getPresetManager().getPreset(presetNumber - 1);
-    const auto name = preset != nullptr ? preset->name : "this preset";
-    auto confirmation = std::make_unique<DeleteProfileConfirmationModule>(name);
-    confirmation->onConfirm = [this, presetNumber]() {
-        _modalOverlay.dismiss();
-        deletePreset(presetNumber);
-    };
-    confirmation->onCancel = [this]() { _modalOverlay.dismiss(); };
-    _modalOverlay.show(std::move(confirmation), juce::Rectangle<int>(0, 0, 296, 108));
+void ProfilView::refreshMarketplace() {
+    const auto& catalog = _audioProcessor.getProfileCatalog();
+    std::vector<MarketplaceGridPanel::Entry> entries;
+    for (const auto& item : _accountPanel.getItems()) {
+        if (item.id.isEmpty()) {
+            continue;
+        }
+        entries.push_back({item, isDownloaded(catalog, item)});
+    }
+    _marketplacePanel.setContent(_accountPanel.getLibraryState(),
+                                 std::move(entries),
+                                 _accountPanel.getLibraryMessage(),
+                                 _accountPanel.isBusy());
 }
 
-void ProfilView::deletePreset(int presetNumber) {
-    juce::String error;
-    if (_audioProcessor.getPresetManager().deletePreset(presetNumber - 1, &error)) {
-        refreshPresetGrid();
-        _notificationBanner.showMessage("Preset deleted", NotificationBanner::Type::Success, 5000);
-    } else {
-        _notificationBanner.showMessage(error, NotificationBanner::Type::Error, 5000);
-    }
+void ProfilView::showMessage(const juce::String& message, bool success) {
+    _notificationBanner.showMessage(message,
+                                    success ? NotificationBanner::Type::Success : NotificationBanner::Type::Error,
+                                    5000);
+    _notificationBanner.toFront(false);
 }
 
 bool ProfilView::storeEncryptedProfile(const juce::String& accessToken,
@@ -197,12 +179,7 @@ bool ProfilView::storeEncryptedProfile(const juce::String& accessToken,
 }
 
 void ProfilView::changeListenerCallback(juce::ChangeBroadcaster* source) {
-    if (source == &_audioProcessor.getPresetManager()) {
-        refreshPresetGrid();
+    if (source == &_audioProcessor.getProfileCatalog()) {
+        refreshMarketplace();
     }
-}
-
-void ProfilView::refreshPresetGrid() {
-    _grid.setProfileNames(_audioProcessor.getPresetManager().getNames());
-    resized();
 }
