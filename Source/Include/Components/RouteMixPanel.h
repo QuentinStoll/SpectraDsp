@@ -7,14 +7,25 @@ class RouteMixPanel : public juce::Component {
     explicit RouteMixPanel(juce::AudioProcessorValueTreeState& state);
     ~RouteMixPanel() override = default;
 
+    void setFork(int forkId, bool hasPathBBlocks, bool pathBBypassed);
+    int getForkId() const noexcept { return _forkId; }
+
+    std::function<void(int forkId, bool bypassed)> onBypassChanged;
+    std::function<void(int forkId)> onClearBlock;
+    std::function<void()> onClearAll;
+
     void paint(juce::Graphics& g) override;
     void resized() override;
 
    private:
     juce::AudioProcessorValueTreeState& _state;
+    int _forkId = -1;
     juce::Label _title;
     juce::Label _modeLabel;
     juce::ComboBox _mode;
+    juce::TextButton _bypassButton{"Bypass"};
+    juce::TextButton _clearBlockButton{"Clear block"};
+    juce::TextButton _clearAllButton{"Clear all"};
     juce::Slider _route;
     juce::Slider _aLevel;
     juce::Slider _aPan;

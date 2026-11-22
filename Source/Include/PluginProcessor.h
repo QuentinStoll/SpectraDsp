@@ -116,9 +116,10 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     const ProfileManager& getProfileManager() const noexcept;
     PresetManager& getPresetManager() noexcept;
     ProfileCatalog& getProfileCatalog() noexcept;
-    bool saveCurrentPreset(const juce::String& name,
-                           juce::String* errorMessage = nullptr,
-                           bool overwriteCurrent = false);
+    bool saveCurrentPreset(const juce::String& name, juce::String* errorMessage = nullptr);
+    bool overwritePresetWithCurrentChain(int presetIndex, juce::String* errorMessage = nullptr);
+    bool resetPresetToEmpty(int presetIndex, juce::String* errorMessage = nullptr);
+    bool presetMatchesCurrentChain(int presetIndex) const;
     bool applyPreset(int presetIndex, juce::String* errorMessage = nullptr);
     bool importEncryptedProfile(ProfileCatalog::Kind kind,
                                 const juce::String& id,

@@ -22,56 +22,7 @@ class ProfileCardButton : public juce::Component {
     }
 
     void paint(juce::Graphics& g) override {
-        auto bounds = getLocalBounds().toFloat().reduced(1.0f);
-        g.setColour(juce::Colour(0xff101218));
-        g.fillRoundedRectangle(bounds, 12.0f);
-
-        auto art = bounds.removeFromTop(juce::jmax(64.0f, bounds.getHeight() * 0.42f));
-        juce::ColourGradient gradient(_card.importWav ? juce::Colour(0xff12324a) : juce::Colour(0xff2c1452),
-                                      art.getTopLeft(),
-                                      _card.importWav ? juce::Colour(0xff1a4a62) : juce::Colour(0xff6d2454),
-                                      art.getBottomRight(),
-                                      false);
-        g.setGradientFill(gradient);
-        juce::Path artPath;
-        artPath.addRoundedRectangle(art.getX(), art.getY(), art.getWidth(), art.getHeight(), 12.0f, 12.0f, true, true, false, false);
-        g.fillPath(artPath);
-
-        g.setColour(juce::Colours::white.withAlpha(0.16f));
-        g.setFont(ProfilerStyle::Fonts::black(juce::jmin(34.0f, art.getHeight() * 0.42f)));
-        g.drawFittedText(_card.importWav ? "WAV" : "PROFIL", art.toNearestInt(), juce::Justification::centred, 1);
-
-        auto badges = art.reduced(8.0f).removeFromTop(18.0f);
-        if (_card.spectra) {
-            auto spectra = badges.removeFromLeft(62.0f);
-            drawBadge(g, spectra, "SPECTRA", juce::Colour(0xffb026ff));
-            badges.removeFromLeft(6.0f);
-        }
-        if (_card.badge.isNotEmpty()) {
-            const auto badgeWidth = juce::jmin(badges.getWidth(), _card.badge.length() * 7.0f + 16.0f);
-            drawBadge(g, badges.removeFromLeft(badgeWidth), _card.badge, juce::Colour(0xff3dd68c));
-        }
-
-        auto text = bounds.reduced(10.0f, 8.0f);
-        g.setColour(ProfilerStyle::Colors::text);
-        g.setFont(ProfilerStyle::Fonts::bold(13.0f));
-        g.drawFittedText(_card.title, text.removeFromTop(34).toNearestInt(), juce::Justification::topLeft, 2);
-
-        if (_card.author.isNotEmpty()) {
-            g.setColour(ProfilerStyle::Colors::accentCyan);
-            g.setFont(ProfilerStyle::Fonts::bold(11.0f));
-            g.drawFittedText("By " + _card.author, text.removeFromTop(16).toNearestInt(), juce::Justification::centredLeft, 1);
-        }
-
-        if (_card.summary.isNotEmpty()) {
-            text.removeFromTop(2.0f);
-            g.setColour(ProfilerStyle::Colors::textMuted);
-            g.setFont(ProfilerStyle::Fonts::regular(11.0f));
-            g.drawFittedText(_card.summary, text.toNearestInt(), juce::Justification::topLeft, 3);
-        }
-
-        g.setColour(_card.selected ? ProfilerStyle::Colors::accentCyan : juce::Colour(0xff2a2c34));
-        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 12.0f, _card.selected ? 2.0f : 1.0f);
+        ProfileLibraryView::paintCard(g, getLocalBounds().toFloat(), _card);
     }
 
     void mouseUp(const juce::MouseEvent& event) override {
@@ -91,6 +42,59 @@ class ProfileCardButton : public juce::Component {
     ProfileLibraryView::Card _card;
     std::function<void(const juce::String&)> _clicked;
 };
+
+void ProfileLibraryView::paintCard(juce::Graphics& g, juce::Rectangle<float> area, const Card& card) {
+    auto bounds = area.reduced(1.0f);
+    g.setColour(juce::Colour(0xff101218));
+    g.fillRoundedRectangle(bounds, 12.0f);
+
+    auto art = bounds.removeFromTop(juce::jmax(64.0f, bounds.getHeight() * 0.42f));
+    juce::ColourGradient gradient(card.importWav ? juce::Colour(0xff12324a) : juce::Colour(0xff2c1452),
+                                  art.getTopLeft(),
+                                  card.importWav ? juce::Colour(0xff1a4a62) : juce::Colour(0xff6d2454),
+                                  art.getBottomRight(),
+                                  false);
+    g.setGradientFill(gradient);
+    juce::Path artPath;
+    artPath.addRoundedRectangle(art.getX(), art.getY(), art.getWidth(), art.getHeight(), 12.0f, 12.0f, true, true, false, false);
+    g.fillPath(artPath);
+
+    g.setColour(juce::Colours::white.withAlpha(0.16f));
+    g.setFont(ProfilerStyle::Fonts::black(juce::jmin(34.0f, art.getHeight() * 0.42f)));
+    g.drawFittedText(card.importWav ? "WAV" : "PROFIL", art.toNearestInt(), juce::Justification::centred, 1);
+
+    auto badges = art.reduced(8.0f).removeFromTop(18.0f);
+    if (card.spectra) {
+        auto spectra = badges.removeFromLeft(62.0f);
+        drawBadge(g, spectra, "SPECTRA", juce::Colour(0xffb026ff));
+        badges.removeFromLeft(6.0f);
+    }
+    if (card.badge.isNotEmpty()) {
+        const auto badgeWidth = juce::jmin(badges.getWidth(), card.badge.length() * 7.0f + 16.0f);
+        drawBadge(g, badges.removeFromLeft(badgeWidth), card.badge, juce::Colour(0xff3dd68c));
+    }
+
+    auto text = bounds.reduced(10.0f, 8.0f);
+    g.setColour(ProfilerStyle::Colors::text);
+    g.setFont(ProfilerStyle::Fonts::bold(13.0f));
+    g.drawFittedText(card.title, text.removeFromTop(34).toNearestInt(), juce::Justification::topLeft, 2);
+
+    if (card.author.isNotEmpty()) {
+        g.setColour(ProfilerStyle::Colors::accentCyan);
+        g.setFont(ProfilerStyle::Fonts::bold(11.0f));
+        g.drawFittedText("By " + card.author, text.removeFromTop(16).toNearestInt(), juce::Justification::centredLeft, 1);
+    }
+
+    if (card.summary.isNotEmpty()) {
+        text.removeFromTop(2.0f);
+        g.setColour(ProfilerStyle::Colors::textMuted);
+        g.setFont(ProfilerStyle::Fonts::regular(11.0f));
+        g.drawFittedText(card.summary, text.toNearestInt(), juce::Justification::topLeft, 3);
+    }
+
+    g.setColour(card.selected ? ProfilerStyle::Colors::accentCyan : juce::Colour(0xff2a2c34));
+    g.drawRoundedRectangle(area.reduced(1.0f), 12.0f, card.selected ? 2.0f : 1.0f);
+}
 
 ProfileLibraryView::ProfileLibraryView() {
     _viewport.setViewedComponent(&_row, false);

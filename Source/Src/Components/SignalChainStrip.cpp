@@ -394,10 +394,11 @@ SignalChainStrip::SignalChainStrip() {
             node.setVisible(false);
             node.split = split;
             node.onClick = [this, index, split]() {
+                const auto id = split ? _splitNodes[static_cast<size_t>(index)].forkId
+                                      : _mergeNodes[static_cast<size_t>(index)].forkId;
                 if (onEditRouteMix) {
-                    onEditRouteMix();
+                    onEditRouteMix(id);
                 }
-                juce::ignoreUnused(index, split);
             };
             node.onNodeDrag = [this, index, split, &node](const juce::MouseEvent& event) {
                 const auto id = split ? _splitNodes[static_cast<size_t>(index)].forkId

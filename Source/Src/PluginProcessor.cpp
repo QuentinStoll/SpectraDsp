@@ -2598,22 +2598,87 @@ void ProfilerAudioProcessor::applyPresetDocument(const Preset& preset) {
     }
 }
 
-bool ProfilerAudioProcessor::saveCurrentPreset(const juce::String& name,
-                                               juce::String* errorMessage,
-                                               bool overwriteCurrent) {
+bool ProfilerAudioProcessor::saveCurrentPreset(const juce::String& name, juce::String* errorMessage) {
     auto preset = capturePreset(name);
-    if (overwriteCurrent) {
-        if (const auto* current = _presetManager.getPreset(_presetManager.getCurrentIndex())) {
-            preset.id = current->id;
-            preset.createdAt = current->createdAt;
-            preset.name = current->name;
-        }
-    }
     if (!_presetManager.savePreset(preset, errorMessage)) {
         return false;
     }
 
     _presetManager.setCurrentPresetId(preset.id);
+    return true;
+}
+
+bool ProfilerAudioProcessor::overwritePresetWithCurrentChain(int presetIndex, juce::String* errorMessage) {
+    const auto* target = _presetManager.getPreset(presetIndex);
+    if (target == nullptr) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Preset not found.";
+        }
+        return false;
+    }
+
+    auto preset = capturePreset(target->name);
+    preset.id = target->id;
+    preset.createdAt = target->createdAt;
+    if (!_presetManager.savePreset(preset, errorMessage)) {
+        return false;
+    }
+
+    _presetManager.setCurrentPresetId(preset.id);
+    return true;
+}
+
+bool ProfilerAudioProcessor::resetPresetToEmpty(int presetIndex, juce::String* errorMessage) {
+    const auto* target = _presetManager.getPreset(presetIndex);
+    if (target == nullptr) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Preset not found.";
+        }
+        return false;
+    }
+
+    Preset preset;
+    preset.id = target->id;
+    preset.name = target->name;
+    preset.createdAt = target->createdAt;
+    for (auto* parameter : getParameters()) {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter)) {
+            preset.parameters.set(ranged->getParameterID(),
+                                  static_cast<double>(ranged->convertFrom0to1(ranged->getDefaultValue())));
+        }
+    }
+    SignalChain::Layout empty;
+    empty.clearAll();
+    preset.chainLayout = empty.packed();
+    return _presetManager.savePreset(preset, errorMessage);
+}
+
+bool ProfilerAudioProcessor::presetMatchesCurrentChain(int presetIndex) const {
+    const auto* stored = _presetManager.getPreset(presetIndex);
+    if (stored == nullptr) {
+        return false;
+    }
+
+    const auto current = capturePreset(stored->name);
+    if (current.chainLayout != stored->chainLayout || current.chainBypass != stored->chainBypass ||
+        current.routeHeader != stored->routeHeader || current.routePathB != stored->routePathB ||
+        current.routeBypass != stored->routeBypass || current.ampProfileId != stored->ampProfileId ||
+        current.irProfileId != stored->irProfileId) {
+        return false;
+    }
+
+    for (int index = 0; index < current.parameters.size(); ++index) {
+        const auto name = current.parameters.getName(index);
+        const auto* savedValue = stored->parameters.getVarPointer(name);
+        if (savedValue == nullptr) {
+            return false;
+        }
+        const auto live = static_cast<double>(current.parameters.getValueAt(index));
+        const auto saved = static_cast<double>(*savedValue);
+        if (std::abs(live - saved) > 1.0e-4 * juce::jmax(1.0, std::abs(saved))) {
+            return false;
+        }
+    }
     return true;
 }
 

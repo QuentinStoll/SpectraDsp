@@ -58,6 +58,13 @@ struct LibraryItem {
     float conditionAmount = 0.0f;
 };
 
+inline juce::String badgeFor(const LibraryItem& item) {
+    if (item.kind == "ir") {
+        return "IR";
+    }
+    return item.hasIntegratedIr || item.hasSeparateIr ? "AMP + IR" : "AMP";
+}
+
 inline int conditionProfileIndex(const juce::String& profile) {
     if (profile.equalsIgnoreCase("black")) {
         return 1;

@@ -8,6 +8,11 @@
 #include "Stylesheet.h"
 
 namespace {
+constexpr int kKnobWidth = 124;
+constexpr int kKnobGap = 24;
+constexpr int kKnobRowHeight = 112;
+constexpr int kSideKnobWidth = 112;
+
 void configurePanelTitle(juce::Label& label, const juce::String& text) {
     label.setText(text.toUpperCase(), juce::dontSendNotification);
     label.setFont(ProfilerStyle::Fonts::moduleTitle());
@@ -478,37 +483,41 @@ void EqResponseDisplay::paint(juce::Graphics& g) {
     }
 }
 
-InputGatePanel::InputGatePanel(juce::AudioProcessorValueTreeState& apvts) {
+InputGatePanel::InputGatePanel(juce::AudioProcessorValueTreeState& apvts)
+    : _apvts(apvts) {
     configurePanelTitle(_title, "Input");
-    configureBypassLabel(_bypassLabel);
     _summary.setFont(ProfilerStyle::Fonts::regular(12.0f));
     _summary.setColour(juce::Label::textColourId, ProfilerStyle::Colors::caption);
     _summary.setJustificationType(juce::Justification::centredLeft);
     _summary.setInterceptsMouseClicks(false, false);
-    _gateEnabled.setLabelVisible(false);
+    _bypass.setClickingTogglesState(true);
+    _bypass.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
 
     addAndMakeVisible(_title);
     addAndMakeVisible(_summary);
-    addAndMakeVisible(_bypassLabel);
-    addAndMakeVisible(_gateEnabled);
+    addAndMakeVisible(_bypass);
     addAndMakeVisible(_inputTrimKnob);
     addAndMakeVisible(_noiseGateKnob);
-    _gateAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, "isGateEnabled", _gateEnabled);
     _inputAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "input", _inputTrimKnob.getSlider());
     _noiseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "noise", _noiseGateKnob.getSlider());
 
-    _gateEnabled.onClick = [this]() {
+    _bypass.onClick = [this]() {
+        if (auto* parameter = _apvts.getParameter("isGateEnabled")) {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(_bypass.getToggleState() ? 0.0f : 1.0f);
+            parameter->endChangeGesture();
+        }
         refreshBypassState();
     };
     refreshBypassState();
 }
 
 void InputGatePanel::refreshBypassState() {
-    const auto enabled = _gateEnabled.getToggleState();
+    const auto* enabledValue = _apvts.getRawParameterValue("isGateEnabled");
+    const auto enabled = enabledValue == nullptr || enabledValue->load() > 0.5f;
+    _bypass.setToggleState(!enabled, juce::dontSendNotification);
     _inputTrimKnob.setEnabled(true);
     _noiseGateKnob.setEnabled(enabled);
-    _bypassLabel.setVisible(!enabled);
-    resized();
 }
 
 void InputGatePanel::paint(juce::Graphics&) {}
@@ -516,16 +525,14 @@ void InputGatePanel::paint(juce::Graphics&) {}
 void InputGatePanel::resized() {
     auto area = getLocalBounds().reduced(10, 6);
     auto header = area.removeFromTop(22);
-    _gateEnabled.setBounds(header.removeFromRight(48).withSizeKeepingCentre(48, 20));
-    header.removeFromRight(8);
-    _bypassLabel.setBounds(header.removeFromRight(80));
+    _bypass.setBounds(header.removeFromRight(78).withSizeKeepingCentre(78, 22));
     header.removeFromRight(8);
     _title.setBounds(header.removeFromLeft(140));
     _summary.setBounds(header);
 
-    constexpr int knobWidth = 108;
-    constexpr int gap = 24;
-    auto row = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(88, area.getHeight())).withCentre(area.getCentre());
+    constexpr int knobWidth = kKnobWidth;
+    constexpr int gap = kKnobGap;
+    auto row = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
     _inputTrimKnob.setBounds(row.removeFromLeft(knobWidth));
     row.removeFromLeft(gap);
     _noiseGateKnob.setBounds(row);
@@ -631,10 +638,10 @@ void AmpProfilerPanel::resized() {
     _title.setBounds(header);
     area.removeFromTop(6);
 
-    auto side = area.removeFromRight(100);
+    auto side = area.removeFromRight(kSideKnobWidth);
     area.removeFromRight(8);
     _library.setBounds(area);
-    _outputKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(96, side.getHeight())));
+    _outputKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(kKnobRowHeight, side.getHeight())));
 }
 
 CabinetIrPanel::CabinetIrPanel(ProfilerAudioProcessor& processor)
@@ -777,10 +784,10 @@ void CabinetIrPanel::resized() {
     _title.setBounds(header);
     area.removeFromTop(6);
 
-    auto side = area.removeFromRight(100);
+    auto side = area.removeFromRight(kSideKnobWidth);
     area.removeFromRight(8);
     _library.setBounds(area);
-    _lowCutKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(96, side.getHeight())));
+    _lowCutKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(kKnobRowHeight, side.getHeight())));
 }
 
 EqPostFxPanel::EqPostFxPanel(juce::AudioProcessorValueTreeState& apvts)
@@ -886,9 +893,9 @@ void PedalDrivePanel::resized() {
     _model.setBounds(area.removeFromTop(24).removeFromLeft(180));
     area.removeFromTop(6);
 
-    constexpr int knobWidth = 108;
-    constexpr int gap = 24;
-    auto row = juce::Rectangle<int>(knobWidth * 3 + gap * 2, juce::jmin(88, area.getHeight())).withCentre(area.getCentre());
+    constexpr int knobWidth = kKnobWidth;
+    constexpr int gap = kKnobGap;
+    auto row = juce::Rectangle<int>(knobWidth * 3 + gap * 2, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
     _driveKnob.setBounds(row.removeFromLeft(knobWidth));
     row.removeFromLeft(gap);
     _toneKnob.setBounds(row.removeFromLeft(knobWidth));
@@ -933,9 +940,9 @@ void MasterVolumePanel::resized() {
     area.removeFromRight(16);
     _outputMeter.setBounds(meter);
 
-    constexpr int knobWidth = 108;
-    constexpr int gap = 24;
-    auto row = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(88, area.getHeight())).withCentre(area.getCentre());
+    constexpr int knobWidth = kKnobWidth;
+    constexpr int gap = kKnobGap;
+    auto row = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
     _masterKnob.setBounds(row.removeFromLeft(knobWidth));
     row.removeFromLeft(gap);
     _outputTrimKnob.setBounds(row);

@@ -15,28 +15,27 @@ class StudioTopBar : public juce::Component,
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void mouseMove(const juce::MouseEvent& event) override;
+    void mouseUp(const juce::MouseEvent& event) override;
 
     std::function<void()> onSettingsClicked;
     std::function<void()> onLibraryClicked;
+    std::function<void()> onLogoClicked;
     std::function<void()> onPresetApplied;
     std::function<void(const juce::String&, bool)> onStatus;
     std::function<void(const juce::String&)> onResetCompleted;
 
-    juce::String restoreDefaults();
-
    private:
-    class IconButton : public juce::Button {
+    class GearButton : public juce::Button {
        public:
-        enum class Icon {
-            Gear,
-            Library
-        };
-
-        IconButton(const juce::String& name, Icon icon);
+        explicit GearButton(const juce::String& name);
         void paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) override;
+    };
 
-       private:
-        Icon _icon;
+    class PresetTitleBox : public CustomComboBox {
+       public:
+        std::function<void()> onOpenRequested;
+        void showPopup() override;
     };
 
     ProfilerAudioProcessor& _audioProcessor;
@@ -44,14 +43,14 @@ class StudioTopBar : public juce::Component,
 
     juce::ImageComponent _logoMark;
     juce::Label _logoLabel;
-    CustomComboBox _presetMenu;
-    IconButton _libraryButton{"Library", IconButton::Icon::Library};
+    PresetTitleBox _presetMenu;
     CustomTextButton _muteButton{"MUTE"};
-    IconButton _settingsButton{"Settings", IconButton::Icon::Gear};
+    GearButton _settingsButton{"Clone"};
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _muteAttach;
     bool _isUpdatingProfileMenu = false;
 
+    juce::Rectangle<int> logoArea() const;
     void refreshProfileMenu();
     void restoreLastUsedProfile();
     void selectProfileFromMenu();

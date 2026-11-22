@@ -28,6 +28,27 @@ RouteMixPanel::RouteMixPanel(juce::AudioProcessorValueTreeState& state)
     _polarity.setColour(juce::ToggleButton::tickColourId, ProfilerStyle::Colors::accent);
     addAndMakeVisible(_polarity);
 
+    for (auto* button : {&_bypassButton, &_clearBlockButton, &_clearAllButton}) {
+        button->setColour(juce::TextButton::buttonColourId, juce::Colours::black);
+        addAndMakeVisible(button);
+    }
+    _bypassButton.setClickingTogglesState(true);
+    _bypassButton.onClick = [this]() {
+        if (onBypassChanged) {
+            onBypassChanged(_forkId, _bypassButton.getToggleState());
+        }
+    };
+    _clearBlockButton.onClick = [this]() {
+        if (onClearBlock) {
+            onClearBlock(_forkId);
+        }
+    };
+    _clearAllButton.onClick = [this]() {
+        if (onClearAll) {
+            onClearAll();
+        }
+    };
+
     _modeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(_state, "splitMode", _mode);
     _routeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(_state, "splitRoute", _route);
     _aLevelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(_state, "routeALevel", _aLevel);
@@ -50,6 +71,13 @@ void RouteMixPanel::configureSlider(juce::Slider& slider, const juce::String& na
     slider.setName(name);
 }
 
+void RouteMixPanel::setFork(int forkId, bool hasPathBBlocks, bool pathBBypassed) {
+    _forkId = forkId;
+    _bypassButton.setEnabled(hasPathBBlocks);
+    _bypassButton.setToggleState(hasPathBBlocks && pathBBypassed, juce::dontSendNotification);
+    _clearBlockButton.setEnabled(forkId >= 0);
+}
+
 void RouteMixPanel::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
 }
@@ -57,6 +85,13 @@ void RouteMixPanel::paint(juce::Graphics& g) {
 void RouteMixPanel::resized() {
     auto area = getLocalBounds().reduced(16, 12);
     auto header = area.removeFromTop(28);
+    auto placeButton = [&header](juce::TextButton& button, int width) {
+        button.setBounds(header.removeFromRight(width).withSizeKeepingCentre(width, 24));
+        header.removeFromRight(8);
+    };
+    placeButton(_clearAllButton, 88);
+    placeButton(_clearBlockButton, 104);
+    placeButton(_bypassButton, 78);
     _title.setBounds(header.removeFromLeft(120));
     _modeLabel.setBounds(header.removeFromLeft(48));
     _mode.setBounds(header.removeFromLeft(90).reduced(0, 2));

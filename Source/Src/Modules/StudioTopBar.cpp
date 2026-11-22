@@ -5,13 +5,13 @@
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 
-StudioTopBar::IconButton::IconButton(const juce::String& name, Icon icon)
-    : juce::Button(name),
-      _icon(icon) {
+StudioTopBar::GearButton::GearButton(const juce::String& name)
+    : juce::Button(name) {
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    setTooltip(name);
 }
 
-void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) {
+void StudioTopBar::GearButton::paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) {
     auto* laf = dynamic_cast<CustomLookAndFeel*>(&getLookAndFeel());
     const auto bounds = getLocalBounds().toFloat();
 
@@ -23,16 +23,18 @@ void StudioTopBar::IconButton::paintButton(juce::Graphics& g, bool isMouseOverBu
                                        isButtonDown,
                                        getToggleState());
         const auto iconColour = ProfilerStyle::Colors::text.withAlpha(isMouseOverButton ? 1.0f : 0.86f);
-        if (_icon == Icon::Gear) {
-            laf->drawGearIcon(g, bounds.reduced(7.0f), iconColour);
-        } else {
-            laf->drawLibraryIcon(g, bounds.reduced(7.0f), iconColour);
-        }
+        laf->drawGearIcon(g, bounds.reduced(7.0f), iconColour);
         return;
     }
 
     g.setColour(juce::Colours::black);
     g.fillRoundedRectangle(bounds, ProfilerStyle::Surfaces::controlCorner);
+}
+
+void StudioTopBar::PresetTitleBox::showPopup() {
+    if (onOpenRequested) {
+        onOpenRequested();
+    }
 }
 
 StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
@@ -53,7 +55,6 @@ StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_logoLabel);
 
     addAndMakeVisible(_presetMenu);
-    addAndMakeVisible(_libraryButton);
     addAndMakeVisible(_muteButton);
     addAndMakeVisible(_settingsButton);
 
@@ -68,7 +69,7 @@ StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
         selectProfileFromMenu();
     };
 
-    _libraryButton.onClick = [this]() {
+    _presetMenu.onOpenRequested = [this]() {
         if (onLibraryClicked) {
             onLibraryClicked();
         }
@@ -104,9 +105,25 @@ void StudioTopBar::resized() {
     _muteButton.setBounds(right.removeFromRight(56).withSizeKeepingCentre(56, 26));
 
     area = area.withSizeKeepingCentre(juce::jmin(340, area.getWidth() - 40), area.getHeight());
-    _libraryButton.setBounds(area.removeFromRight(32).withSizeKeepingCentre(32, 32));
-    area.removeFromRight(6);
     _presetMenu.setBounds(area);
+}
+
+juce::Rectangle<int> StudioTopBar::logoArea() const {
+    const auto textWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(_logoLabel.getFont(), _logoLabel.getText())) +
+                           _logoLabel.getBorderSize().getLeftAndRight();
+    const auto label = _logoLabel.getBounds().withWidth(juce::jmin(_logoLabel.getWidth(), textWidth));
+    return _logoMark.getBounds().getUnion(label);
+}
+
+void StudioTopBar::mouseMove(const juce::MouseEvent& event) {
+    setMouseCursor(logoArea().contains(event.getPosition()) ? juce::MouseCursor::PointingHandCursor
+                                                            : juce::MouseCursor::NormalCursor);
+}
+
+void StudioTopBar::mouseUp(const juce::MouseEvent& event) {
+    if (event.mouseWasClicked() && event.mods.isLeftButtonDown() && logoArea().contains(event.getPosition()) && onLogoClicked) {
+        onLogoClicked();
+    }
 }
 
 void StudioTopBar::refreshProfileMenu() {
@@ -177,32 +194,6 @@ void StudioTopBar::selectProfileFromMenu() {
         }
         refreshProfileMenu();
     }
-}
-
-juce::String StudioTopBar::restoreDefaults() {
-    auto& presets = _audioProcessor.getPresetManager();
-    const auto currentIndex = presets.getCurrentIndex();
-    if (currentIndex >= 0) {
-        juce::String errorMessage;
-        if (_audioProcessor.applyPreset(currentIndex, &errorMessage)) {
-            refreshProfileMenu();
-            if (onPresetApplied) {
-                onPresetApplied();
-            }
-            return errorMessage.isNotEmpty() ? errorMessage : "Current preset restored";
-        }
-    }
-
-    resetParametersToDefaults();
-    resetLoadedFiles();
-    if (presets.getCurrentId().isNotEmpty()) {
-        presets.clearCurrentPreset();
-        refreshProfileMenu();
-    }
-    if (onPresetApplied) {
-        onPresetApplied();
-    }
-    return "Default chain restored";
 }
 
 void StudioTopBar::resetParametersToDefaults() {

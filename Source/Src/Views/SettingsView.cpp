@@ -70,7 +70,7 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
     addChildComponent(_capturePanel);
     addChildComponent(_ampPanel);
 
-    _titleLabel.setText("Settings", juce::dontSendNotification);
+    _titleLabel.setText("Clone", juce::dontSendNotification);
     _titleLabel.setJustificationType(juce::Justification::centred);
     _titleLabel.setFont(ProfilerStyle::Fonts::bold(24.0f));
     _titleLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);

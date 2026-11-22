@@ -1,6 +1,8 @@
 #include "PluginEditor.h"
 
+#include <algorithm>
 #include <thread>
+#include <vector>
 
 #if JUCE_WINDOWS
 #include <dwmapi.h>
@@ -109,6 +111,25 @@ juce::Point<int> standaloneMaxSize() {
 
     return {juce::jmax(editorWidth, area.getWidth()), juce::jmax(editorHeight, area.getHeight())};
 }
+
+std::vector<int> pathBSlotsForFork(SignalChain::ForkGraph graph, int forkId) {
+    std::vector<int> slots;
+    SignalChain::sortForks(graph);
+    int offset = 0;
+    for (const auto& fork : graph.forks) {
+        if (fork.id == forkId) {
+            for (int column = 0; column < fork.columnCount(); ++column) {
+                const auto index = offset + column;
+                if (index < SignalChain::ParallelRoute::pathBCount && fork.laneAt(column) != SignalChain::Stage::Empty) {
+                    slots.push_back(SignalChain::pathBSlotForIndex(index));
+                }
+            }
+            break;
+        }
+        offset += fork.columnCount();
+    }
+    return slots;
+}
 }  // namespace
 
 ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcessor& p)
@@ -158,8 +179,6 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _editHost.addChildComponent(_blockPicker);
 
     _settingsHost.addAndMakeVisible(_settingsView);
-    _settingsHost.addAndMakeVisible(_resetButton);
-    _settingsHost.addAndMakeVisible(_exportButton);
     _content.addChildComponent(_settingsHost);
     _content.addChildComponent(_libraryView);
 
@@ -176,15 +195,19 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _topBar.onLibraryClicked = [this]() {
         showOverlay(_overlayMode == OverlayMode::Library ? OverlayMode::None : OverlayMode::Library);
     };
+    _topBar.onLogoClicked = [this]() {
+        showStudio();
+    };
     _topBar.onStatus = [this](const juce::String& message, bool success) { showStatus(message, success); };
     _topBar.onPresetApplied = [this]() {
-        refreshChainView();
-        _ampPanel.refreshAssets();
-        _cabinetPanel.refreshAssets();
-        _eqPanel.refreshBypassState();
-        _inputGatePanel.refreshBypassState();
-        _pedalPanel.refreshBypassState();
-        updateChainStatus();
+        refreshAfterPresetApplied();
+    };
+    _libraryView.onPresetLoaded = [this](const juce::String& warning) {
+        refreshAfterPresetApplied();
+        showStudio();
+        if (warning.isNotEmpty()) {
+            showStatus(warning, false);
+        }
     };
     _ampPanel.onProfileUnavailable = [this](const juce::String& id) {
         showOverlay(OverlayMode::Library);
@@ -197,31 +220,6 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _closeOverlayButton.onClick = [this]() {
         showStudio();
     };
-    _resetButton.onClick = [this]() {
-        showStatus(_topBar.restoreDefaults(), true);
-        _ampPanel.refreshAssets();
-        _cabinetPanel.refreshAssets();
-        _eqPanel.refreshBypassState();
-        _inputGatePanel.refreshBypassState();
-        _pedalPanel.refreshBypassState();
-        closeBlockPicker();
-        _signalChain.setLayout(_audioProcessor.getChainLayout());
-        updateChainStatus();
-    };
-    _exportButton.onClick = [this]() {
-        auto& presets = _audioProcessor.getPresetManager();
-        const auto currentIndex = presets.getCurrentIndex();
-        const auto overwrite = currentIndex >= 0;
-        const auto name = overwrite ? presets.getPreset(currentIndex)->name
-                                    : "Preset " + juce::String(presets.getCount() + 1);
-        juce::String error;
-        if (_audioProcessor.saveCurrentPreset(name, &error, overwrite)) {
-            showStatus(overwrite ? "Preset updated" : "Preset saved", true);
-        } else {
-            showStatus(error.isNotEmpty() ? error : "Could not save the preset.", false);
-        }
-    };
-
     _ampPanel.onStatusMessage = [this](const juce::String& message, bool success) {
         showStatus(message, success);
     };
@@ -350,7 +348,28 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         _audioProcessor.setForkGraph(graph);
         refreshChainView();
     };
-    _signalChain.onEditRouteMix = [this]() { showRouteMix(); };
+    _signalChain.onEditRouteMix = [this](int forkId) { showRouteMix(forkId); };
+    _routeMixPanel.onBypassChanged = [this](int forkId, bool bypassed) {
+        const auto graph = _audioProcessor.getForkGraph();
+        for (const auto slot : pathBSlotsForFork(graph, forkId)) {
+            _audioProcessor.setChainSlotBypassed(slot, bypassed);
+        }
+        updateChainStatus();
+        refreshRouteMixPanel();
+    };
+    _routeMixPanel.onClearBlock = [this](int forkId) {
+        auto graph = _audioProcessor.getForkGraph();
+        if (SignalChain::removeFork(graph, forkId)) {
+            _audioProcessor.setForkGraph(graph);
+        }
+        refreshChainView();
+        showEditPanel(_signalChain.getSelectedBlock());
+    };
+    _routeMixPanel.onClearAll = [this]() {
+        _audioProcessor.clearAllChainBlocks();
+        refreshChainView();
+        showEditPanel(_signalChain.getSelectedBlock());
+    };
     _signalChain.onForkEdgeMoved = [this](int forkId, bool isSplit, int gap) {
         auto graph = _audioProcessor.getForkGraph();
         if (isSplit) {
@@ -600,13 +619,7 @@ void ProfilerAudioProcessorEditor::resized() {
         _libraryView.setBounds(area);
         _exportViewport.setBounds(area);
 
-        auto settingsArea = _settingsHost.getLocalBounds().reduced(12);
-        auto actions = settingsArea.removeFromBottom(40);
-        _exportButton.setBounds(actions.removeFromRight(140));
-        actions.removeFromRight(10);
-        _resetButton.setBounds(actions.removeFromRight(140));
-        settingsArea.removeFromBottom(12);
-        _settingsView.setBounds(settingsArea);
+        _settingsView.setBounds(_settingsHost.getLocalBounds().reduced(12));
 
         const auto exportHeight = juce::jmax(area.getHeight(), _exportModule.getRequiredHeight(area.getWidth()));
         _exportModule.setBounds(0, 0, area.getWidth(), exportHeight);
@@ -670,7 +683,38 @@ void ProfilerAudioProcessorEditor::refreshChainView() {
     updateChainStatus();
 }
 
-void ProfilerAudioProcessorEditor::showRouteMix() {
+void ProfilerAudioProcessorEditor::refreshAfterPresetApplied() {
+    refreshChainView();
+    _ampPanel.refreshAssets();
+    _cabinetPanel.refreshAssets();
+    _eqPanel.refreshBypassState();
+    _inputGatePanel.refreshBypassState();
+    _pedalPanel.refreshBypassState();
+    updateChainStatus();
+}
+
+void ProfilerAudioProcessorEditor::refreshRouteMixPanel() {
+    if (!_routeMixPanel.isVisible()) {
+        return;
+    }
+    const auto forkId = _routeMixPanel.getForkId();
+    const auto graph = _audioProcessor.getForkGraph();
+    const auto forkExists = std::any_of(graph.forks.begin(), graph.forks.end(), [forkId](const auto& fork) {
+        return fork.id == forkId;
+    });
+    if (!forkExists) {
+        showEditPanel(_signalChain.getSelectedBlock());
+        return;
+    }
+    const auto slots = pathBSlotsForFork(graph, forkId);
+    const auto bypassed = !slots.empty() && std::all_of(slots.begin(), slots.end(), [this](int slot) {
+        return _audioProcessor.isChainSlotBypassed(slot);
+    });
+    _routeMixPanel.setFork(forkId, !slots.empty(), bypassed);
+}
+
+void ProfilerAudioProcessorEditor::showRouteMix(int forkId) {
+    _routeMixPanel.setFork(forkId, false, false);
     _inputGatePanel.setVisible(false);
     _ampPanel.setVisible(false);
     _cabinetPanel.setVisible(false);
@@ -681,6 +725,7 @@ void ProfilerAudioProcessorEditor::showRouteMix() {
     _routeMixPanel.setVisible(true);
     _routeMixPanel.toFront(false);
     closeBlockPicker();
+    refreshRouteMixPanel();
 }
 
 void ProfilerAudioProcessorEditor::showEditPanel(SignalChainStrip::BlockId blockId) {
@@ -1059,6 +1104,7 @@ void ProfilerAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&,
     }
     if (routeChanged) {
         _signalChain.setForks(_audioProcessor.getForkGraph());
+        refreshRouteMixPanel();
     }
 }
 
