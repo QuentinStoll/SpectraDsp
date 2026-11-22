@@ -1,6 +1,5 @@
 <a id="readme-top"></a>
 
-[![Epitech](https://img.shields.io/badge/Epitech-Paris-blue)](https://www.epitech.eu/fr/)
 [![C++20](https://img.shields.io/badge/C++-20-blue)](CMakeLists.txt)
 [![JUCE](https://img.shields.io/badge/JUCE-8.0.12-red)](cmake/dependencies.cmake)
 
@@ -10,7 +9,7 @@
 
 # SpectraDsp
 
-SpectraDsp is an open-source guitar amplifier plugin. The standalone application and the plugin are named **Spectra**. It plays neural amp models and cabinet impulse responses in a DAW or on its own, keeps tones as profiles, and loads tones from the [spectradsp.com](https://spectradsp.com) library. The standalone app can also clone a cabinet or capture an amplifier.
+SpectraDSP is free guitar software for PC, Mac, and Linux. The standalone application and the plugin are named **Spectra**. A high-quality WaveNet, adapted for real time, clones an amplifier or a speaker with very high fidelity. One click clones an amplifier and trains it in the cloud. One click clones a speaker, and that impulse response is ready almost at once. It is the easiest guitar software to use. It plays those tones in a DAW or on its own, and loads tones from the [spectradsp.com](https://spectradsp.com) library. It also clones clean amplifiers, and raw amplifiers for raw black and raw death.
 
 [Getting started](#getting-started) · [Usage](#usage) · [Contributing](#contributing) · [Report a bug](https://github.com/QuentinStoll/SpectraDsp/issues) · [Request a feature](https://github.com/QuentinStoll/SpectraDsp/issues)
 
@@ -29,27 +28,25 @@ SpectraDsp is an open-source guitar amplifier plugin. The standalone application
 
 ## Why this project
 
-**EIP 2025-2026 - Technical Track.** This final-year engineering project was started in fourth year by four students at Epitech Paris.
-
-SpectraDsp is the guitar rig: play an amp model through a cabinet, shape the chain, and come back to the same tone later. The marketplace at spectradsp.com is where account tones live. Cloning a cabinet or an amplifier, from the standalone app, is how a real piece of gear becomes a tone inside Spectra. Developers and audio enthusiasts can inspect and extend the C++ processing chain and the JUCE interface.
+SpectraDSP is professional guitar software. Play an amp model through a cabinet, and come back to the same tone later. The marketplace at spectradsp.com is where account tones live. One click in the standalone app clones an amplifier in the cloud, or a speaker. The engine is a high-quality WaveNet adapted for real time, with very high fidelity.
 
 ## Features and current limitations
 
 ### Implemented features
 
-- Load a neural amplifier model on the amp block and a cabinet impulse response on the cabinet block. Cabinet processing uses JUCE convolution. Amp files go through RTNeural.
+- The amplifier clone is a high-quality WaveNet adapted for real time, with very high fidelity. It is not a GRU, and it is not a lighter stand-in for a WaveNet. Cabinet processing uses convolution.
+- One click clones an amplifier and sends the training to the cloud. The sealed tone shows up in Library when it is ready.
+- One click clones a speaker. That impulse response is ready almost at once.
+- Pedal cloning is not available yet.
 - Adjust input trim, noise gate, amp gain, mute, master volume, and a five-band EQ from the studio.
-- Arrange amp, cabinet, EQ, and pedal blocks on a two-row signal chain. The path stays serial, a type can be used more than once, and a block can be removed from the picker.
 - Recall a tone from the profile menu in the top bar. Profiles are `.profilerprofile` files: parameter values plus paths to external amp and IR files.
 - Sign in from **Library** and use tones from the spectradsp.com account.
-- From the standalone **Settings** view, clone a cabinet impulse response or capture an amplifier and send it for training. The sealed tone shows up in Library when it is ready.
 - Build a standalone application and a VST3 plugin on Windows, macOS, and Linux. macOS builds also produce an Audio Unit.
 
 ### Current limitations
 
-- This is an experimental project. Audio quality, performance, and host compatibility still need validation for each use case.
-- Cloning an IR or capturing an amp runs in the standalone application, which owns the audio device, and needs a signed-in spectradsp.com account. The plugin plays models and impulse responses; it does not run the capture.
-- Amp files must contain a model that the RTNeural JSON parser accepts, with one input and at least one output. The file chooser lists `.nam`, `.json`, and `.txt`, but an extension alone does not guarantee compatibility.
+- Cloning an amplifier or a speaker runs in the standalone application, which owns the audio device, and needs a signed-in spectradsp.com account. The plugin plays the clones; it does not run the capture.
+- A SpectraDSP clone is a WaveNet trained in the cloud. An imported amplifier file is a separate path. The file chooser lists `.nam`, `.json`, and `.txt`, but an extension alone does not guarantee the file will load.
 - Profiles reference external amp and IR files rather than embedding them. Keep those files available when reopening or sharing a profile.
 - The processor currently requires mono input and stereo output. Configure the host's channel layout accordingly.
 - CI builds and tests Windows x64, Linux x64, and macOS Apple Silicon, and attaches a per-OS installer to GitHub Releases. A local macOS run in a DAW still needs to be checked on a Mac.
@@ -147,12 +144,7 @@ For DAW use, copy the entire `build/bin/lib/VST3/Spectra.vst3` bundle to a VST3 
 
 ### Clone a cabinet or an amplifier
 
-Cloning is in **Settings**, and only in the standalone app.
-
-1. Sign in from **Library**.
-2. Open **Settings**, then **Clone IR** or **Clone amp**.
-3. Name the tone. Clone IR plays a sweep, stores an encrypted IR profile, and sends a sealed copy to My creations. Clone amp checks the round trip, records the amp, and sends it for training.
-4. Open **Library** again when the sealed profile is ready.
+One click clones an amplifier. Training runs in the cloud, and the tone appears in Library when it is ready. One click clones a speaker. That impulse response is ready almost at once. Both actions are in the standalone app, after you sign in from **Library**. Pedal cloning is not available yet.
 
 ### Profiles
 
@@ -211,8 +203,8 @@ The project's [license notice](LICENCE.md) specifies **GNU GPL version 3 or late
 
 ## Project status
 
-- **Maturity:** experimental; the CMake project version is currently `0.0.0`.
-- **Maintenance:** an Epitech Paris student project developed by the SpectraDsp team.
+- **Maturity:** professional guitar software. The engine is a high-quality WaveNet adapted for real time.
+- **Maintenance:** developed by SpectraDSP.
 - **Support:** use the issue tracker for questions and reproducible reports; no response-time guarantee is documented.
 - **Planning and history:** see the proposed [roadmap](ROADMAP.md) and [changelog](CHANGELOG.md).
 - **Open setup tasks:** confirm or replace the placeholder reporting email in the security and conduct policies, and check the macOS standalone app and Audio Unit in a host on a Mac.
