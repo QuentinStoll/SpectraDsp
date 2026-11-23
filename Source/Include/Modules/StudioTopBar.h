@@ -26,16 +26,14 @@ class StudioTopBar : public juce::Component,
     std::function<void(const juce::String&)> onResetCompleted;
 
    private:
-    class GearButton : public juce::Button {
-       public:
-        explicit GearButton(const juce::String& name);
-        void paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) override;
-    };
-
     class PresetTitleBox : public CustomComboBox {
        public:
         std::function<void()> onOpenRequested;
         void showPopup() override;
+        void mouseDown(const juce::MouseEvent& event) override;
+        void mouseDrag(const juce::MouseEvent& event) override;
+        void mouseUp(const juce::MouseEvent& event) override;
+        bool keyPressed(const juce::KeyPress& key) override;
     };
 
     ProfilerAudioProcessor& _audioProcessor;
@@ -45,7 +43,7 @@ class StudioTopBar : public juce::Component,
     juce::Label _logoLabel;
     PresetTitleBox _presetMenu;
     CustomTextButton _muteButton{"MUTE"};
-    GearButton _settingsButton{"Clone"};
+    CustomTextButton _settingsButton{"Clone"};
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _muteAttach;
     bool _isUpdatingProfileMenu = false;
