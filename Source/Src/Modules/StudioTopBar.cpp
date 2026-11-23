@@ -7,8 +7,10 @@
 namespace {
 constexpr int kLogoMarkSide = 47;
 constexpr float kLogoFontHeight = 23.4f;
-constexpr int kCloneButtonWidth = 78;
-constexpr int kMuteButtonWidth = 56;
+constexpr int kCloneButtonWidth = 117;
+constexpr int kMuteButtonWidth = 84;
+constexpr int kSideButtonHeight = 39;
+constexpr int kPresetBoxWidth = 510;
 }  // namespace
 
 void StudioTopBar::PresetTitleBox::showPopup() {
@@ -108,11 +110,11 @@ void StudioTopBar::resized() {
     _logoLabel.setBounds(brand);
 
     auto right = area.removeFromRight(kCloneButtonWidth + kMuteButtonWidth + 8);
-    _settingsButton.setBounds(right.removeFromRight(kCloneButtonWidth).withSizeKeepingCentre(kCloneButtonWidth, 26));
+    _settingsButton.setBounds(right.removeFromRight(kCloneButtonWidth).withSizeKeepingCentre(kCloneButtonWidth, kSideButtonHeight));
     right.removeFromRight(8);
-    _muteButton.setBounds(right.removeFromRight(kMuteButtonWidth).withSizeKeepingCentre(kMuteButtonWidth, 26));
+    _muteButton.setBounds(right.removeFromRight(kMuteButtonWidth).withSizeKeepingCentre(kMuteButtonWidth, kSideButtonHeight));
 
-    area = area.withSizeKeepingCentre(juce::jmin(340, area.getWidth() - 40), area.getHeight());
+    area = area.withSizeKeepingCentre(juce::jmin(kPresetBoxWidth, area.getWidth() - 40), area.getHeight());
     _presetMenu.setBounds(area);
 }
 

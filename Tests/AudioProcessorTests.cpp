@@ -1184,6 +1184,15 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(SignalChain::moveBlock(layout, graph, from, to));
         expect(layout.atSlot(SignalChain::chainSlotForMovableIndex(0)) == SignalChain::Stage::Cab);
         expect(layout.atSlot(SignalChain::chainSlotForMovableIndex(3)) == SignalChain::Stage::Amp);
+
+        SignalChain::ForkGraph occupied;
+        expect(SignalChain::createBifurcation(occupied, 0, 1, 3));
+        expect(SignalChain::setForkLaneStage(occupied, 0, SignalChain::Stage::Amp));
+        SignalChain::pruneEmptyForks(occupied);
+        expect(occupied.forks.size() == 1);
+        expect(SignalChain::setForkLaneStage(occupied, 0, SignalChain::Stage::Empty));
+        SignalChain::pruneEmptyForks(occupied);
+        expect(occupied.forks.empty());
     }
 
     void testParallelRoute() {

@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <common/TracyColor.hpp>
 #include <cstring>
@@ -73,6 +74,44 @@ std::uint32_t readRoutePathB(const juce::ValueTree& tree) {
 
 std::uint8_t readRouteBypass(const juce::ValueTree& tree) {
     return static_cast<std::uint8_t>(static_cast<int>(tree.getProperty(kRouteBypassId, 0)) & 0x3F);
+}
+
+std::uint8_t remapPathBypass(const SignalChain::ForkGraph& before,
+                             const SignalChain::ForkGraph& after,
+                             std::uint8_t bypass) {
+    auto previous = before;
+    auto next = after;
+    SignalChain::sortForks(previous);
+    SignalChain::sortForks(next);
+
+    constexpr int limit = SignalChain::ParallelRoute::pathBCount;
+    std::array<int, limit> forkIds{};
+    std::array<int, limit> columns{};
+    std::array<bool, limit> bypassed{};
+    int count = 0;
+    for (const auto& fork : previous.forks) {
+        for (int column = fork.splitGap; column < fork.mergeGap && count < limit; ++column) {
+            forkIds[static_cast<size_t>(count)] = fork.id;
+            columns[static_cast<size_t>(count)] = column;
+            bypassed[static_cast<size_t>(count)] = (bypass & (1u << count)) != 0;
+            ++count;
+        }
+    }
+
+    std::uint8_t remapped = 0;
+    int visual = 0;
+    for (const auto& fork : next.forks) {
+        for (int column = fork.splitGap; column < fork.mergeGap && visual < limit; ++column, ++visual) {
+            for (int old = 0; old < count; ++old) {
+                if (forkIds[static_cast<size_t>(old)] == fork.id &&
+                    columns[static_cast<size_t>(old)] == column &&
+                    bypassed[static_cast<size_t>(old)]) {
+                    remapped = static_cast<std::uint8_t>(remapped | (1u << visual));
+                }
+            }
+        }
+    }
+    return remapped;
 }
 
 void splitPathGains(bool ab, float route, float& gainA, float& gainB) noexcept {
@@ -711,14 +750,20 @@ void ProfilerAudioProcessor::setParallelRoute(const SignalChain::ParallelRoute& 
         }
     }
     _routeBypass.store(bypass, std::memory_order_relaxed);
-    _routeHeader.store(clean.packedHeader(), std::memory_order_relaxed);
-    _routePathB.store(clean.packedPathB(), std::memory_order_relaxed);
-    writeRouteState(_apvts.state, clean.packedHeader(), clean.packedPathB(), bypass);
     {
         const juce::ScopedLock lock(_forkLock);
         clean.mix = juce::jlimit(0.0f, 1.0f, route.mix);
         _forkGraph = SignalChain::graphFromRoute(clean);
+        SignalChain::pruneEmptyForks(_forkGraph);
     }
+    if (getForkGraph().forks.empty()) {
+        clean.splitAfter = -1;
+        clean.mergeAfter = -1;
+        clean.clearPathB();
+    }
+    _routeHeader.store(clean.packedHeader(), std::memory_order_relaxed);
+    _routePathB.store(clean.packedPathB(), std::memory_order_relaxed);
+    writeRouteState(_apvts.state, clean.packedHeader(), clean.packedPathB(), bypass);
     syncAmpCopies();
 }
 
@@ -742,6 +787,7 @@ SignalChain::ForkGraph ProfilerAudioProcessor::getForkGraph() const {
 void ProfilerAudioProcessor::setForkGraph(const SignalChain::ForkGraph& graph) {
     SignalChain::ForkGraph valid;
     auto sorted = graph;
+    SignalChain::pruneEmptyForks(sorted);
     SignalChain::sortForks(sorted);
     for (auto fork : sorted.forks) {
         fork.mix = juce::jlimit(0.0f, 1.0f, fork.mix);
@@ -750,21 +796,42 @@ void ProfilerAudioProcessor::setForkGraph(const SignalChain::ForkGraph& graph) {
         }
         valid.forks.push_back(fork);
     }
+    SignalChain::ForkGraph previous;
     {
         const juce::ScopedLock lock(_forkLock);
+        previous = _forkGraph;
         _forkGraph = valid;
     }
+    const auto bypass = remapPathBypass(previous, valid, _routeBypass.load(std::memory_order_relaxed));
+    _routeBypass.store(bypass, std::memory_order_relaxed);
     if (valid.forks.empty()) {
         _routeHeader.store(0, std::memory_order_relaxed);
         _routePathB.store(0, std::memory_order_relaxed);
-        writeRouteState(_apvts.state, 0, 0, _routeBypass.load(std::memory_order_relaxed));
+        writeRouteState(_apvts.state, 0, 0, bypass);
     } else {
         const auto route = SignalChain::routeFromFork(valid.forks.front());
         _routeHeader.store(route.packedHeader(), std::memory_order_relaxed);
         _routePathB.store(route.packedPathB(), std::memory_order_relaxed);
-        writeRouteState(_apvts.state, route.packedHeader(), route.packedPathB(), _routeBypass.load(std::memory_order_relaxed));
+        writeRouteState(_apvts.state, route.packedHeader(), route.packedPathB(), bypass);
     }
     syncAmpCopies();
+}
+
+void ProfilerAudioProcessor::replacePathBStage(int visualIndex, SignalChain::Stage stage) {
+    auto graph = getForkGraph();
+    const auto stored = SignalChain::isEffectStage(stage) ? stage : SignalChain::Stage::Empty;
+    if (SignalChain::forkLaneStage(graph, visualIndex) == stored) {
+        return;
+    }
+    if (!SignalChain::setForkLaneStage(graph, visualIndex, stored)) {
+        return;
+    }
+    if (visualIndex >= 0 && visualIndex < SignalChain::ParallelRoute::pathBCount) {
+        const auto mask = static_cast<std::uint8_t>(_routeBypass.load(std::memory_order_relaxed) & ~(1u << visualIndex));
+        _routeBypass.store(mask, std::memory_order_relaxed);
+    }
+    SignalChain::pruneEmptyForks(graph);
+    setForkGraph(graph);
 }
 
 void ProfilerAudioProcessor::setChainLayout(const SignalChain::Layout& layout) {
@@ -866,9 +933,7 @@ void ProfilerAudioProcessor::toggleChainSlotBypass(int chainSlot) {
 void ProfilerAudioProcessor::clearChainSlot(int slot) {
     const auto pathB = SignalChain::pathBIndexForSlot(slot);
     if (pathB >= 0) {
-        auto route = getParallelRoute();
-        route.clearPathB(pathB);
-        setParallelRoute(route);
+        replacePathBStage(pathB, SignalChain::Stage::Empty);
         return;
     }
     auto layout = getChainLayout();
@@ -982,9 +1047,7 @@ void ProfilerAudioProcessor::resetChainLayout() {
 void ProfilerAudioProcessor::placeChainStage(SignalChain::Stage stage, int slot) {
     const auto pathB = SignalChain::pathBIndexForSlot(slot);
     if (pathB >= 0) {
-        auto route = getParallelRoute();
-        route.placePathB(stage, pathB);
-        setParallelRoute(route);
+        replacePathBStage(pathB, stage);
         return;
     }
     auto layout = getChainLayout();
@@ -1408,7 +1471,7 @@ void ProfilerAudioProcessor::processBranch(BranchTask& task) {
 
     if (task.pathB) {
         for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-            runStage(task.route.pathBAt(index), !isPathBBypassed(index));
+            runStage(task.route.pathBAt(index), !isPathBBypassed(task.pathBypassOffset + index));
         }
         return;
     }
@@ -1428,9 +1491,12 @@ void ProfilerAudioProcessor::processForkSequence(const SignalChain::Layout& layo
     auto ordered = graph;
     SignalChain::sortForks(ordered);
     int cursor = 0;
+    int visual = 0;
     StageCursor stageCursor{};
     ensureAudioScratch(numSamples);
     for (const auto& fork : ordered.forks) {
+        const auto bypassOffset = visual;
+        visual += fork.columnCount();
         const auto begin = SignalChain::movableForFork(fork.row, fork.splitGap);
         const auto end = SignalChain::movableForFork(fork.row, fork.mergeGap);
         if (begin < cursor || end <= begin || end > SignalChain::movableSlotCount) {
@@ -1511,6 +1577,7 @@ void ProfilerAudioProcessor::processForkSequence(const SignalChain::Layout& layo
         pathB.right = rightB.data();
         pathB.numSamples = numSamples;
         pathB.pathB = true;
+        pathB.pathBypassOffset = bypassOffset;
         pathB.sharedGain = false;
         pathB.ampGain = ampGain;
         pathB.lane = 1;

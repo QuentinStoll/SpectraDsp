@@ -115,6 +115,7 @@ class SignalChainStrip : public juce::Component {
        public:
         RouteNode();
         void paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) override;
+        void mouseDown(const juce::MouseEvent& event) override;
         void mouseDrag(const juce::MouseEvent& event) override;
         void mouseUp(const juce::MouseEvent& event) override;
 
@@ -174,6 +175,10 @@ class SignalChainStrip : public juce::Component {
     int _dropSlot = -1;
     bool _previewFork = false;
     bool _previewForbidden = false;
+    bool _edgePreview = false;
+    int _edgeForkId = -1;
+    bool _edgeSplit = true;
+    int _edgeGap = 0;
     SignalChain::DropPreview _hoverPreview{};
     SignalChain::BlockRef _dragFrom{};
     int _swapPreviewSlot = -1;

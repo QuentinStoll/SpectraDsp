@@ -591,7 +591,7 @@ void ProfilerAudioProcessorEditor::resized() {
     _content.setBounds(getLocalBounds());
 
     auto area = _content.getLocalBounds();
-    _topBar.setBounds(area.removeFromTop(62));
+    _topBar.setBounds(area.removeFromTop(87));
 
     if (_overlayMode == OverlayMode::None) {
         constexpr int editHeight = 248;
@@ -781,7 +781,6 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
     _signalChain.setBlockLed(SignalChainStrip::BlockId::MasterVolume, true);
 
     const auto layout = _audioProcessor.getChainLayout();
-    const auto route = _audioProcessor.getParallelRoute();
     for (int index = 0; index < SignalChain::movableSlotCount; ++index) {
         const auto slot = SignalChain::chainSlotForMovableIndex(index);
         const auto stage = layout.atSlot(slot);
@@ -807,30 +806,34 @@ void ProfilerAudioProcessorEditor::updateChainStatus() {
         }
         _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
     }
-    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-        const auto stage = route.pathBAt(index);
-        if (stage == SignalChain::Stage::Empty) {
-            continue;
+    const auto forks = _audioProcessor.getForkGraph();
+    int pathBVisual = 0;
+    for (const auto& fork : forks.forks) {
+        for (int lane = 0; lane < fork.columnCount() && pathBVisual < SignalChain::ParallelRoute::pathBCount; ++lane, ++pathBVisual) {
+            const auto stage = fork.laneAt(lane);
+            if (stage == SignalChain::Stage::Empty) {
+                continue;
+            }
+            bool typeOn = true;
+            switch (stage) {
+                case SignalChain::Stage::Amp:
+                    typeOn = ampOn;
+                    break;
+                case SignalChain::Stage::Cab:
+                    typeOn = cabOn;
+                    break;
+                case SignalChain::Stage::Eq:
+                    typeOn = eqOn;
+                    break;
+                case SignalChain::Stage::Pedal:
+                    typeOn = pedalOn;
+                    break;
+                default:
+                    break;
+            }
+            const auto slot = SignalChain::pathBSlotForIndex(pathBVisual);
+            _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
         }
-        bool typeOn = true;
-        switch (stage) {
-            case SignalChain::Stage::Amp:
-                typeOn = ampOn;
-                break;
-            case SignalChain::Stage::Cab:
-                typeOn = cabOn;
-                break;
-            case SignalChain::Stage::Eq:
-                typeOn = eqOn;
-                break;
-            case SignalChain::Stage::Pedal:
-                typeOn = pedalOn;
-                break;
-            default:
-                break;
-        }
-        const auto slot = SignalChain::pathBSlotForIndex(index);
-        _signalChain.setSlotLed(slot, typeOn && !_audioProcessor.isChainSlotBypassed(slot));
     }
     _fxPanel.refreshBypass();
 }
