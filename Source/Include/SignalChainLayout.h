@@ -621,6 +621,9 @@ inline bool moveMerge(ForkGraph& graph, int forkId, int proposedGap) {
             return false;
         }
         fork.mergeGap = gap;
+        for (int index = fork.columnCount(); index < forkColumns; ++index) {
+            fork.laneB[static_cast<size_t>(index)] = Stage::Empty;
+        }
         return true;
     }
     return false;
@@ -672,6 +675,22 @@ inline void writeStage(Layout& layout, ForkGraph& graph, BlockRef ref, Stage sta
     }
 }
 
+inline bool forkHasBlock(const Bifurcation& fork) noexcept {
+    for (int index = 0; index < fork.columnCount(); ++index) {
+        if (fork.laneAt(index) != Stage::Empty) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline void pruneEmptyForks(ForkGraph& graph) {
+    graph.forks.erase(std::remove_if(graph.forks.begin(),
+                                     graph.forks.end(),
+                                     [](const Bifurcation& fork) { return !forkHasBlock(fork); }),
+                      graph.forks.end());
+}
+
 // Occupied targets swap with the source. Empty targets move the block.
 inline bool moveBlock(Layout& layout, ForkGraph& graph, BlockRef from, BlockRef to) {
     if (from.laneB == to.laneB && from.row == to.row && from.column == to.column) {
@@ -684,6 +703,7 @@ inline bool moveBlock(Layout& layout, ForkGraph& graph, BlockRef from, BlockRef 
     const auto destination = stageAt(layout, graph, to);
     writeStage(layout, graph, to, source);
     writeStage(layout, graph, from, destination);
+    pruneEmptyForks(graph);
     return true;
 }
 
@@ -715,6 +735,36 @@ inline DropPreview previewDrop(const Layout& layout, const ForkGraph& graph, int
     preview.splitGap = splitGap;
     preview.mergeGap = mergeGap;
     return preview;
+}
+
+inline Stage forkLaneStage(const ForkGraph& graph, int visualIndex) noexcept {
+    if (visualIndex < 0) {
+        return Stage::Empty;
+    }
+    int remaining = visualIndex;
+    for (const auto& fork : graph.forks) {
+        if (remaining < fork.columnCount()) {
+            return fork.laneAt(remaining);
+        }
+        remaining -= fork.columnCount();
+    }
+    return Stage::Empty;
+}
+
+inline bool setForkLaneStage(ForkGraph& graph, int visualIndex, Stage stage) {
+    if (visualIndex < 0) {
+        return false;
+    }
+    sortForks(graph);
+    int remaining = visualIndex;
+    for (auto& fork : graph.forks) {
+        if (remaining < fork.columnCount()) {
+            fork.laneB[static_cast<size_t>(remaining)] = isEffectStage(stage) ? stage : Stage::Empty;
+            return true;
+        }
+        remaining -= fork.columnCount();
+    }
+    return false;
 }
 
 inline bool removeFork(ForkGraph& graph, int forkId) {

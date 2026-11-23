@@ -155,6 +155,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void clearParallelRoute();
     SignalChain::ForkGraph getForkGraph() const;
     void setForkGraph(const SignalChain::ForkGraph& graph);
+    void replacePathBStage(int visualIndex, SignalChain::Stage stage);
 
    private:
     enum ChainPositions {
@@ -322,6 +323,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
         int begin = 0;
         int end = 0;
         bool pathB = false;
+        int pathBypassOffset = 0;
         int lane = 0;
         bool sharedGain = true;
         float ampGain = 1.0f;

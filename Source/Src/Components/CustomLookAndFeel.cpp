@@ -150,7 +150,7 @@ juce::Font CustomLookAndFeel::getLabelFont(juce::Label& label) {
 }
 
 juce::Font CustomLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight) {
-    return ProfilerStyle::Fonts::medium(juce::jlimit(10.0f, 13.0f, static_cast<float>(buttonHeight) * 0.38f));
+    return ProfilerStyle::Fonts::medium(juce::jlimit(10.0f, 15.0f, static_cast<float>(buttonHeight) * 0.38f));
 }
 
 juce::Font CustomLookAndFeel::getComboBoxFont(juce::ComboBox& box) {
@@ -489,7 +489,8 @@ void CustomLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
 void CustomLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label) {
     label.setFont(getComboBoxFont(box));
     if (getPropertyFlag(box, ProfilerStyle::Properties::centreComboText, false)) {
-        label.setBounds(8, 1, box.getWidth() - 16, box.getHeight() - 2);
+        label.setBounds(12, 1, box.getWidth() - 24, box.getHeight() - 2);
+        label.setFont(ProfilerStyle::Fonts::medium(juce::jlimit(16.0f, 20.0f, static_cast<float>(box.getHeight()) * 0.34f)));
         label.setJustificationType(juce::Justification::centred);
         return;
     }

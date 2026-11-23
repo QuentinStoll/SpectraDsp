@@ -248,7 +248,15 @@ SignalChainStrip::RouteNode::RouteNode() : juce::Button({}) {
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
 }
 
+void SignalChainStrip::RouteNode::mouseDown(const juce::MouseEvent& event) {
+    _dragging = false;
+    juce::Button::mouseDown(event);
+}
+
 void SignalChainStrip::RouteNode::mouseDrag(const juce::MouseEvent& event) {
+    if (event.getDistanceFromDragStart() < 4.0f) {
+        return;
+    }
     _dragging = true;
     if (onNodeDrag) {
         onNodeDrag(event);
@@ -417,12 +425,18 @@ SignalChainStrip::SignalChainStrip() {
                 }
                 const auto gap = gapAtX(fork->row, event.getEventRelativeTo(this).getPosition().x);
                 const auto clamped = split ? SignalChain::clampSplit(_forks, id, gap) : SignalChain::clampMerge(_forks, id, gap);
+                _edgePreview = true;
+                _edgeForkId = id;
+                _edgeSplit = split;
+                _edgeGap = clamped;
                 const auto x = juce::roundToInt(gapCentreX(fork->row, clamped));
                 auto bounds = node.getBounds();
                 bounds.setCentre(x, bounds.getCentreY());
                 node.setBounds(bounds);
+                repaint();
             };
             node.onNodeDragEnd = [this, index, split]() {
+                _edgePreview = false;
                 const auto id = split ? _splitNodes[static_cast<size_t>(index)].forkId
                                       : _mergeNodes[static_cast<size_t>(index)].forkId;
                 if (id < 0 || onForkEdgeMoved == nullptr) {
@@ -484,16 +498,23 @@ void SignalChainStrip::paint(juce::Graphics& g) {
         drawEmptySlot(_slotBounds[static_cast<size_t>(slot)].toFloat());
     }
 
-    for (int index = 0; index < SignalChain::ParallelRoute::pathBCount; ++index) {
-        const auto bounds = _pathBBounds[static_cast<size_t>(index)];
-        if (bounds.isEmpty()) {
-            continue;
+    int visual = 0;
+    for (const auto& fork : _forks.forks) {
+        const auto previewing = _edgePreview && _edgeForkId == fork.id;
+        for (int column = fork.splitGap; column < fork.mergeGap && visual < SignalChain::ParallelRoute::pathBCount; ++column, ++visual) {
+            if (previewing) {
+                continue;
+            }
+            const auto bounds = _pathBBounds[static_cast<size_t>(visual)];
+            if (bounds.isEmpty()) {
+                continue;
+            }
+            const auto& block = _pathB[static_cast<size_t>(visual)];
+            if (block.isVisible() && block.getBounds() == bounds) {
+                continue;
+            }
+            drawEmptySlot(bounds.toFloat());
         }
-        const auto& block = _pathB[static_cast<size_t>(index)];
-        if (block.isVisible() && block.getBounds() == bounds) {
-            continue;
-        }
-        drawEmptySlot(bounds.toFloat());
     }
 
     if (SignalChain::isMovableSlot(_dropSlot)) {
@@ -522,21 +543,45 @@ void SignalChainStrip::paint(juce::Graphics& g) {
     }
 
     for (const auto& fork : _forks.forks) {
-        if (fork.columnCount() <= 0) {
+        auto splitGap = fork.splitGap;
+        auto mergeGap = fork.mergeGap;
+        if (_edgePreview && _edgeForkId == fork.id) {
+            if (_edgeSplit) {
+                splitGap = _edgeGap;
+            } else {
+                mergeGap = _edgeGap;
+            }
+        }
+        if (mergeGap <= splitGap) {
             continue;
         }
-        const auto firstSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, fork.splitGap));
-        const auto lastSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, fork.mergeGap - 1));
+        const auto firstSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, splitGap));
+        const auto lastSlot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, mergeGap - 1));
         const auto anchorY = static_cast<float>(_slotBounds[static_cast<size_t>(firstSlot)].getCentreY());
         const auto laneTop = _laneTopForRow[fork.row] >= 0 ? _laneTopForRow[fork.row]
                                                            : _slotBounds[static_cast<size_t>(firstSlot)].getBottom() + 8;
         const auto laneY = static_cast<float>(laneTop + _slotBounds[static_cast<size_t>(firstSlot)].getHeight() / 2);
-        const auto splitX = gapCentreX(fork.row, fork.splitGap);
-        const auto mergeX = gapCentreX(fork.row, fork.mergeGap);
-        g.setColour(juce::Colour(0xffF4F4F5).withAlpha(0.9f));
+        const auto splitX = gapCentreX(fork.row, splitGap);
+        const auto mergeX = gapCentreX(fork.row, mergeGap);
+        const auto previewing = _edgePreview && _edgeForkId == fork.id;
+        g.setColour(previewing ? juce::Colours::white.withAlpha(0.55f) : juce::Colour(0xffF4F4F5).withAlpha(0.9f));
         g.drawLine(splitX, anchorY, splitX, laneY, 1.3f);
         g.drawLine(splitX, laneY, mergeX, laneY, 1.3f);
         g.drawLine(mergeX, static_cast<float>(_slotBounds[static_cast<size_t>(lastSlot)].getCentreY()), mergeX, laneY, 1.3f);
+        if (!previewing) {
+            continue;
+        }
+        for (int column = splitGap; column < mergeGap; ++column) {
+            const auto occupied = column >= fork.splitGap && column < fork.mergeGap &&
+                                  fork.laneAt(column - fork.splitGap) != SignalChain::Stage::Empty;
+            if (occupied) {
+                continue;
+            }
+            const auto slot = SignalChain::chainSlotForMovableIndex(SignalChain::movableForFork(fork.row, column));
+            auto ghost = _slotBounds[static_cast<size_t>(slot)].withY(laneTop);
+            g.setColour(juce::Colours::white.withAlpha(0.28f));
+            g.drawRoundedRectangle(ghost.toFloat().reduced(4.0f), 6.0f, 1.4f);
+        }
     }
 }
 
@@ -895,7 +940,7 @@ void SignalChainStrip::setForks(const SignalChain::ForkGraph& graph) {
 SignalChain::Stage SignalChainStrip::selectedStage() const noexcept {
     const auto pathB = SignalChain::pathBIndexForSlot(_selectedChainSlot);
     if (pathB >= 0) {
-        return _route.pathBAt(pathB);
+        return SignalChain::forkLaneStage(_forks, pathB);
     }
     return _layout.atSlot(_selectedChainSlot);
 }
