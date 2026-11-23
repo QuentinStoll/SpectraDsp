@@ -472,6 +472,10 @@ void CustomLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
     paintFlatButtonBackground(g, area, box.findColour(juce::ComboBox::backgroundColourId),
                               box.isMouseOver(), isButtonDown, false);
 
+    if (getPropertyFlag(box, ProfilerStyle::Properties::centreComboText, false)) {
+        return;
+    }
+
     auto arrowZone = juce::Rectangle<float>(static_cast<float>(width) - 24.0f, 0.0f, 18.0f, static_cast<float>(height));
     juce::Path path;
     path.addTriangle(arrowZone.getCentreX() - 4.0f, arrowZone.getCentreY() - 2.0f,
@@ -483,8 +487,14 @@ void CustomLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
 }
 
 void CustomLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label) {
-    label.setBounds(8, 1, box.getWidth() - 30, box.getHeight() - 2);
     label.setFont(getComboBoxFont(box));
+    if (getPropertyFlag(box, ProfilerStyle::Properties::centreComboText, false)) {
+        label.setBounds(8, 1, box.getWidth() - 16, box.getHeight() - 2);
+        label.setJustificationType(juce::Justification::centred);
+        return;
+    }
+
+    label.setBounds(8, 1, box.getWidth() - 30, box.getHeight() - 2);
     label.setJustificationType(juce::Justification::centredLeft);
 }
 
@@ -987,43 +997,4 @@ void CustomLookAndFeel::drawDropZone(juce::Graphics& g,
                      hintBounds.toNearestInt(),
                      juce::Justification::centred,
                      1);
-}
-
-void CustomLookAndFeel::drawGearIcon(juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour) const {
-    const auto centre = bounds.getCentre();
-    const auto outer = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.38f;
-    const auto inner = outer * 0.62f;
-    const auto hole = outer * 0.28f;
-    constexpr int teeth = 8;
-
-    juce::Path gear;
-    for (int i = 0; i < teeth; ++i) {
-        const auto angle = juce::MathConstants<float>::twoPi * static_cast<float>(i) / static_cast<float>(teeth) - juce::MathConstants<float>::halfPi;
-        const auto next = angle + juce::MathConstants<float>::twoPi / static_cast<float>(teeth);
-        const auto toothWidth = (next - angle) * 0.28f;
-
-        const juce::Point<float> p0(centre.x + inner * std::cos(angle + toothWidth),
-                                    centre.y + inner * std::sin(angle + toothWidth));
-        const juce::Point<float> p1(centre.x + outer * std::cos(angle + toothWidth * 1.35f),
-                                    centre.y + outer * std::sin(angle + toothWidth * 1.35f));
-        const juce::Point<float> p2(centre.x + outer * std::cos(next - toothWidth * 1.35f),
-                                    centre.y + outer * std::sin(next - toothWidth * 1.35f));
-        const juce::Point<float> p3(centre.x + inner * std::cos(next - toothWidth),
-                                    centre.y + inner * std::sin(next - toothWidth));
-
-        if (i == 0) {
-            gear.startNewSubPath(p0);
-        } else {
-            gear.lineTo(p0);
-        }
-        gear.lineTo(p1);
-        gear.lineTo(p2);
-        gear.lineTo(p3);
-    }
-    gear.closeSubPath();
-    gear.addEllipse(centre.x - hole, centre.y - hole, hole * 2.0f, hole * 2.0f);
-    gear.setUsingNonZeroWinding(false);
-
-    g.setColour(colour);
-    g.fillPath(gear);
 }

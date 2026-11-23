@@ -153,7 +153,6 @@ class CustomLookAndFeel : public juce::LookAndFeel_V4 {
                       RigIcon icon,
                       juce::Colour categoryColour) const;
 
-    void drawGearIcon(juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour) const;
     void drawRigIcon(juce::Graphics& g, juce::Rectangle<float> bounds, RigIcon icon, juce::Colour colour) const;
 
    private:

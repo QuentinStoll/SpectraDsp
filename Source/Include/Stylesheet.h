@@ -57,6 +57,7 @@ namespace Properties {
 inline const juce::Identifier outlineVisible{"outlineVisible"};
 inline const juce::Identifier outlineColour{"outlineColour"};
 inline const juce::Identifier toggleLabelVisible{"toggleLabelVisible"};
+inline const juce::Identifier centreComboText{"centreComboText"};
 }  // namespace Properties
 
 namespace Fonts {

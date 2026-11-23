@@ -1,40 +1,41 @@
 #include "Modules/StudioTopBar.h"
 
 #include "BinaryData.h"
-#include "Components/CustomLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Stylesheet.h"
 
-StudioTopBar::GearButton::GearButton(const juce::String& name)
-    : juce::Button(name) {
-    setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    setTooltip(name);
-}
-
-void StudioTopBar::GearButton::paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) {
-    auto* laf = dynamic_cast<CustomLookAndFeel*>(&getLookAndFeel());
-    const auto bounds = getLocalBounds().toFloat();
-
-    if (laf != nullptr) {
-        laf->paintFlatButtonBackground(g,
-                                       bounds,
-                                       juce::Colours::black,
-                                       isMouseOverButton,
-                                       isButtonDown,
-                                       getToggleState());
-        const auto iconColour = ProfilerStyle::Colors::text.withAlpha(isMouseOverButton ? 1.0f : 0.86f);
-        laf->drawGearIcon(g, bounds.reduced(7.0f), iconColour);
-        return;
-    }
-
-    g.setColour(juce::Colours::black);
-    g.fillRoundedRectangle(bounds, ProfilerStyle::Surfaces::controlCorner);
-}
+namespace {
+constexpr int kLogoMarkSide = 47;
+constexpr float kLogoFontHeight = 23.4f;
+constexpr int kCloneButtonWidth = 78;
+constexpr int kMuteButtonWidth = 56;
+}  // namespace
 
 void StudioTopBar::PresetTitleBox::showPopup() {
     if (onOpenRequested) {
         onOpenRequested();
     }
+}
+
+void StudioTopBar::PresetTitleBox::mouseDown(const juce::MouseEvent& event) {
+    if (event.mods.isLeftButtonDown() && onOpenRequested != nullptr) {
+        onOpenRequested();
+    }
+}
+
+void StudioTopBar::PresetTitleBox::mouseDrag(const juce::MouseEvent&) {}
+
+void StudioTopBar::PresetTitleBox::mouseUp(const juce::MouseEvent&) {}
+
+bool StudioTopBar::PresetTitleBox::keyPressed(const juce::KeyPress& key) {
+    if (key == juce::KeyPress::returnKey) {
+        if (onOpenRequested) {
+            onOpenRequested();
+        }
+        return true;
+    }
+
+    return false;
 }
 
 StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
@@ -47,15 +48,21 @@ StudioTopBar::StudioTopBar(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_logoMark);
 
     _logoLabel.setText("SPECTRA", juce::dontSendNotification);
-    _logoLabel.setFont(ProfilerStyle::Fonts::logo(18.0f));
+    _logoLabel.setFont(ProfilerStyle::Fonts::logo(kLogoFontHeight));
     _logoLabel.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     _logoLabel.setJustificationType(juce::Justification::centredLeft);
     _logoLabel.setMinimumHorizontalScale(1.0f);
     _logoLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(_logoLabel);
 
+    _presetMenu.getProperties().set(ProfilerStyle::Properties::centreComboText, true);
+    _presetMenu.setMouseCursor(juce::MouseCursor::PointingHandCursor);
     addAndMakeVisible(_presetMenu);
+    for (int childIndex = 0; childIndex < _presetMenu.getNumChildComponents(); ++childIndex) {
+        _presetMenu.getChildComponent(childIndex)->setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    }
     addAndMakeVisible(_muteButton);
+    _settingsButton.setTooltip("Clone");
     addAndMakeVisible(_settingsButton);
 
     _muteButton.setClickingTogglesState(true);
@@ -93,16 +100,17 @@ void StudioTopBar::paint(juce::Graphics& g) {
 
 void StudioTopBar::resized() {
     auto area = getLocalBounds().reduced(12, 6);
-    auto brand = area.removeFromLeft(240);
-    const auto markSide = juce::jmin(36, brand.getHeight());
+    const auto markSide = juce::jmin(kLogoMarkSide, area.getHeight());
+    const auto textWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(_logoLabel.getFont(), _logoLabel.getText()));
+    auto brand = area.removeFromLeft(juce::jmin(area.getWidth() / 2, markSide + 8 + textWidth));
     _logoMark.setBounds(brand.removeFromLeft(markSide).withSizeKeepingCentre(markSide, markSide));
     brand.removeFromLeft(8);
     _logoLabel.setBounds(brand);
 
-    auto right = area.removeFromRight(94);
-    _settingsButton.setBounds(right.removeFromRight(32).withSizeKeepingCentre(32, 32));
-    right.removeFromRight(6);
-    _muteButton.setBounds(right.removeFromRight(56).withSizeKeepingCentre(56, 26));
+    auto right = area.removeFromRight(kCloneButtonWidth + kMuteButtonWidth + 8);
+    _settingsButton.setBounds(right.removeFromRight(kCloneButtonWidth).withSizeKeepingCentre(kCloneButtonWidth, 26));
+    right.removeFromRight(8);
+    _muteButton.setBounds(right.removeFromRight(kMuteButtonWidth).withSizeKeepingCentre(kMuteButtonWidth, 26));
 
     area = area.withSizeKeepingCentre(juce::jmin(340, area.getWidth() - 40), area.getHeight());
     _presetMenu.setBounds(area);

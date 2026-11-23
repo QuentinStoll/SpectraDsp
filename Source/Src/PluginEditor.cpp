@@ -591,7 +591,7 @@ void ProfilerAudioProcessorEditor::resized() {
     _content.setBounds(getLocalBounds());
 
     auto area = _content.getLocalBounds();
-    _topBar.setBounds(area.removeFromTop(48));
+    _topBar.setBounds(area.removeFromTop(62));
 
     if (_overlayMode == OverlayMode::None) {
         constexpr int editHeight = 248;
