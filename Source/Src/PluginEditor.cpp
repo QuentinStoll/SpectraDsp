@@ -932,7 +932,7 @@ void ProfilerAudioProcessorEditor::presentAppUpdate(const AppUpdate::Offer& offe
         _updateOffer.dismiss();
     };
     resized();
-    _updateOffer.showOffer(offer.message);
+    _updateOffer.showOffer(offer.latestTag, offer.changes);
 }
 
 void ProfilerAudioProcessorEditor::applyAppUpdate(const AppUpdate::Offer& offer) {

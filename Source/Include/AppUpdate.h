@@ -15,6 +15,7 @@ struct Offer {
     juce::String installerUrl;
     juce::String installerName;
     juce::String message;
+    juce::StringArray changes;
 };
 
 juce::String currentTag();

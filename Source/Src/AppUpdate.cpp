@@ -3,7 +3,8 @@
 #include "SettingsPath.h"
 
 #ifndef SPECTRA_RELEASE_TAG
-#define SPECTRA_RELEASE_TAG "0.0.0-dev"
+#include "SpectraReleaseTag.h"
+#define SPECTRA_RELEASE_TAG SPECTRA_RELEASE_TAG_VALUE
 #endif
 
 namespace AppUpdate {
@@ -58,6 +59,35 @@ juce::String jsonString(const juce::var& object, const juce::Identifier& key) {
 
 juce::String displayTag(const juce::String& tag) {
     return tag.startsWithIgnoreCase("v") ? tag.substring(1) : tag;
+}
+
+juce::StringArray changeNotes(const juce::String& body) {
+    juce::StringArray notes;
+    const auto marker = body.indexOfIgnoreCase("## What's Changed");
+    const auto section = marker >= 0 ? body.substring(marker) : juce::String();
+    for (const auto& raw : juce::StringArray::fromLines(section)) {
+        auto line = raw.trim();
+        if (line.startsWithIgnoreCase("**Full Changelog")) {
+            break;
+        }
+        if (!line.startsWith("* ") && !line.startsWith("- ")) {
+            continue;
+        }
+        auto text = line.substring(2).trim();
+        const auto attribution = text.indexOfIgnoreCase(" by @");
+        if (attribution > 0) {
+            text = text.substring(0, attribution).trim();
+        }
+        text = text.removeCharacters("`");
+        if (text.isEmpty()) {
+            continue;
+        }
+        notes.add(text);
+        if (notes.size() >= 6) {
+            break;
+        }
+    }
+    return notes;
 }
 
 juce::File skippedTagFile() {
@@ -156,6 +186,7 @@ Offer parseLatestJson(const juce::String& json,
     }
 
     offer.latestTag = jsonString(parsed, "tag_name");
+    offer.changes = changeNotes(jsonString(parsed, "body"));
     if (auto* assets = parsed.getProperty("assets", {}).getArray()) {
         for (const auto& asset : *assets) {
             if (jsonString(asset, "name") == installerName) {

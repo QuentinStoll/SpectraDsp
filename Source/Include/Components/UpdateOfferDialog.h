@@ -8,7 +8,7 @@ class UpdateOfferDialog : public juce::Component,
     UpdateOfferDialog();
     ~UpdateOfferDialog() override;
 
-    void showOffer(const juce::String& message);
+    void showOffer(const juce::String& version, const juce::StringArray& changes);
     void dismiss();
 
     std::function<void()> onInstall;
@@ -27,7 +27,8 @@ class UpdateOfferDialog : public juce::Component,
         Later
     };
 
-    juce::String _message;
+    juce::String _version;
+    juce::StringArray _changes;
     float _phase = 0.0f;
     float _sink = 0.0f;
     float _cardHover = 0.0f;

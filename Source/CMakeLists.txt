@@ -148,19 +148,9 @@ juce_generate_juce_header(${PLUGIN_NAME})
 # Include directories
 target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Include
+    ${CMAKE_BINARY_DIR}/generated
     ${rtneural_SOURCE_DIR}
 )
-
-target_compile_definitions(${PLUGIN_NAME} PRIVATE
-    SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
-)
-foreach(spectra_release_format VST3 Standalone AU)
-    if(TARGET ${PLUGIN_NAME}_${spectra_release_format})
-        target_compile_definitions(${PLUGIN_NAME}_${spectra_release_format} PRIVATE
-            SPECTRA_RELEASE_TAG="${SPECTRA_RELEASE_TAG}"
-        )
-    endif()
-endforeach()
 
 # Apply compiler options and preset-based defines
 apply_compiler_options(${PLUGIN_NAME})

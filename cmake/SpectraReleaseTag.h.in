@@ -1,0 +1,3 @@
+#pragma once
+
+#define SPECTRA_RELEASE_TAG_VALUE "@SPECTRA_RELEASE_TAG@"
