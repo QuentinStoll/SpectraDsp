@@ -97,6 +97,7 @@ juce::String thisArch() {
 }  // namespace
 
 juce::String currentTag() {
+    // This revision does not change Spectra. Shipping it only publishes a newer release tag.
     return SPECTRA_RELEASE_TAG;
 }
 
