@@ -11,6 +11,7 @@
 #include "Components/NotificationBanner.h"
 #include "Components/RouteMixPanel.h"
 #include "Components/SignalChainStrip.h"
+#include "Components/UpdateOfferDialog.h"
 #include "Modules/ExportProfilModule.h"
 #include "Modules/FxEditPanel.h"
 #include "Modules/StudioEditPanels.h"
@@ -69,6 +70,7 @@ class ProfilerAudioProcessorEditor : public juce::AudioProcessorEditor,
     juce::Viewport _exportViewport;
     ExportProfilModule _exportModule;
     NotificationBanner _notificationBanner;
+    UpdateOfferDialog _updateOffer;
     juce::TooltipWindow _tooltipWindow{this, 700};
     OverlayMode _overlayMode = OverlayMode::None;
     int _hostChromePasses = 0;

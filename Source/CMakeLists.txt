@@ -71,6 +71,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/Components/ProfileLibraryView.cpp
     Src/Components/BlockPickerPage.cpp
     Src/Components/RouteMixPanel.cpp
+    Src/Components/UpdateOfferDialog.cpp
     Src/Components/SignalChainStrip.cpp
     Src/Components/FormFields/FormComboField.cpp
     Src/Components/FormComponent.cpp

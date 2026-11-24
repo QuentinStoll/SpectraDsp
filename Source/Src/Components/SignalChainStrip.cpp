@@ -725,6 +725,14 @@ void SignalChainStrip::layoutParallelLane() {
         mergeNode.toFront(false);
         ++handle;
     }
+    for (int index = handle; index < kMaxForkHandles; ++index) {
+        auto& splitNode = _splitNodes[static_cast<size_t>(index)];
+        auto& mergeNode = _mergeNodes[static_cast<size_t>(index)];
+        splitNode.forkId = -1;
+        mergeNode.forkId = -1;
+        splitNode.setVisible(false);
+        mergeNode.setVisible(false);
+    }
     juce::ignoreUnused(split, merge);
 
     int visual = 0;
