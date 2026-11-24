@@ -57,6 +57,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            !build/bin
+            !build/Testing
+            !build/coverage
+            !**/*.pdb
+            !**/*.ilk
+          key: cmake-test-${{ runner.os }}-${{ matrix.name }}-${{ github.run_id }}
+          restore-keys: |
+            cmake-test-${{ runner.os }}-${{ matrix.name }}-
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -253,6 +267,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            !build/bin
+            !build/Testing
+            !build/coverage
+            !**/*.pdb
+            !**/*.ilk
+          key: cmake-coverage-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            cmake-coverage-${{ runner.os }}-
+
       - name: Install OpenCppCoverage
         shell: cmd
         run: choco install opencppcoverage --no-progress -y
@@ -297,6 +325,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            !build/bin
+            !build/Testing
+            !build/coverage
+            !**/*.pdb
+            !**/*.ilk
+          key: cmake-build-${{ runner.os }}-${{ matrix.name }}-${{ github.run_id }}
+          restore-keys: |
+            cmake-build-${{ runner.os }}-${{ matrix.name }}-
 
       - name: Setup Python
         uses: actions/setup-python@v5

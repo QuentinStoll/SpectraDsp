@@ -45,7 +45,10 @@ class AppUpdateTests : public juce::UnitTest {
 
     void testParseLatest() {
         const auto json = juce::String(
-            R"({"tag_name":"v2026.11.06-178","assets":[)"
+            R"({"tag_name":"v2026.11.06-178","body":"## What's Changed\n)"
+            R"(* fix(ui): centre the update offer by @QuentinStoll in https://github.com/QuentinStoll/SpectraDsp/pull/1\n)"
+            R"(* chore: publish a no-op release by @QuentinStoll in https://github.com/QuentinStoll/SpectraDsp/pull/2\n\n)"
+            R"(**Full Changelog**: https://example.com/compare\n","assets":[)"
             R"({"name":"Spectra-windows-x64.exe","browser_download_url":"https://example.com/win.exe"},)"
             R"({"name":"Spectra-macos-arm64.pkg","browser_download_url":"https://example.com/mac.pkg"},)"
             R"({"name":"Spectra-linux-x64.run","browser_download_url":"https://example.com/linux.run"}]})");
@@ -54,6 +57,9 @@ class AppUpdateTests : public juce::UnitTest {
         expect(update.available);
         expectEquals(update.latestTag, juce::String("v2026.11.06-178"));
         expectEquals(update.installerUrl, juce::String("https://example.com/win.exe"));
+        expectEquals(update.changes.size(), 2);
+        expectEquals(update.changes[0], juce::String("fix(ui): centre the update offer"));
+        expectEquals(update.changes[1], juce::String("chore: publish a no-op release"));
 
         const auto current = AppUpdate::parseLatestJson(json, "Spectra-windows-x64.exe", "v2026.11.06-178");
         expect(!current.available);

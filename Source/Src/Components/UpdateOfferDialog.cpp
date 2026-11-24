@@ -3,16 +3,19 @@
 #include "Stylesheet.h"
 
 namespace {
-constexpr float kRadius = 18.0f;
+constexpr float kScale = 1.3f;
+constexpr float kRadius = 18.0f * kScale;
 
-juce::Rectangle<float> buttonRect(juce::Rectangle<float> row, bool install) {
-    const auto gap = 12.0f;
-    const auto width = (row.getWidth() - gap) * 0.5f;
-    if (install) {
-        return {row.getRight() - width, row.getY(), width, row.getHeight()};
-    }
-    return {row.getX(), row.getY(), width, row.getHeight()};
-}
+struct CardLayout {
+    juce::Rectangle<float> card;
+    juce::Rectangle<float> title;
+    juce::Rectangle<float> version;
+    juce::Rectangle<float> notes;
+    juce::Rectangle<float> later;
+    juce::Rectangle<float> install;
+    float bulletHeight = 0.0f;
+};
+
 }  // namespace
 
 UpdateOfferDialog::UpdateOfferDialog() {
@@ -25,8 +28,9 @@ UpdateOfferDialog::~UpdateOfferDialog() {
     stopTimer();
 }
 
-void UpdateOfferDialog::showOffer(const juce::String& message) {
-    _message = message;
+void UpdateOfferDialog::showOffer(const juce::String& version, const juce::StringArray& changes) {
+    _version = version.startsWithIgnoreCase("v") ? version.substring(1) : version;
+    _changes = changes;
     _phase = 0.0f;
     _sink = 0.0f;
     _cardHover = 0.0f;
@@ -46,15 +50,44 @@ void UpdateOfferDialog::dismiss() {
     _hovered = Hit::None;
 }
 
+CardLayout layoutFor(juce::Rectangle<int> bounds, int changeCount, float sink) {
+    const auto bulletHeight = 36.0f * kScale;
+    const auto padX = 28.0f * kScale;
+    const auto padY = 24.0f * kScale;
+    const auto titleHeight = 32.0f * kScale;
+    const auto versionHeight = 36.0f * kScale;
+    const auto buttonHeight = 40.0f * kScale;
+    const auto notesHeight = static_cast<float>(changeCount) * bulletHeight;
+    const auto contentHeight = titleHeight + 8.0f * kScale + versionHeight + 12.0f * kScale + notesHeight + 18.0f * kScale + buttonHeight;
+    const auto width = juce::jmin(460.0f * kScale, static_cast<float>(bounds.getWidth()) - 48.0f);
+    const auto height = juce::jmin(juce::jmax(248.0f * kScale, padY * 2.0f + contentHeight),
+                                   static_cast<float>(bounds.getHeight()) - 48.0f);
+    auto card = juce::Rectangle<float>(juce::jmax(280.0f * kScale, width), juce::jmax(200.0f * kScale, height));
+    card.setCentre(bounds.toFloat().getCentre());
+    const auto press = 1.0f - 0.028f * sink;
+    card = card.withSizeKeepingCentre(card.getWidth() * press, card.getHeight() * press);
+    card.translate(0.0f, 6.0f * kScale * sink);
+
+    CardLayout placed;
+    placed.card = card;
+    placed.bulletHeight = bulletHeight * press;
+    auto content = card.reduced(padX * press, padY * press);
+    placed.title = content.removeFromTop(titleHeight * press);
+    content.removeFromTop(8.0f * kScale * press);
+    placed.version = content.removeFromTop(versionHeight * press);
+    content.removeFromTop(12.0f * kScale * press);
+    auto buttons = content.removeFromBottom(buttonHeight * press);
+    content.removeFromBottom(18.0f * kScale * press);
+    placed.notes = content;
+    const auto gap = 12.0f * kScale * press;
+    const auto buttonWidth = (buttons.getWidth() - gap) * 0.5f;
+    placed.later = {buttons.getX(), buttons.getY(), buttonWidth, buttons.getHeight()};
+    placed.install = {buttons.getRight() - buttonWidth, buttons.getY(), buttonWidth, buttons.getHeight()};
+    return placed;
+}
+
 juce::Rectangle<float> UpdateOfferDialog::cardBounds() const {
-    const auto width = juce::jmin(460.0f, static_cast<float>(getWidth()) - 48.0f);
-    const auto height = juce::jmin(248.0f, static_cast<float>(getHeight()) - 48.0f);
-    auto card = juce::Rectangle<float>(juce::jmax(280.0f, width), juce::jmax(200.0f, height));
-    card.setCentre(getLocalBounds().toFloat().getCentre());
-    const auto scale = 1.0f - 0.028f * _sink;
-    card = card.withSizeKeepingCentre(card.getWidth() * scale, card.getHeight() * scale);
-    card.translate(0.0f, 6.0f * _sink);
-    return card;
+    return layoutFor(getLocalBounds(), _changes.size(), _sink).card;
 }
 
 float UpdateOfferDialog::perimeterOf(juce::Rectangle<float> card, float radius) const {
@@ -116,14 +149,11 @@ juce::Point<float> UpdateOfferDialog::pointOnCard(juce::Rectangle<float> card, f
 }
 
 UpdateOfferDialog::Hit UpdateOfferDialog::hitAt(juce::Point<int> position) const {
-    auto card = cardBounds().reduced(28.0f, 24.0f);
-    auto row = card.removeFromBottom(40.0f);
-    const auto install = buttonRect(row, true);
-    const auto later = buttonRect(row, false);
-    if (install.contains(position.toFloat())) {
+    const auto placed = layoutFor(getLocalBounds(), _changes.size(), _sink);
+    if (placed.install.contains(position.toFloat())) {
         return Hit::Install;
     }
-    if (later.contains(position.toFloat())) {
+    if (placed.later.contains(position.toFloat())) {
         return Hit::Later;
     }
     return Hit::None;
@@ -148,7 +178,8 @@ void UpdateOfferDialog::timerCallback() {
 void UpdateOfferDialog::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black.withAlpha(0.62f));
 
-    const auto card = cardBounds();
+    const auto placed = layoutFor(getLocalBounds(), _changes.size(), _sink);
+    const auto card = placed.card;
     const auto radius = kRadius * (1.0f - 0.02f * _sink);
     const auto shadowOffset = 14.0f - 8.0f * _sink;
     for (int layer = 4; layer >= 1; --layer) {
@@ -187,21 +218,35 @@ void UpdateOfferDialog::paint(juce::Graphics& g) {
     g.setColour(juce::Colours::white.withAlpha(0.9f));
     g.fillEllipse(headPoint.x - 2.2f, headPoint.y - 2.2f, 4.4f, 4.4f);
 
-    auto content = card.reduced(28.0f, 24.0f);
-    auto titleArea = content.removeFromTop(32.0f);
     g.setColour(ProfilerStyle::Colors::text);
-    g.setFont(ProfilerStyle::Fonts::medium(18.0f));
-    g.drawText("Update available", titleArea, juce::Justification::centredLeft, true);
+    g.setFont(ProfilerStyle::Fonts::medium(18.0f * kScale));
+    g.drawText("Update available", placed.title, juce::Justification::centredLeft, true);
 
-    content.removeFromTop(8.0f);
-    auto messageArea = content.removeFromBottom(40.0f);
-    content.removeFromBottom(18.0f);
-    g.setColour(ProfilerStyle::Colors::textMuted);
-    g.setFont(ProfilerStyle::Fonts::regular(13.0f));
-    g.drawFittedText(_message, content.toNearestInt(), juce::Justification::topLeft, 4, 1.0f);
+    g.setColour(ProfilerStyle::Colors::text);
+    g.setFont(ProfilerStyle::Fonts::medium(22.0f * kScale));
+    g.drawText(_version, placed.version, juce::Justification::centredLeft, true);
 
-    const auto later = buttonRect(messageArea, false);
-    const auto install = buttonRect(messageArea, true);
+    g.setFont(ProfilerStyle::Fonts::regular(13.0f * kScale));
+    auto noteTop = placed.notes.getY();
+    const auto marker = 5.5f * kScale;
+    for (const auto& change : _changes) {
+        if (noteTop + placed.bulletHeight > placed.notes.getBottom() + 1.0f) {
+            break;
+        }
+        auto row = juce::Rectangle<float>(placed.notes.getX(), noteTop, placed.notes.getWidth(), placed.bulletHeight);
+        g.setColour(ProfilerStyle::Colors::accentCyan);
+        g.fillEllipse(row.getX(), row.getCentreY() - marker * 0.5f, marker, marker);
+        g.setColour(ProfilerStyle::Colors::textMuted);
+        g.drawFittedText(change,
+                         row.withTrimmedLeft(16.0f * kScale).toNearestInt(),
+                         juce::Justification::centredLeft,
+                         2,
+                         1.0f);
+        noteTop += placed.bulletHeight;
+    }
+
+    const auto later = placed.later;
+    const auto install = placed.install;
     auto paintButton = [&](juce::Rectangle<float> bounds, const juce::String& label, bool primary, bool hot, bool down) {
         auto fill = primary ? juce::Colour(0xff07262B) : juce::Colour(0xff121318);
         if (down) {
@@ -210,12 +255,12 @@ void UpdateOfferDialog::paint(juce::Graphics& g) {
             fill = fill.brighter(0.08f);
         }
         g.setColour(fill);
-        g.fillRoundedRectangle(bounds, 8.0f);
+        g.fillRoundedRectangle(bounds, 8.0f * kScale);
         g.setColour(primary ? ProfilerStyle::Colors::accentCyan.withAlpha(hot ? 0.95f : 0.72f)
                             : juce::Colours::white.withAlpha(hot ? 0.28f : 0.12f));
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f, primary ? 1.4f : 1.0f);
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f * kScale, primary ? 1.4f : 1.0f);
         g.setColour(primary ? ProfilerStyle::Colors::accentCyan : ProfilerStyle::Colors::text);
-        g.setFont(ProfilerStyle::Fonts::medium(13.0f));
+        g.setFont(ProfilerStyle::Fonts::medium(13.0f * kScale));
         g.drawText(label, bounds, juce::Justification::centred, true);
     };
     paintButton(later, "Later", false, _hovered == Hit::Later, _pressed == Hit::Later);

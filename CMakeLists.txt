@@ -6,6 +6,8 @@ set(SPECTRA_RELEASE_TAG "0.0.0-dev" CACHE STRING "GitHub release tag baked into 
 if(DEFINED ENV{SPECTRA_RELEASE_TAG} AND NOT "$ENV{SPECTRA_RELEASE_TAG}" STREQUAL "")
     set(SPECTRA_RELEASE_TAG "$ENV{SPECTRA_RELEASE_TAG}" CACHE STRING "GitHub release tag baked into the app" FORCE)
 endif()
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
+configure_file(cmake/SpectraReleaseTag.h.in "${CMAKE_BINARY_DIR}/generated/SpectraReleaseTag.h" @ONLY)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
