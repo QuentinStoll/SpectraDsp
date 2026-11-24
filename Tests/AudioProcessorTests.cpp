@@ -1193,6 +1193,39 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(SignalChain::setForkLaneStage(occupied, 0, SignalChain::Stage::Empty));
         SignalChain::pruneEmptyForks(occupied);
         expect(occupied.forks.empty());
+
+        SignalChain::ForkGraph sharedRow;
+        int leftId = 0;
+        int rightId = 0;
+        expect(SignalChain::createBifurcation(sharedRow, 0, 0, 2, &leftId));
+        expect(SignalChain::createBifurcation(sharedRow, 0, 3, 5, &rightId));
+        expect(SignalChain::setForkLaneStage(sharedRow, 0, SignalChain::Stage::Amp));
+        expect(SignalChain::setForkLaneStage(sharedRow, 1, SignalChain::Stage::Cab));
+        expect(SignalChain::setForkLaneStage(sharedRow, 2, SignalChain::Stage::Eq));
+        expect(SignalChain::setForkLaneStage(sharedRow, 3, SignalChain::Stage::Pedal));
+        expect(SignalChain::removeFork(sharedRow, rightId));
+        expect(sharedRow.forks.size() == 1);
+        expect(sharedRow.forks.front().id == leftId);
+        expect(SignalChain::forkLaneStage(sharedRow, 0) == SignalChain::Stage::Amp);
+        expect(SignalChain::forkLaneStage(sharedRow, 1) == SignalChain::Stage::Cab);
+        expect(SignalChain::forkLaneStage(sharedRow, 2) == SignalChain::Stage::Empty);
+
+        ProfilerAudioProcessor routedForks;
+        SignalChain::ForkGraph persisted = sharedRow;
+        int keptId = 0;
+        int droppedId = 0;
+        expect(SignalChain::createBifurcation(persisted, 0, 3, 5, &droppedId));
+        expect(SignalChain::setForkLaneStage(persisted, 2, SignalChain::Stage::Eq));
+        keptId = persisted.forks.front().id;
+        routedForks.setForkGraph(persisted);
+        expect(routedForks.getForkGraph().forks.size() == 2);
+        expect(SignalChain::removeFork(persisted, droppedId));
+        routedForks.setForkGraph(persisted);
+        const auto remaining = routedForks.getForkGraph();
+        expect(remaining.forks.size() == 1);
+        expect(remaining.forks.front().id == keptId);
+        expect(SignalChain::forkLaneStage(remaining, 0) == SignalChain::Stage::Amp);
+        expect(SignalChain::forkLaneStage(remaining, 2) == SignalChain::Stage::Empty);
     }
 
     void testParallelRoute() {

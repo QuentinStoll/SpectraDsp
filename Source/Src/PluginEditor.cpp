@@ -188,6 +188,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
     _content.addChildComponent(_exportViewport);
     _content.addChildComponent(_closeOverlayButton);
     _content.addChildComponent(_notificationBanner);
+    addChildComponent(_updateOffer);
 
     _topBar.onSettingsClicked = [this]() {
         showOverlay(_overlayMode == OverlayMode::Settings ? OverlayMode::None : OverlayMode::Settings);
@@ -591,7 +592,7 @@ void ProfilerAudioProcessorEditor::resized() {
     _content.setBounds(getLocalBounds());
 
     auto area = _content.getLocalBounds();
-    _topBar.setBounds(area.removeFromTop(87));
+    _topBar.setBounds(area.removeFromTop(75));
 
     if (_overlayMode == OverlayMode::None) {
         constexpr int editHeight = 248;
@@ -630,6 +631,7 @@ void ProfilerAudioProcessorEditor::resized() {
                                       .withSizeKeepingCentre(bannerWidth, _notificationBanner.getIdealHeight())
                                       .withRightX(_content.getWidth() - 22)
                                       .withY(18));
+    _updateOffer.setBounds(getLocalBounds());
 }
 
 void ProfilerAudioProcessorEditor::showStudio() {
@@ -918,39 +920,19 @@ void ProfilerAudioProcessorEditor::presentAppUpdate(const AppUpdate::Offer& offe
         return;
     }
 
-    _notificationBanner.onDismissed = [tag = offer.latestTag]() {
-        AppUpdate::rememberSkippedTag(tag);
-    };
-    _notificationBanner.setAction("Install", [this, offer]() {
-        _notificationBanner.onDismissed = nullptr;
+    _updateOffer.onInstall = [this, offer]() {
+        if (_updateInProgress) {
+            return;
+        }
+        _updateOffer.dismiss();
         applyAppUpdate(offer);
-    });
-    _notificationBanner.showMessage(offer.message, NotificationBanner::Type::Info, 0);
+    };
+    _updateOffer.onLater = [this, offer]() {
+        AppUpdate::rememberSkippedTag(offer.latestTag);
+        _updateOffer.dismiss();
+    };
     resized();
-    _notificationBanner.toFront(false);
-
-    juce::AlertWindow::showAsync(
-        juce::MessageBoxOptions()
-            .withIconType(juce::MessageBoxIconType::InfoIcon)
-            .withTitle("Update Spectra")
-            .withMessage(offer.message + "\n\nInstall it now?")
-            .withButton("Install")
-            .withButton("Later")
-            .withParentComponent(this),
-        [safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this), offer](int result) {
-            if (safeThis == nullptr || safeThis->_updateInProgress) {
-                return;
-            }
-            if (result == 1) {
-                safeThis->_notificationBanner.onDismissed = nullptr;
-                safeThis->_notificationBanner.dismiss();
-                safeThis->applyAppUpdate(offer);
-                return;
-            }
-            AppUpdate::rememberSkippedTag(offer.latestTag);
-            safeThis->_notificationBanner.onDismissed = nullptr;
-            safeThis->_notificationBanner.dismiss();
-        });
+    _updateOffer.showOffer(offer.message);
 }
 
 void ProfilerAudioProcessorEditor::applyAppUpdate(const AppUpdate::Offer& offer) {

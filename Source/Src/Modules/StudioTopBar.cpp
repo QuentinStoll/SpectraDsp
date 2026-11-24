@@ -7,10 +7,10 @@
 namespace {
 constexpr int kLogoMarkSide = 47;
 constexpr float kLogoFontHeight = 23.4f;
-constexpr int kCloneButtonWidth = 117;
-constexpr int kMuteButtonWidth = 84;
-constexpr int kSideButtonHeight = 39;
-constexpr int kPresetBoxWidth = 510;
+constexpr int kCloneButtonWidth = 98;
+constexpr int kMuteButtonWidth = 70;
+constexpr int kSideButtonHeight = 33;
+constexpr int kPresetBoxWidth = 425;
 }  // namespace
 
 void StudioTopBar::PresetTitleBox::showPopup() {
