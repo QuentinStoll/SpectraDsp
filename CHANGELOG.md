@@ -6,6 +6,7 @@ Notable changes for every published release are recorded below, newest first. Re
 
 ### Fixed
 
+- Opening a finished capture from Library keeps the signed download token, so Windows no longer reports that the pack could not be downloaded.
 - Capture upload keeps the storage token on the request, so a finished amp or pedal recording is no longer rejected on Windows before training starts.
 
 ### Added

@@ -9,6 +9,19 @@
 #endif
 
 namespace Marketplace {
+#if JUCE_WINDOWS
+struct WindowsHttpResult {
+    int statusCode = 0;
+    juce::MemoryBlock body;
+    juce::String failure;
+};
+
+WindowsHttpResult windowsExchange(const juce::String& method,
+                                  const juce::String& signedUrl,
+                                  const juce::String& headerText,
+                                  const void* data,
+                                  size_t size);
+#endif
 namespace {
 class UrlHttpTransport : public HttpTransport {
    public:
@@ -30,13 +43,29 @@ class UrlHttpTransport : public HttpTransport {
         }
 
         int statusCode = 0;
-        const auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
+        const auto options = juce::URL::InputStreamOptions(url.containsChar('?') ? juce::URL::ParameterHandling::inAddress
+                                                                                 : juce::URL::ParameterHandling::inPostData)
                                  .withConnectionTimeoutMs(20000)
                                  .withExtraHeaders(headers)
                                  .withHttpRequestCmd(method)
                                  .withStatusCode(&statusCode);
 
         HttpResponse response;
+#if JUCE_WINDOWS
+        if (url.containsChar('?')) {
+            const auto exchanged = windowsExchange(method, url, headers, jsonBody.isEmpty() ? nullptr : jsonBody.toRawUTF8(),
+                                                   jsonBody.isEmpty() ? 0 : jsonBody.getNumBytesAsUTF8());
+            response.statusCode = exchanged.statusCode;
+            response.body = exchanged.body;
+            return response;
+        }
+#endif
+        if (url.containsChar('?')) {
+            requestUrl = juce::URL::createWithoutParsing(url);
+            if (jsonBody.isNotEmpty()) {
+                requestUrl = requestUrl.withPOSTData(jsonBody);
+            }
+        }
         if (auto stream = requestUrl.createInputStream(options)) {
             stream->readIntoMemoryBlock(response.body);
         }
@@ -558,9 +587,13 @@ struct InternetHandle {
     }
 };
 
-// JUCE on Windows drops the signed URL query while building the request, and with
-// inPostData it also writes that token in front of the wav. Supabase then refuses the PUT.
-Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size_t size, juce::String* failure) {
+// JUCE on Windows drops the signed URL query. Supabase then refuses the transfer.
+WindowsHttpResult windowsExchange(const juce::String& method,
+                                  const juce::String& signedUrl,
+                                  const juce::String& headerText,
+                                  const void* data,
+                                  size_t size) {
+    WindowsHttpResult result;
     URL_COMPONENTSW parts{};
     parts.dwStructSize = sizeof(parts);
     wchar_t scheme[16]{};
@@ -576,14 +609,14 @@ Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size
     parts.lpszExtraInfo = extra;
     parts.dwExtraInfoLength = (DWORD)std::size(extra);
     if (!InternetCrackUrlW(signedUrl.toWideCharPointer(), 0, 0, &parts)) {
-        noteUploadFailure(failure, "The upload address was invalid.");
-        return Status::BadRequest;
+        result.failure = "The storage address was invalid.";
+        return result;
     }
 
     InternetHandle session{InternetOpenW(L"Spectra", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0)};
     if (session.handle == nullptr) {
-        noteUploadFailure(failure, "Could not open a connection.");
-        return Status::TransportError;
+        result.failure = "Could not open a connection.";
+        return result;
     }
 
     InternetHandle connection{InternetConnectW(session.handle,
@@ -595,8 +628,8 @@ Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size
                                                0,
                                                0)};
     if (connection.handle == nullptr) {
-        noteUploadFailure(failure, "Could not reach the capture storage.");
-        return Status::TransportError;
+        result.failure = "Could not reach the capture storage.";
+        return result;
     }
 
     const juce::String object = juce::String(path) + juce::String(extra);
@@ -604,8 +637,9 @@ Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size
     if (parts.nScheme == INTERNET_SCHEME_HTTPS) {
         flags |= INTERNET_FLAG_SECURE;
     }
+    const auto verb = method.toWideCharPointer();
     InternetHandle request{HttpOpenRequestW(connection.handle,
-                                            L"PUT",
+                                            verb,
                                             object.toWideCharPointer(),
                                             nullptr,
                                             nullptr,
@@ -613,23 +647,23 @@ Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size
                                             flags,
                                             0)};
     if (request.handle == nullptr) {
-        noteUploadFailure(failure, "Could not open the capture upload.");
-        return Status::TransportError;
+        result.failure = "Could not open the storage request.";
+        return result;
     }
 
     const auto timeout = 180000u;
     InternetSetOptionW(request.handle, INTERNET_OPTION_SEND_TIMEOUT, (LPVOID)&timeout, sizeof(timeout));
     InternetSetOptionW(request.handle, INTERNET_OPTION_RECEIVE_TIMEOUT, (LPVOID)&timeout, sizeof(timeout));
 
-    const wchar_t* headers = L"Content-Type: application/octet-stream\r\nx-upsert: true\r\n";
+    const auto headers = headerText.toWideCharPointer();
     INTERNET_BUFFERSW buffers{};
     buffers.dwStructSize = sizeof(buffers);
-    buffers.lpcszHeader = headers;
-    buffers.dwHeadersLength = (DWORD)std::wcslen(headers);
+    buffers.lpcszHeader = headerText.isEmpty() ? nullptr : headers;
+    buffers.dwHeadersLength = headerText.isEmpty() ? 0 : (DWORD)headerText.length();
     buffers.dwBufferTotal = (DWORD)size;
     if (!HttpSendRequestExW(request.handle, &buffers, nullptr, 0, 0)) {
-        noteUploadFailure(failure, "Could not start the capture upload.");
-        return Status::TransportError;
+        result.failure = "Could not start the storage request.";
+        return result;
     }
 
     const auto* bytes = static_cast<const char*>(data);
@@ -638,15 +672,15 @@ Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size
         DWORD written = 0;
         const auto chunk = (DWORD)std::min<size_t>(64 * 1024, size - sent);
         if (!InternetWriteFile(request.handle, bytes + sent, chunk, &written) || written == 0) {
-            noteUploadFailure(failure, "The capture upload was interrupted.");
+            result.failure = "The storage transfer was interrupted.";
             HttpEndRequestW(request.handle, nullptr, 0, 0);
-            return Status::TransportError;
+            return result;
         }
         sent += written;
     }
     if (!HttpEndRequestW(request.handle, nullptr, 0, 0)) {
-        noteUploadFailure(failure, "The capture upload did not finish.");
-        return Status::TransportError;
+        result.failure = "The storage transfer did not finish.";
+        return result;
     }
 
     DWORD statusCode = 0;
@@ -656,17 +690,23 @@ Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size
                    &statusCode,
                    &statusSize,
                    nullptr);
-    if (!uploadAccepted((int)statusCode)) {
-        char body[256]{};
+    result.statusCode = (int)statusCode;
+    for (;;) {
+        char chunk[65536];
         DWORD read = 0;
-        InternetReadFile(request.handle, body, sizeof(body) - 1, &read);
-        const auto detail = juce::String::fromUTF8(body, (int)read).trim();
-        noteUploadFailure(failure,
-                          "Storage refused the upload (HTTP " + juce::String((int)statusCode) + ")" +
-                              (detail.isNotEmpty() ? ": " + detail : juce::String()));
-        return statusFromCode((int)statusCode, false);
+        if (!InternetReadFile(request.handle, chunk, sizeof(chunk), &read) || read == 0) {
+            break;
+        }
+        result.body.append(chunk, read);
     }
-    return Status::Success;
+    if (!uploadAccepted(result.statusCode) && result.failure.isEmpty()) {
+        const auto detail = juce::String::fromUTF8(static_cast<const char*>(result.body.getData()),
+                                                   (int)std::min<size_t>(result.body.getSize(), 240))
+                                .trim();
+        result.failure = "Storage refused the transfer (HTTP " + juce::String(result.statusCode) + ")" +
+                         (detail.isNotEmpty() ? ": " + detail : juce::String());
+    }
+    return result;
 }
 #endif
 
@@ -677,7 +717,19 @@ Status uploadSigned(const juce::String& signedUrl, const void* data, size_t size
     }
 
 #if JUCE_WINDOWS
-    return uploadSignedWindows(signedUrl, data, size, failure);
+    const auto exchanged = windowsExchange("PUT",
+                                           signedUrl,
+                                           "Content-Type: application/octet-stream\r\nx-upsert: true\r\n",
+                                           data,
+                                           size);
+    noteUploadFailure(failure, exchanged.failure);
+    if (exchanged.failure.isNotEmpty() && exchanged.statusCode == 0) {
+        return Status::TransportError;
+    }
+    if (!uploadAccepted(exchanged.statusCode)) {
+        return statusFromCode(exchanged.statusCode, false);
+    }
+    return Status::Success;
 #else
     juce::MemoryBlock block(data, size);
     auto requestUrl = juce::URL::createWithoutParsing(signedUrl).withPOSTData(block);
