@@ -12,14 +12,24 @@ void setError(juce::String* errorMessage, const juce::String& message) {
     }
 }
 
-// NAM's trigger: first sample of the blip response above the background noise.
-int firstTrigger(const std::vector<float>& recorded, const int* blips, int blipCount, float threshold) {
-    for (int offset = 0; offset < kLookahead + kLookback; ++offset) {
-        double sum = 0.0;
-        for (int blip = 0; blip < blipCount; ++blip) {
-            sum += recorded[static_cast<std::size_t>(blips[blip] - kLookahead + offset)];
-        }
-        if (std::abs(sum / blipCount) > threshold) {
+// Onset of one click. The threshold is a fraction of that click's own peak, so
+// hiss cannot fire the detector before the click. Returns samples after `blip`.
+int clickOnset(const std::vector<float>& recorded, int blip, float noisePeak) {
+    const auto begin = blip - kLookahead;
+    const auto count = kLookahead + kLookback;
+    if (begin < 0 || begin + count > static_cast<int>(recorded.size())) {
+        return -1 - kLookahead;
+    }
+    float peak = 0.0f;
+    for (int offset = 0; offset < count; ++offset) {
+        peak = std::max(peak, std::abs(recorded[static_cast<std::size_t>(begin + offset)]));
+    }
+    if (peak < 1.0e-5f || peak < noisePeak * 3.0f) {
+        return -1 - kLookahead;
+    }
+    const auto threshold = std::max(noisePeak * 3.0f, peak * 0.2f);
+    for (int offset = 0; offset < count; ++offset) {
+        if (std::abs(recorded[static_cast<std::size_t>(begin + offset)]) >= threshold) {
             return offset - kLookahead;
         }
     }
@@ -56,15 +66,19 @@ bool loadReamp(const juce::File& file, std::vector<float>& samples, juce::String
     return true;
 }
 
-double esr(const float* prediction, const float* target, int frames) {
+double windowEsr(const float* start, const float* end, int frames) {
     double error = 0.0;
     double energy = 0.0;
     for (int sample = 0; sample < frames; ++sample) {
-        const double difference = static_cast<double>(prediction[sample]) - target[sample];
+        const double difference = static_cast<double>(start[sample]) - end[sample];
         error += difference * difference;
-        energy += static_cast<double>(target[sample]) * target[sample];
+        energy += static_cast<double>(start[sample]) * start[sample];
     }
     return energy > 0.0 ? error / energy : 1.0;
+}
+
+double esr(const float* prediction, const float* target, int frames) {
+    return windowEsr(prediction, target, frames);
 }
 
 Analysis analyse(const std::vector<float>& sent, const std::vector<float>& recorded) {
@@ -89,26 +103,136 @@ Analysis analyse(const std::vector<float>& sent, const std::vector<float>& recor
     }
     analysis.noiseRms = static_cast<float>(std::sqrt(noiseEnergy / (kNoiseEnd - kNoiseStart)));
 
-    const auto threshold = std::max(background + 0.0003f, 1.001f * background);
-    const auto latency = firstTrigger(recorded, kBlips.data(), static_cast<int>(kBlips.size()), threshold);
     for (std::size_t blip = 0; blip < kBlips.size(); ++blip) {
-        analysis.blipLatency[blip] = firstTrigger(recorded, &kBlips[blip], 1, threshold);
+        analysis.blipLatency[blip] = clickOnset(recorded, kBlips[blip], background);
     }
-    if (latency < 0) {
+    if (analysis.blipLatency[0] < 0 || analysis.blipLatency[1] < 0) {
         return analysis;
     }
 
     analysis.detected = true;
-    analysis.latency = latency;
+    analysis.latency = (analysis.blipLatency[0] + analysis.blipLatency[1]) / 2;
     // NAM keeps one sample of margin before the response so the model never needs the future.
-    analysis.shift = std::max(0, latency - 1);
+    analysis.shift = std::max(0, analysis.latency - 1);
 
     if (sent.size() == static_cast<std::size_t>(kStandardFrames)) {
         const auto aligned = align(recorded, analysis.shift, kStandardFrames);
         analysis.replicateChecked = true;
-        analysis.replicateEsr = esr(aligned.data(), aligned.data() + (kStandardFrames - kValidationFrames), kValidationFrames);
+        const auto* start = aligned.data();
+        const auto* end = aligned.data() + (kStandardFrames - kValidationFrames);
+        constexpr int kMatchFrames = 48'000;
+        constexpr int kMaxDrift = 2'000;
+        analysis.replicateEsr = windowEsr(start, end, kValidationFrames);
+        // One-sample steps. A distorted waveform only matches at the exact lag,
+        // so a coarse step would miss a clock slip and call it a tone change.
+        // The search uses one second. NAM's own check uses the whole validation,
+        // so the lag is scored again on the full window before it can be accepted.
+        double best = 1.0e9;
+        analysis.endDrift = 0;
+        for (int drift = -kMaxDrift; drift <= kMaxDrift; ++drift) {
+            const auto score = windowEsr(start, end + drift, kMatchFrames);
+            if (score < best) {
+                best = score;
+                analysis.endDrift = drift;
+            }
+        }
+        const auto overlap = kValidationFrames - std::abs(analysis.endDrift);
+        const auto* overlapStart = start + (analysis.endDrift < 0 ? -analysis.endDrift : 0);
+        const auto* overlapEnd = end + (analysis.endDrift > 0 ? analysis.endDrift : 0);
+        analysis.alignedEsr = overlap > 0 ? windowEsr(overlapStart, overlapEnd, overlap) : 1.0;
+
+        double startEnergy = 0.0;
+        double endEnergy = 0.0;
+        for (int sample = 0; sample < overlap; ++sample) {
+            const auto value = overlapStart[sample];
+            const auto other = overlapEnd[sample];
+            startEnergy += static_cast<double>(value) * value;
+            endEnergy += static_cast<double>(other) * other;
+        }
+        const auto matchScale = endEnergy > 0.0 ? std::sqrt(startEnergy / endEnergy) : 1.0;
+        double matchedError = 0.0;
+        for (int sample = 0; sample < overlap; ++sample) {
+            const auto difference = static_cast<double>(overlapStart[sample]) - matchScale * overlapEnd[sample];
+            matchedError += difference * difference;
+        }
+        analysis.gainMatchedEsr = startEnergy > 0.0 ? matchedError / startEnergy : 1.0;
+
+        const auto startRms = overlap > 0 ? std::sqrt(startEnergy / overlap) : 0.0;
+        if (analysis.replicateEsr < kReplicateEsrLimit) {
+            analysis.issue = TakeIssue::None;
+        } else if (analysis.alignedEsr < kReplicateEsrLimit) {
+            analysis.issue = TakeIssue::Latency;
+        } else if (analysis.gainMatchedEsr < kReplicateEsrLimit) {
+            analysis.issue = TakeIssue::Level;
+        } else if (startRms < static_cast<double>(analysis.noiseRms) * 4.0) {
+            analysis.issue = TakeIssue::Hiss;
+        } else {
+            analysis.issue = TakeIssue::Changed;
+        }
+
+        // NAM compares the whole start validation to the whole end validation and
+        // refuses to export if that ESR is 0.01 or higher. A one-second match is
+        // not enough to send the take.
+        if (analysis.issue == TakeIssue::Latency) {
+            auto corrected = aligned;
+            finishTake(corrected, analysis);
+            analysis.alignedEsr = windowEsr(corrected.data(),
+                                            corrected.data() + (kStandardFrames - kValidationFrames),
+                                            kValidationFrames);
+            if (analysis.alignedEsr >= kReplicateEsrLimit) {
+                analysis.issue = TakeIssue::Changed;
+            }
+        }
     }
     return analysis;
+}
+
+void removeClockSlip(std::vector<float>& aligned, int endDrift) {
+    if (endDrift == 0 || aligned.empty()) {
+        return;
+    }
+    const auto frames = static_cast<int>(aligned.size());
+    // NAM compares the start validation to the end validation unchanged.
+    // The start block stays put. The slip ramps in after it and holds through the end block.
+    const auto hold = std::min(frames, kValidationFrames);
+    const auto arrive = std::min(frames, std::max(hold + 1, kStandardFrames - kValidationFrames));
+    const auto source = aligned;
+    for (int index = 0; index < frames; ++index) {
+        double drift = 0.0;
+        if (index >= arrive) {
+            drift = static_cast<double>(endDrift);
+        } else if (index > hold) {
+            drift = static_cast<double>(endDrift) * (index - hold) / (arrive - hold);
+        }
+        const auto position = static_cast<double>(index) + drift;
+        const auto left = static_cast<int>(std::floor(position));
+        const auto fraction = static_cast<float>(position - left);
+        const auto sampleAt = [&](int sample) {
+            return sample >= 0 && sample < frames ? source[static_cast<std::size_t>(sample)] : 0.0f;
+        };
+        aligned[static_cast<std::size_t>(index)] = sampleAt(left) + (sampleAt(left + 1) - sampleAt(left)) * fraction;
+    }
+}
+
+void normalizePeak(std::vector<float>& aligned) {
+    float peak = 0.0f;
+    for (const auto sample : aligned) {
+        peak = std::max(peak, std::abs(sample));
+    }
+    if (peak < 1.0e-8f || peak >= 0.999f) {
+        return;
+    }
+    const auto gain = juce::Decibels::decibelsToGain(kTrainingPeakDb) / peak;
+    for (auto& sample : aligned) {
+        sample *= gain;
+    }
+}
+
+void finishTake(std::vector<float>& aligned, const Analysis& analysis) {
+    if (analysis.issue == TakeIssue::Latency) {
+        removeClockSlip(aligned, analysis.endDrift);
+    }
+    normalizePeak(aligned);
 }
 
 std::vector<float> align(const std::vector<float>& recorded, int shift, int frames) {

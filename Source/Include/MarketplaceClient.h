@@ -156,6 +156,9 @@ class Client {
     LoginResult refresh(const juce::String& refreshToken) const;
     LibraryResult fetchLibrary(const juce::String& accessToken) const;
     LibraryResult loadLibrary(Session& session) const;
+    // Reloads the saved session, renews it if the access token is expired, and
+    // writes the new pair back. One caller at a time: a refresh token can only be used once.
+    LibraryResult loadSavedSession(Session& session) const;
     DownloadResult download(const juce::String& fileUrl, const juce::String& accessToken) const;
     CaptureResult submitIrCapture(const juce::String& accessToken,
                                   const juce::String& title,

@@ -61,6 +61,10 @@ class AmpCaptureUnitTests : public juce::UnitTest {
             testReplicateAndOutput();
         });
 
+        runCase("amp capture separates a clock slip from a tone change", [this] {
+            testEndDrift();
+        });
+
         runCase("amp capture records a standalone loopback", [this] {
             testStandaloneLoopback();
         });
@@ -135,6 +139,27 @@ class AmpCaptureUnitTests : public juce::UnitTest {
         analysis = AmpCapture::analyse(sent, recorded);
         expect(analysis.replicateEsr > AmpCapture::kReplicateEsrLimit,
                "A level change between passes should fail, got " + juce::String(analysis.replicateEsr));
+    }
+
+    void testEndDrift() {
+        const auto sent = makeReamp(AmpCapture::kStandardFrames);
+        auto recorded = makeReturn(sent, 300);
+        constexpr int drift = 40;
+        const auto region = static_cast<std::size_t>(AmpCapture::kStandardFrames - AmpCapture::kValidationFrames + 300);
+        std::vector<float> chunk(recorded.begin() + static_cast<std::ptrdiff_t>(region),
+                                 recorded.begin() + static_cast<std::ptrdiff_t>(region + AmpCapture::kValidationFrames));
+        for (int sample = 0; sample < AmpCapture::kValidationFrames; ++sample) {
+            const auto destination = region + static_cast<std::size_t>(drift + sample);
+            if (destination < recorded.size()) {
+                recorded[destination] = chunk[static_cast<std::size_t>(sample)];
+            }
+        }
+
+        const auto analysis = AmpCapture::analyse(sent, recorded);
+        expect(analysis.replicateEsr > AmpCapture::kReplicateEsrLimit, "A slipped end should fail the raw compare.");
+        expect(std::abs(analysis.endDrift - drift) <= 2, "The slip should be measured, got " + juce::String(analysis.endDrift));
+        expect(analysis.alignedEsr < AmpCapture::kReplicateEsrLimit,
+               "Realigning the end should show the tone did not change, ESR " + juce::String(analysis.alignedEsr));
     }
 
     void testStandaloneLoopback() {

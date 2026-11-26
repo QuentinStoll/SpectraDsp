@@ -1,5 +1,7 @@
 #include "MarketplaceClient.h"
 
+#include <mutex>
+
 #include "SettingsPath.h"
 
 #if JUCE_WINDOWS
@@ -379,6 +381,22 @@ LibraryResult Client::loadLibrary(Session& session) const {
     result = fetchLibrary(session.accessToken);
     if (result.status == Status::Unauthorized) {
         result.message = "Your session has expired. Sign in again.";
+    }
+    return result;
+}
+
+LibraryResult Client::loadSavedSession(Session& session) const {
+    static std::mutex fileLock;
+    const std::lock_guard<std::mutex> lock(fileLock);
+
+    Session saved;
+    if (loadSession(defaultSessionFile(), saved) && saved.accessToken.isNotEmpty()) {
+        session = saved;
+    }
+
+    auto result = loadLibrary(session);
+    if (result.status == Status::Success) {
+        saveSession(defaultSessionFile(), session);
     }
     return result;
 }

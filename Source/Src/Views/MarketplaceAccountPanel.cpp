@@ -409,7 +409,7 @@ void MarketplaceAccountPanel::loadLibrary() {
         auto working = session;
         Marketplace::LibraryResult result;
         if (safeThis != nullptr) {
-            result = safeThis->_client.loadLibrary(working);
+            result = safeThis->_client.loadSavedSession(working);
         }
         juce::MessageManager::callAsync([safeThis, working, result]() {
             if (safeThis == nullptr) {
@@ -417,6 +417,14 @@ void MarketplaceAccountPanel::loadLibrary() {
             }
 
             if (result.status == Marketplace::Status::Unauthorized) {
+                Marketplace::Session onDisk;
+                if (Marketplace::loadSession(Marketplace::defaultSessionFile(), onDisk) &&
+                    onDisk.accessToken.isNotEmpty() && onDisk.accessToken != working.accessToken) {
+                    safeThis->_session = onDisk;
+                    safeThis->setBusy(false);
+                    safeThis->loadLibrary();
+                    return;
+                }
                 Marketplace::clearSession(Marketplace::defaultSessionFile());
                 safeThis->_session = {};
                 safeThis->_challenge = {};
@@ -503,7 +511,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
             auto conditionAmount = listedAmount;
             bool separateIr = false;
             if (safeThis != nullptr) {
-                const auto library = safeThis->_client.loadLibrary(working);
+                const auto library = safeThis->_client.loadSavedSession(working);
                 const Marketplace::LibraryItem* fresh = nullptr;
                 if (library.status == Marketplace::Status::Success) {
                     for (const auto& item : library.items) {
@@ -593,7 +601,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
         juce::String profileUrl;
         juce::String irUrl;
         if (safeThis != nullptr) {
-            library = safeThis->_client.loadLibrary(working);
+            library = safeThis->_client.loadSavedSession(working);
             if (library.status == Marketplace::Status::Success) {
                 const Marketplace::LibraryItem* fresh = nullptr;
                 for (const auto& item : library.items) {

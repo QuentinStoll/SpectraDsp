@@ -25,41 +25,65 @@ juce::String decibels(float gain) {
     return juce::String(juce::Decibels::gainToDecibels(gain, -120.0f), 1) + " dBFS";
 }
 
-juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<int>& previous, const juce::String& device) {
-    if (analysis.returnPeak < 1.0e-4f) {
-        return "Input 1 stayed silent. Untick \"Mute audio input\" in Options > Audio/MIDI Settings, then check the "
-               "cable from the " +
-               device + " and the interface input gain.";
+bool isPedal(const juce::String& device) {
+    return device == "pedal";
+}
+
+juce::String writeCapture(const juce::File& folder,
+                          const juce::File& reampFile,
+                          const std::vector<float>& recorded,
+                          const AmpCapture::Analysis& analysis);
+
+juce::String signInBeforeClone(const juce::String& device) {
+    return "Sign in on the Library page before cloning a " + device + ".";
+}
+
+juce::String keepFailedTake(const juce::File& reampFile,
+                            const std::vector<float>& recorded,
+                            const AmpCapture::Analysis& analysis,
+                            const juce::String& name) {
+    const auto stem = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ").trim();
+    const auto folder = capturesFolder().getChildFile(
+        (stem.isEmpty() ? juce::String("Amp") : stem) + " " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S"));
+    const auto error = writeCapture(folder, reampFile, recorded, analysis);
+    if (error.isEmpty()) {
+        return " This take is saved in " + folder.getFullPathName() + ".";
     }
-    if (!analysis.detected) {
-        return "No blip came back above the noise (return peak " + decibels(analysis.returnPeak) + "). Check that the " +
-               device + " feeds input 1.";
+    return " The audio was not kept on this machine.";
+}
+
+juce::String returnLevelKnob(const juce::String& device) {
+    if (isPedal(device)) {
+        return "Turn the pedal Level (not Drive), or the Helix input that receives the pedal.";
+    }
+    return "Turn the Torpedo output, or the Helix input that receives the Torpedo. Leave the amp Gain, Volume and "
+           "channel alone, and leave the Helix send alone.";
+}
+
+juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<int>& previous, const juce::String& device) {
+    juce::ignoreUnused(device);
+    if (analysis.returnPeak < 1.0e-4f || !analysis.detected) {
+        return {};
     }
 
     const auto milliseconds = analysis.latency * 1000.0 / AmpCapture::kSampleRate;
     juce::StringArray lines;
-    lines.add("Round trip: " + juce::String(analysis.latency) + " samples (" + juce::String(milliseconds, 1) +
-              " ms). Blips: " + juce::String(analysis.blipLatency[0]) + " / " + juce::String(analysis.blipLatency[1]) + ".");
-    if (std::abs(analysis.blipLatency[0] - analysis.blipLatency[1]) >= AmpCapture::kBlipDisagreement) {
-        lines.add("The two blips disagree. The return is unstable or too noisy.");
-    }
-    if (previous.has_value()) {
-        const auto drift = analysis.latency - *previous;
-        lines.add(drift == 0 ? "Same latency as the previous test."
-                             : "Previous test: " + juce::String(*previous) + " samples (" +
-                                   juce::String(drift > 0 ? "+" : "") + juce::String(drift) + ").");
-    }
-    lines.add("Return peak " + decibels(analysis.returnPeak) + ", noise " + decibels(analysis.noiseRms) + ".");
-    if (analysis.clipped) {
-        lines.add("The return clips. Lower the " + device + " output or the interface input gain.");
-    } else if (analysis.returnPeak < 0.01f) {
-        lines.add("The return is very quiet. Raise the interface input gain.");
+    lines.add("Delay " + juce::String(analysis.latency) + " samples (" + juce::String(milliseconds, 1) +
+              " ms). Clicks " + juce::String(analysis.blipLatency[0]) + " / " + juce::String(analysis.blipLatency[1]) +
+              ". Peak " + decibels(analysis.returnPeak) + ", hiss " + decibels(analysis.noiseRms) + ".");
+    if (previous.has_value() && analysis.latency != *previous) {
+        lines.add("Previous delay: " + juce::String(*previous) + " samples.");
     }
     if (analysis.replicateChecked) {
-        const auto passed = analysis.replicateEsr < AmpCapture::kReplicateEsrLimit;
-        lines.add("Start vs end ESR " + juce::String(analysis.replicateEsr, 5) +
-                  (passed ? " (OK, NAM wants under 0.01)."
-                          : " (too high: the " + device + " or the capture changed between start and end)."));
+        lines.add("Start vs end ESR " + juce::String(analysis.replicateEsr, 3) + ". Aligned " +
+                  juce::String(analysis.alignedEsr, 3) + ", level-matched " + juce::String(analysis.gainMatchedEsr, 3) +
+                  ".");
+        if (analysis.issue == AmpCapture::TakeIssue::Latency) {
+            lines.add("The Helix delay walked " + juce::String(analysis.endDrift) +
+                      " samples. That slip is removed and the return is set to -6 dBFS. The amp gain stays as it is.");
+        } else if (analysis.issue == AmpCapture::TakeIssue::None && !analysis.clipped && analysis.returnPeak > 1.0e-4f) {
+            lines.add("The return is set to -6 dBFS automatically. The amp gain and the pedal drive stay as they are.");
+        }
     }
     return lines.joinIntoString("\n");
 }
@@ -68,27 +92,70 @@ juce::String cloudRejectReason(const AmpCapture::Analysis& analysis,
                                const std::optional<int>& previous,
                                bool full,
                                const juce::String& device) {
-    if (!analysis.detected) {
-        return "No stable return. Check the send, the " + device + " and input 1.";
+    const auto pedal = isPedal(device);
+    if (analysis.returnPeak < 1.0e-4f) {
+        return "The PC received silence. In Spectra, Options > Audio/MIDI Settings, untick Mute audio input. On the "
+               "Helix, the return (the " +
+               juce::String(pedal ? "pedal" : "Torpedo") +
+               ") must be routed to the USB output Spectra is recording. Do not change the Helix send.";
     }
-    if (std::abs(analysis.blipLatency[0] - analysis.blipLatency[1]) >= AmpCapture::kBlipDisagreement) {
-        return "The two blips disagree. The return is unstable or too noisy.";
+    if (!analysis.detected) {
+        return "The clicks did not come back above the hiss (" + decibels(analysis.noiseRms) +
+               "). This is the Helix return, not the " + juce::String(pedal ? "Drive" : "amp gain") +
+               ". " + returnLevelKnob(device) +
+               " Turn that up so the clicks are clearly louder than the hiss. Leave the " +
+               juce::String(pedal ? "pedal Drive" : "amp Gain, Volume and channel") + " exactly where you want the clone.";
+    }
+    const auto clickGap = std::abs(analysis.blipLatency[0] - analysis.blipLatency[1]);
+    if (clickGap >= AmpCapture::kBlipDisagreement) {
+        const auto milliseconds = clickGap * 1000.0 / AmpCapture::kSampleRate;
+        return "The two clicks disagree by " + juce::String(milliseconds, 1) +
+               " ms (hiss " + decibels(analysis.noiseRms) +
+               "). The hiss is as loud as the clicks on the Helix return. " + returnLevelKnob(device) +
+               " Turn that until the clicks are the loudest peaks. Do not change the " +
+               juce::String(pedal ? "pedal Drive" : "amp gain") + ".";
     }
     if (analysis.clipped) {
-        return "The return clips. Lower the " + device + " output or the interface input gain.";
+        return "The Helix return is clipping the PC (peak " + decibels(analysis.returnPeak) +
+               "). Clipping cannot be repaired afterwards. " + returnLevelKnob(device) +
+               " Turn that down until the peak is under -1 dBFS. Do not change the " +
+               juce::String(pedal ? "pedal Drive" : "amp gain") + ": that is the sound being cloned.";
     }
     const auto peakDb = juce::Decibels::gainToDecibels(analysis.returnPeak, -120.0f);
-    if (peakDb < -12.0f) {
-        return "The return is quieter than -12 dBFS. Raise the interface input gain.";
+    if (peakDb < -36.0f || analysis.returnPeak < analysis.noiseRms * 8.0f) {
+        return "The PC sees the Helix return at " + juce::String(peakDb, 1) + " dBFS, buried near the hiss (" +
+               decibels(analysis.noiseRms) + "). " + returnLevelKnob(device) +
+               " Turn that up. There is no exact dB to hit: anything from -30 to -1 is corrected automatically. Do not "
+               "change the " +
+               juce::String(pedal ? "pedal Drive" : "amp gain") + ".";
     }
-    if (peakDb > -0.1f) {
-        return "The return is too hot. Lower the " + device + " output or the interface input gain.";
+    if (previous.has_value() && std::abs(analysis.latency - *previous) > AmpCapture::kLatencyDriftLimit) {
+        const auto moved = analysis.latency - *previous;
+        return "The Helix USB delay moved by " + juce::String(moved > 0 ? "+" : "") + juce::String(moved) +
+               " samples between the two tests. On the Helix, set USB Buffer Size and leave it. This is not the " +
+               device + ". Run the test again without touching the Helix.";
     }
-    if (previous.has_value() && std::abs(analysis.latency - *previous) > 2) {
-        return "Latency moved by more than 2 samples. Keep the routing still and try again.";
+    if (full && analysis.replicateChecked && analysis.replicateEsr >= AmpCapture::kReplicateEsrLimit &&
+        analysis.issue == AmpCapture::TakeIssue::Hiss) {
+        return "The test tone is buried in hiss (ESR " + juce::String(analysis.replicateEsr, 2) +
+               "). This is not a reason to lower the " + juce::String(pedal ? "Drive" : "amp gain") + ". " +
+               returnLevelKnob(device) + " Turn that up so the tone sits well above the hiss, then capture again.";
     }
-    if (full && analysis.replicateChecked && analysis.replicateEsr >= AmpCapture::kReplicateEsrLimit) {
-        return "Start vs end ESR is too high. The " + device + " changed during the capture.";
+    if (full && analysis.replicateChecked && analysis.replicateEsr >= AmpCapture::kReplicateEsrLimit &&
+        analysis.issue == AmpCapture::TakeIssue::Level) {
+        return "The loudness changed during the 3:10. Raw ESR " + juce::String(analysis.replicateEsr, 2) +
+               ", after matching the level " + juce::String(analysis.gainMatchedEsr, 2) +
+               ". NAM will not train a take that is a different volume at the end. The " +
+               juce::String(pedal ? "Drive" : "amp gain") +
+               " stays where it is. Leave the Helix gate off and capture again.";
+    }
+    if (full && analysis.replicateChecked && analysis.replicateEsr >= AmpCapture::kReplicateEsrLimit &&
+        analysis.issue == AmpCapture::TakeIssue::Changed) {
+        return "The sound itself changed during the 3:10. Raw ESR " + juce::String(analysis.replicateEsr, 2) +
+               ", after realigning the Helix delay " + juce::String(analysis.alignedEsr, 2) +
+               ", after matching the level " + juce::String(analysis.gainMatchedEsr, 2) +
+               ". It is not a dB target and not a small clock slip. Leave the Helix buffer fixed and let the " + device +
+               " sit powered for a minute, then capture once. Do not change its gain.";
     }
     return {};
 }
@@ -110,7 +177,8 @@ juce::String writeCapture(const juce::File& folder,
         return "Could not copy input.wav.";
     }
     juce::String error;
-    const auto aligned = AmpCapture::align(recorded, analysis.shift, AmpCapture::kStandardFrames);
+    auto aligned = AmpCapture::align(recorded, analysis.shift, AmpCapture::kStandardFrames);
+    AmpCapture::finishTake(aligned, analysis);
     if (!AmpCapture::writeWav(folder.getChildFile("output.wav"), aligned, &error)) {
         return error;
     }
@@ -280,18 +348,34 @@ void AmpCapturePanel::cloneAmp() {
         setStatus("Name the " + _device + " before capturing it.");
         return;
     }
-    Marketplace::Session session;
-    if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
-        setStatus("Sign in on the Library page before cloning a " + _device + ".");
-        return;
-    }
-
-    _auto = true;
-    _roundTrips = 0;
-    _lastRoundTrip.reset();
-    _cloudTitle = _nameEditor.getText().trim();
-    setStatus("Checking the round trip...");
-    start(Mode::RoundTrip);
+    _busy = true;
+    refreshButtons();
+    setStatus("Checking the sign-in...");
+    const auto device = _device;
+    juce::Component::SafePointer<AmpCapturePanel> safeThis(this);
+    _jobs.addJob([safeThis, device]() {
+        Marketplace::Session session;
+        Marketplace::Client client;
+        const auto library = client.loadSavedSession(session);
+        const auto signedIn = library.status == Marketplace::Status::Success && session.accessToken.isNotEmpty();
+        juce::MessageManager::callAsync([safeThis, signedIn, device]() {
+            if (safeThis == nullptr) {
+                return;
+            }
+            safeThis->_busy = false;
+            safeThis->refreshButtons();
+            if (!signedIn) {
+                safeThis->setStatus(signInBeforeClone(device));
+                return;
+            }
+            safeThis->_auto = true;
+            safeThis->_roundTrips = 0;
+            safeThis->_lastRoundTrip.reset();
+            safeThis->_cloudTitle = safeThis->_nameEditor.getText().trim();
+            safeThis->setStatus("Checking the round trip...");
+            safeThis->start(Mode::RoundTrip);
+        });
+    });
 }
 
 void AmpCapturePanel::start(Mode mode) {
@@ -461,26 +545,33 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
         };
 
         Marketplace::Session session;
-        if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
-            fail("Sign in on the Library page before cloning a " + device + ".");
+        Marketplace::Client client;
+        auto library = client.loadSavedSession(session);
+        if (library.status != Marketplace::Status::Success || session.accessToken.isEmpty()) {
+            fail(signInBeforeClone(device) + keepFailedTake(reampFile, *recorded, analysis, name));
             return;
         }
 
-        Marketplace::Client client;
-        auto refreshed = client.loadLibrary(session);
-        if (refreshed.status == Marketplace::Status::Success) {
-            Marketplace::saveSession(Marketplace::defaultSessionFile(), session);
-        }
         auto job = client.createAmpJob(session.accessToken, name, kind);
+        if (job.status == Marketplace::Status::Unauthorized) {
+            library = client.loadSavedSession(session);
+            if (library.status == Marketplace::Status::Success) {
+                job = client.createAmpJob(session.accessToken, name, kind);
+            }
+        }
         if (job.status != Marketplace::Status::Success) {
-            fail(job.message);
+            const auto reason = job.status == Marketplace::Status::Unauthorized || job.message.contains("token")
+                                    ? signInBeforeClone(device)
+                                    : job.message;
+            fail(reason + keepFailedTake(reampFile, *recorded, analysis, name));
             return;
         }
 
         const auto temp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                               .getChildFile("profiler-" + job.id + "-output.wav");
         juce::String writeError;
-        const auto aligned = AmpCapture::align(*recorded, analysis.shift, AmpCapture::kStandardFrames);
+        auto aligned = AmpCapture::align(*recorded, analysis.shift, AmpCapture::kStandardFrames);
+        AmpCapture::finishTake(aligned, analysis);
         if (!AmpCapture::writeWav(temp, aligned, &writeError)) {
             fail(writeError);
             return;
@@ -505,9 +596,14 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
             return;
         }
 
-        const auto train = client.startAmpTrain(session.accessToken, job.id);
+        auto train = client.startAmpTrain(session.accessToken, job.id);
+        if (train.status == Marketplace::Status::Unauthorized &&
+            client.loadSavedSession(session).status == Marketplace::Status::Success) {
+            train = client.startAmpTrain(session.accessToken, job.id);
+        }
         if (train.status != Marketplace::Status::Success) {
-            fail(train.message.isNotEmpty() ? train.message : "Could not start training.");
+            const auto reason = train.status == Marketplace::Status::Unauthorized ? signInBeforeClone(device) : train.message;
+            fail(reason.isNotEmpty() ? reason : "Could not start training.");
             return;
         }
 
@@ -547,8 +643,7 @@ void AmpCapturePanel::pollCloud() {
         juce::MemoryBlock cipher;
         juce::MemoryBlock key;
         bool ready = false;
-        if (Marketplace::loadSession(Marketplace::defaultSessionFile(), session) && session.accessToken.isNotEmpty()) {
-            client.loadLibrary(session);
+        if (client.loadSavedSession(session).status == Marketplace::Status::Success && session.accessToken.isNotEmpty()) {
             const auto status = client.ampStatus(session.accessToken, jobId);
             state = status.state;
             message = status.message;
