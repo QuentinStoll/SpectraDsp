@@ -22,6 +22,7 @@ struct Preset {
     std::uint8_t routeBypass = 0;
     juce::String ampProfileId;
     juce::String irProfileId;
+    juce::String pedalProfileId;
 };
 
 class PresetManager : public juce::ChangeBroadcaster {

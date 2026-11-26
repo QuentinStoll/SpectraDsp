@@ -88,8 +88,15 @@ class PresetCatalogTests : public juce::UnitTest {
         const auto savedFile = presets.findChildFiles(juce::File::findFiles, false, "*.spectrapreset")[0];
         const auto json = savedFile.loadFileAsString();
         expect(json.contains("ampProfileId"));
+        expect(json.contains("pedalProfileId"));
         expect(!json.contains("\"irPath\""));
         expect(!json.contains("\"ampPath\""));
+
+        expect(!processor.isPedalModelLoaded());
+        const char payload[] = "not-a-model";
+        expect(!processor.loadPedalFromMemory(payload, sizeof(payload) - 1));
+        expect(!processor.isPedalModelLoaded());
+        expect(processor.getActivePedalProfileId().isEmpty());
     }
 
     void testCatalogKeepsProfilesEncrypted() {
@@ -133,6 +140,23 @@ class PresetCatalogTests : public juce::UnitTest {
             expectEquals(entry->title, juce::String("Clean"));
             expect(entry->cipherOnDisk);
         }
+
+        expect(ProfileCatalog::kindFromName("pedal") == ProfileCatalog::Kind::Pedal);
+        expectEquals(ProfileCatalog::nameOf(ProfileCatalog::Kind::Pedal), juce::String("pedal"));
+        expect(catalog.storeCipher("ts9", "Screamer", ProfileCatalog::Kind::Pedal, cipher, 0, 0.0f, true, &error), error);
+        expect(root.folder.getChildFile("pedal-ts9.spectra").existsAsFile());
+        expect(!root.folder.getChildFile("amp-ts9.spectra").existsAsFile());
+        const auto index = root.folder.getChildFile("catalog.json").loadFileAsString();
+        expect(index.contains("\"pedal\""));
+        ProfileCatalog pedalReload(root.folder);
+        const auto* pedal = pedalReload.find("ts9", ProfileCatalog::Kind::Pedal);
+        expect(pedal != nullptr);
+        if (pedal != nullptr) {
+            expectEquals(pedal->title, juce::String("Screamer"));
+            expectEquals(pedal->badge, juce::String("PEDAL"));
+            expect(pedal->cipherOnDisk);
+        }
+        expect(pedalReload.find("ts9", ProfileCatalog::Kind::Amp) == nullptr);
     }
 };
 

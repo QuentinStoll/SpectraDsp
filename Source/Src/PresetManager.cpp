@@ -21,6 +21,7 @@ const juce::Identifier routePathBId{"routePathB"};
 const juce::Identifier routeBypassId{"routeBypass"};
 const juce::Identifier ampProfileIdId{"ampProfileId"};
 const juce::Identifier irProfileIdId{"irProfileId"};
+const juce::Identifier pedalProfileIdId{"pedalProfileId"};
 const juce::Identifier currentPresetIdId{"currentPresetId"};
 
 const juce::String presetFormat{"spectrapreset"};
@@ -266,6 +267,7 @@ bool PresetManager::writePreset(const Preset& preset, juce::String* errorMessage
     root->setProperty(routeBypassId, static_cast<int>(preset.routeBypass));
     root->setProperty(ampProfileIdId, preset.ampProfileId);
     root->setProperty(irProfileIdId, preset.irProfileId);
+    root->setProperty(pedalProfileIdId, preset.pedalProfileId);
 
     auto parameters = std::make_unique<juce::DynamicObject>();
     for (int index = 0; index < preset.parameters.size(); ++index) {
@@ -317,6 +319,7 @@ std::optional<Preset> PresetManager::readPreset(const juce::File& file, juce::St
     preset.routeBypass = static_cast<std::uint8_t>(static_cast<int>(root->getProperty(routeBypassId)) & 0x3F);
     preset.ampProfileId = root->getProperty(ampProfileIdId).toString();
     preset.irProfileId = root->getProperty(irProfileIdId).toString();
+    preset.pedalProfileId = root->getProperty(pedalProfileIdId).toString();
 
     const auto parameters = root->getProperty(parametersId);
     if (auto* object = parameters.getDynamicObject()) {

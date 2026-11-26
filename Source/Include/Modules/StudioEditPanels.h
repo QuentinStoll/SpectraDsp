@@ -175,18 +175,27 @@ class EqPostFxPanel : public juce::Component {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EqPostFxPanel)
 };
 
-class PedalDrivePanel : public juce::Component {
+class PedalDrivePanel : public juce::Component,
+                        private juce::ChangeListener {
    public:
-    explicit PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts);
-    ~PedalDrivePanel() override = default;
+    explicit PedalDrivePanel(ProfilerAudioProcessor& processor);
+    ~PedalDrivePanel() override;
+
+    std::function<void(const juce::String&, bool)> onStatusMessage;
+    std::function<void()> onAssetsChanged;
+    std::function<void(const juce::String& profileId)> onProfileUnavailable;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
     void refreshBypassState();
 
    private:
+    static constexpr const char* circuitId = "pedal-circuit";
+
+    ProfilerAudioProcessor& _processor;
     juce::Label _title{"", "Overdrive"};
     juce::Label _bypassLabel{"", "Bypassed"};
+    ProfileLibraryView _library;
     CustomComboBox _model;
     CustomToggleButton _enabled{"Pedal Enabled"};
     CustomKnob _driveKnob{"Drive", 0.0f, 10.0f, 4.0f, ""};
@@ -197,6 +206,10 @@ class PedalDrivePanel : public juce::Component {
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _driveAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _toneAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _levelAttachment;
+
+    void showProfiles();
+    void loadProfile(const juce::String& id);
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PedalDrivePanel)
 };

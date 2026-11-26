@@ -18,13 +18,33 @@ const juce::Identifier summaryId{"summary"};
 const juce::Identifier badgeId{"badge"};
 
 juce::String kindToString(ProfileCatalog::Kind kind) {
-    return kind == ProfileCatalog::Kind::Ir ? "ir" : "amp";
+    return ProfileCatalog::nameOf(kind);
 }
 
 ProfileCatalog::Kind kindFromString(const juce::String& kind) {
-    return kind == "ir" ? ProfileCatalog::Kind::Ir : ProfileCatalog::Kind::Amp;
+    return ProfileCatalog::kindFromName(kind);
 }
 }  // namespace
+
+juce::String ProfileCatalog::nameOf(Kind kind) {
+    if (kind == Kind::Ir) {
+        return "ir";
+    }
+    if (kind == Kind::Pedal) {
+        return "pedal";
+    }
+    return "amp";
+}
+
+ProfileCatalog::Kind ProfileCatalog::kindFromName(const juce::String& name) {
+    if (name == "ir") {
+        return Kind::Ir;
+    }
+    if (name == "pedal") {
+        return Kind::Pedal;
+    }
+    return Kind::Amp;
+}
 
 ProfileCatalog::ProfileCatalog(juce::File directory)
     : _directory(std::move(directory)) {
@@ -129,9 +149,10 @@ bool ProfileCatalog::storeCipher(const juce::String& id,
     entry->cipherOnDisk = true;
     entry->local = local;
     if (entry->badge.isEmpty()) {
-        entry->badge = kind == Kind::Ir ? "IR" : "AMP";
+        entry->badge = kind == Kind::Ir ? "IR" : kind == Kind::Pedal ? "PEDAL"
+                                                                     : "AMP";
     }
-    if (local && kind == Kind::Ir && entry->summary.isEmpty()) {
+    if (local && (kind == Kind::Ir || kind == Kind::Pedal) && entry->summary.isEmpty()) {
         entry->summary = "Captured in Spectra.";
     }
     saveIndex();
@@ -223,7 +244,8 @@ juce::File ProfileCatalog::indexFile() const {
 }
 
 juce::File ProfileCatalog::cipherFile(const juce::String& id, Kind kind) const {
-    const auto prefix = kind == Kind::Ir ? "ir-" : "amp-";
+    const auto prefix = kind == Kind::Ir ? "ir-" : kind == Kind::Pedal ? "pedal-"
+                                                                       : "amp-";
     return directory().getChildFile(prefix + safeId(id) + ".spectra");
 }
 

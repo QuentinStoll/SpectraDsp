@@ -485,15 +485,19 @@ AmpStatusResult statusFrom(const HttpResponse& response, bool keyCall) {
 }
 }  // namespace
 
-AmpJobResult Client::createAmpJob(const juce::String& accessToken, const juce::String& title) const {
+AmpJobResult Client::createAmpJob(const juce::String& accessToken,
+                                  const juce::String& title,
+                                  const juce::String& kind) const {
     AmpJobResult result;
     if (accessToken.isEmpty()) {
         result.status = Status::Unauthorized;
         result.message = "Sign in to clone an amp.";
         return result;
     }
+    const auto profileKind = kind == "pedal" ? juce::String("pedal") : juce::String("amp");
     auto payload = std::make_unique<juce::DynamicObject>();
     payload->setProperty("title", title.trim().substring(0, 80));
+    payload->setProperty("kind", profileKind);
     const auto json = juce::JSON::toString(juce::var(payload.release()), false);
     return jobFrom(_transport->send("POST", _apiBaseUrl + "/api/v1/plugin/captures/amp", json, accessToken));
 }

@@ -37,7 +37,7 @@ SpectraDSP is professional guitar software. Play an amp model through a cabinet,
 - The amplifier clone is a high-quality WaveNet adapted for real time, with very high fidelity. It is not a GRU, and it is not a lighter stand-in for a WaveNet. Cabinet processing uses convolution.
 - One click clones an amplifier and sends the training to the cloud. The sealed tone shows up in Library when it is ready.
 - One click clones a speaker. That impulse response is ready almost at once.
-- Pedal cloning is not available yet.
+- One click clones a distortion pedal with the same capture and cloud training as an amplifier. The sealed pedal loads in the pedal slot, in front of the amp. Screamer, Distortion, and Boost stay available when no clone is loaded.
 - Adjust input trim, noise gate, amp gain, mute, master volume, and a five-band EQ from the studio.
 - Recall a tone from the profile menu in the top bar. Profiles are `.profilerprofile` files: parameter values plus paths to external amp and IR files.
 - Sign in from **Library** and use tones from the spectradsp.com account.
@@ -144,7 +144,7 @@ For DAW use, copy the entire `build/bin/lib/VST3/Spectra.vst3` bundle to a VST3 
 
 ### Clone a cabinet or an amplifier
 
-One click clones an amplifier. Training runs in the cloud, and the tone appears in Library when it is ready. One click clones a speaker. That impulse response is ready almost at once. Both actions are in the standalone app, after you sign in from **Library**. Pedal cloning is not available yet.
+One click clones an amplifier. Training runs in the cloud, and the tone appears in Library when it is ready. One click clones a speaker. That impulse response is ready almost at once. One click clones a distortion pedal with the same capture. The pedal loads in the pedal slot, in front of the amp. These actions are in the standalone app, after you sign in from **Library**.
 
 ### Profiles
 

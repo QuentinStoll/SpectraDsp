@@ -140,7 +140,7 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
       _ampPanel(p),
       _cabinetPanel(p),
       _eqPanel(p._apvts),
-      _pedalPanel(p._apvts),
+      _pedalPanel(p),
       _masterPanel(p),
       _fxPanel(p),
       _routeMixPanel(p._apvts),
@@ -231,6 +231,16 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         showStatus(message, success);
     };
     _cabinetPanel.onAssetsChanged = [this]() {
+        updateChainStatus();
+    };
+    _pedalPanel.onProfileUnavailable = [this](const juce::String& id) {
+        showOverlay(OverlayMode::Library);
+        _libraryView.downloadAccountProfile(id);
+    };
+    _pedalPanel.onStatusMessage = [this](const juce::String& message, bool success) {
+        showStatus(message, success);
+    };
+    _pedalPanel.onAssetsChanged = [this]() {
         updateChainStatus();
     };
 
