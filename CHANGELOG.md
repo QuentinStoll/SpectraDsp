@@ -6,6 +6,8 @@ Notable changes for every published release are recorded below, newest first. Re
 
 ### Fixed
 
+- Amp and pedal cloning keeps the gain and Drive where they are set. The return level is normalized, a Helix clock slip is removed, and a take NAM would refuse is stopped before upload.
+- Cloning renews the signed-in session before the take and before the upload, so an expired token no longer drops a finished recording.
 - Opening a finished capture from Library keeps the signed download token, so Windows no longer reports that the pack could not be downloaded.
 - Capture upload keeps the storage token on the request, so a finished amp or pedal recording is no longer rejected on Windows before training starts.
 

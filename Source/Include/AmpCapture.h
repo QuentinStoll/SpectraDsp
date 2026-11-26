@@ -20,7 +20,17 @@ constexpr int kLookback = 12'000;
 constexpr int kRoundTripFrames = 600'000;
 constexpr int kTailFrames = 24'000;
 constexpr int kBlipDisagreement = 20;
+constexpr int kLatencyDriftLimit = 8;
 constexpr double kReplicateEsrLimit = 0.01;
+constexpr float kTrainingPeakDb = -6.0f;
+
+// Why the start and the end of a take do not match. None means they match,
+// or a latency/level difference was corrected without touching the amp gain.
+enum class TakeIssue { None,
+                       Latency,
+                       Level,
+                       Hiss,
+                       Changed };
 
 struct Analysis {
     bool detected = false;
@@ -32,7 +42,17 @@ struct Analysis {
     bool clipped = false;
     bool replicateChecked = false;
     double replicateEsr = 0.0;
+    // Extra samples the end validation needs to line up with the start.
+    // Non-zero means the interface delay moved during the take, not the amp.
+    int endDrift = 0;
+    double alignedEsr = 0.0;
+    double gainMatchedEsr = 0.0;
+    TakeIssue issue = TakeIssue::None;
 };
+
+// Removes a measured Helix clock slip, then sets the peak to the training level.
+// The amp gain and the pedal drive are not changed.
+void finishTake(std::vector<float>& aligned, const Analysis& analysis);
 
 bool loadReamp(const juce::File& file, std::vector<float>& samples, juce::String* errorMessage);
 

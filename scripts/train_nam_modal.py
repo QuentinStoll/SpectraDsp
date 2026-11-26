@@ -171,7 +171,11 @@ def _train_capture(
     run(epochs=epochs, user_metadata=UserMetadata(name=name))
     exported = sorted(work.glob("exported_models/*/*.nam"))
     if not exported:
-        raise RuntimeError("NAM did not export a model. Read the data checks above.")
+        raise RuntimeError(
+            "NAM refused to train. The start and the end of the take do not match, "
+            "so no model was exported. Leave the gain where it is, turn off any gate "
+            "or time effect on the return, and capture again."
+        )
 
     nam_bytes = exported[-1].read_bytes()
     payload = _seal(nam_bytes, bytes.fromhex(key_hex)) if key_hex else nam_bytes
