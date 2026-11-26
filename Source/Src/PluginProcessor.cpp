@@ -2984,7 +2984,7 @@ bool ProfilerAudioProcessor::loadCatalogProfile(ProfileCatalog::Kind kind,
         }
     }
 
-    const auto loaded = opened && (kind == ProfileCatalog::Kind::Amp       ? loadAmpFromMemory(plain.getData(), plain.getSize())
+    const auto loaded = opened && (kind == ProfileCatalog::Kind::Amp     ? loadAmpFromMemory(plain.getData(), plain.getSize())
                                    : kind == ProfileCatalog::Kind::Pedal ? loadPedalFromMemory(plain.getData(), plain.getSize())
                                                                          : loadIrFromMemory(plain.getData(), plain.getSize()));
     plain.fillWith(0);
@@ -2993,7 +2993,7 @@ bool ProfilerAudioProcessor::loadCatalogProfile(ProfileCatalog::Kind kind,
 
     if (!loaded) {
         if (errorMessage != nullptr) {
-            *errorMessage = kind == ProfileCatalog::Kind::Amp      ? "Could not decrypt this amp profile."
+            *errorMessage = kind == ProfileCatalog::Kind::Amp     ? "Could not decrypt this amp profile."
                             : kind == ProfileCatalog::Kind::Pedal ? "Could not decrypt this pedal profile."
                                                                   : "Could not decrypt this IR profile.";
         }

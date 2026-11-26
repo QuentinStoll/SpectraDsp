@@ -65,9 +65,9 @@ juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<
 }
 
 juce::String cloudRejectReason(const AmpCapture::Analysis& analysis,
-                                 const std::optional<int>& previous,
-                                 bool full,
-                                 const juce::String& device) {
+                               const std::optional<int>& previous,
+                               bool full,
+                               const juce::String& device) {
     if (!analysis.detected) {
         return "No stable return. Check the send, the " + device + " and input 1.";
     }

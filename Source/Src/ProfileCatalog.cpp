@@ -149,7 +149,8 @@ bool ProfileCatalog::storeCipher(const juce::String& id,
     entry->cipherOnDisk = true;
     entry->local = local;
     if (entry->badge.isEmpty()) {
-        entry->badge = kind == Kind::Ir ? "IR" : kind == Kind::Pedal ? "PEDAL" : "AMP";
+        entry->badge = kind == Kind::Ir ? "IR" : kind == Kind::Pedal ? "PEDAL"
+                                                                     : "AMP";
     }
     if (local && (kind == Kind::Ir || kind == Kind::Pedal) && entry->summary.isEmpty()) {
         entry->summary = "Captured in Spectra.";
@@ -243,7 +244,8 @@ juce::File ProfileCatalog::indexFile() const {
 }
 
 juce::File ProfileCatalog::cipherFile(const juce::String& id, Kind kind) const {
-    const auto prefix = kind == Kind::Ir ? "ir-" : kind == Kind::Pedal ? "pedal-" : "amp-";
+    const auto prefix = kind == Kind::Ir ? "ir-" : kind == Kind::Pedal ? "pedal-"
+                                                                       : "amp-";
     return directory().getChildFile(prefix + safeId(id) + ".spectra");
 }
 

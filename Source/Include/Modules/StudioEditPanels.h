@@ -176,7 +176,7 @@ class EqPostFxPanel : public juce::Component {
 };
 
 class PedalDrivePanel : public juce::Component,
-                         private juce::ChangeListener {
+                        private juce::ChangeListener {
    public:
     explicit PedalDrivePanel(ProfilerAudioProcessor& processor);
     ~PedalDrivePanel() override;
