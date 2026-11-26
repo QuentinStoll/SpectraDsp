@@ -4,6 +4,10 @@ Notable changes for every published release are recorded below, newest first. Re
 
 ## Unreleased
 
+### Fixed
+
+- Capture upload keeps the storage token on the request, so a finished amp or pedal recording is no longer rejected on Windows before training starts.
+
 ### Added
 
 - Clone pedal uses the amplifier capture and cloud training, then loads the WaveNet in the pedal slot in front of the amp. The built-in Screamer, Distortion, and Boost circuits remain when no clone is loaded.

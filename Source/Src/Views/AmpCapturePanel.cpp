@@ -494,9 +494,14 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
             fail("Could not read the capture audio.");
             return;
         }
-        if (Marketplace::uploadSigned(job.inputUploadUrl, input.getData(), input.getSize()) != Marketplace::Status::Success ||
-            Marketplace::uploadSigned(job.outputUploadUrl, output.getData(), output.getSize()) != Marketplace::Status::Success) {
-            fail("Could not upload the capture. The audio was not kept on this machine.");
+        juce::String uploadFailure;
+        if (Marketplace::uploadSigned(job.inputUploadUrl, input.getData(), input.getSize(), &uploadFailure) !=
+                Marketplace::Status::Success ||
+            Marketplace::uploadSigned(job.outputUploadUrl, output.getData(), output.getSize(), &uploadFailure) !=
+                Marketplace::Status::Success) {
+            fail(uploadFailure.isNotEmpty()
+                     ? uploadFailure + " The audio was not kept on this machine."
+                     : "Could not upload the capture. The audio was not kept on this machine.");
             return;
         }
 

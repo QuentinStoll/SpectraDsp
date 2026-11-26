@@ -178,7 +178,10 @@ class Client {
     static bool sendBearerToken(const juce::String& absoluteUrl);
 };
 
-Status uploadSigned(const juce::String& signedUrl, const void* data, size_t size);
+Status uploadSigned(const juce::String& signedUrl,
+                    const void* data,
+                    size_t size,
+                    juce::String* failure = nullptr);
 
 bool saveSession(const juce::File& file, const Session& session);
 bool loadSession(const juce::File& file, Session& session);

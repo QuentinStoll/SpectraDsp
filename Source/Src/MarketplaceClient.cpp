@@ -2,6 +2,12 @@
 
 #include "SettingsPath.h"
 
+#if JUCE_WINDOWS
+#include <windows.h>
+#undef interface
+#include <wininet.h>
+#endif
+
 namespace Marketplace {
 namespace {
 class UrlHttpTransport : public HttpTransport {
@@ -532,24 +538,165 @@ AmpStatusResult Client::ampKey(const juce::String& accessToken, const juce::Stri
     return statusFrom(_transport->send("GET", _apiBaseUrl + "/api/v1/plugin/captures/amp/" + captureId + "/key", {}, accessToken), true);
 }
 
-Status uploadSigned(const juce::String& signedUrl, const void* data, size_t size) {
-    if (signedUrl.isEmpty() || data == nullptr || size == 0) {
+void noteUploadFailure(juce::String* failure, const juce::String& message) {
+    if (failure != nullptr) {
+        *failure = message;
+    }
+}
+
+bool uploadAccepted(int statusCode) noexcept {
+    return statusCode == 200 || statusCode == 201;
+}
+
+#if JUCE_WINDOWS
+struct InternetHandle {
+    HINTERNET handle = nullptr;
+    ~InternetHandle() {
+        if (handle != nullptr) {
+            InternetCloseHandle(handle);
+        }
+    }
+};
+
+// JUCE on Windows drops the signed URL query while building the request, and with
+// inPostData it also writes that token in front of the wav. Supabase then refuses the PUT.
+Status uploadSignedWindows(const juce::String& signedUrl, const void* data, size_t size, juce::String* failure) {
+    URL_COMPONENTSW parts{};
+    parts.dwStructSize = sizeof(parts);
+    wchar_t scheme[16]{};
+    wchar_t host[512]{};
+    wchar_t path[2048]{};
+    wchar_t extra[16384]{};
+    parts.lpszScheme = scheme;
+    parts.dwSchemeLength = (DWORD)std::size(scheme);
+    parts.lpszHostName = host;
+    parts.dwHostNameLength = (DWORD)std::size(host);
+    parts.lpszUrlPath = path;
+    parts.dwUrlPathLength = (DWORD)std::size(path);
+    parts.lpszExtraInfo = extra;
+    parts.dwExtraInfoLength = (DWORD)std::size(extra);
+    if (!InternetCrackUrlW(signedUrl.toWideCharPointer(), 0, 0, &parts)) {
+        noteUploadFailure(failure, "The upload address was invalid.");
         return Status::BadRequest;
     }
 
+    InternetHandle session{InternetOpenW(L"Spectra", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0)};
+    if (session.handle == nullptr) {
+        noteUploadFailure(failure, "Could not open a connection.");
+        return Status::TransportError;
+    }
+
+    InternetHandle connection{InternetConnectW(session.handle,
+                                               host,
+                                               parts.nPort,
+                                               nullptr,
+                                               nullptr,
+                                               INTERNET_SERVICE_HTTP,
+                                               0,
+                                               0)};
+    if (connection.handle == nullptr) {
+        noteUploadFailure(failure, "Could not reach the capture storage.");
+        return Status::TransportError;
+    }
+
+    const juce::String object = juce::String(path) + juce::String(extra);
+    DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_COOKIES;
+    if (parts.nScheme == INTERNET_SCHEME_HTTPS) {
+        flags |= INTERNET_FLAG_SECURE;
+    }
+    InternetHandle request{HttpOpenRequestW(connection.handle,
+                                            L"PUT",
+                                            object.toWideCharPointer(),
+                                            nullptr,
+                                            nullptr,
+                                            nullptr,
+                                            flags,
+                                            0)};
+    if (request.handle == nullptr) {
+        noteUploadFailure(failure, "Could not open the capture upload.");
+        return Status::TransportError;
+    }
+
+    const auto timeout = 180000u;
+    InternetSetOptionW(request.handle, INTERNET_OPTION_SEND_TIMEOUT, (LPVOID)&timeout, sizeof(timeout));
+    InternetSetOptionW(request.handle, INTERNET_OPTION_RECEIVE_TIMEOUT, (LPVOID)&timeout, sizeof(timeout));
+
+    const wchar_t* headers = L"Content-Type: application/octet-stream\r\nx-upsert: true\r\n";
+    INTERNET_BUFFERSW buffers{};
+    buffers.dwStructSize = sizeof(buffers);
+    buffers.lpcszHeader = headers;
+    buffers.dwHeadersLength = (DWORD)std::wcslen(headers);
+    buffers.dwBufferTotal = (DWORD)size;
+    if (!HttpSendRequestExW(request.handle, &buffers, nullptr, 0, 0)) {
+        noteUploadFailure(failure, "Could not start the capture upload.");
+        return Status::TransportError;
+    }
+
+    const auto* bytes = static_cast<const char*>(data);
+    size_t sent = 0;
+    while (sent < size) {
+        DWORD written = 0;
+        const auto chunk = (DWORD)std::min<size_t>(64 * 1024, size - sent);
+        if (!InternetWriteFile(request.handle, bytes + sent, chunk, &written) || written == 0) {
+            noteUploadFailure(failure, "The capture upload was interrupted.");
+            HttpEndRequestW(request.handle, nullptr, 0, 0);
+            return Status::TransportError;
+        }
+        sent += written;
+    }
+    if (!HttpEndRequestW(request.handle, nullptr, 0, 0)) {
+        noteUploadFailure(failure, "The capture upload did not finish.");
+        return Status::TransportError;
+    }
+
+    DWORD statusCode = 0;
+    DWORD statusSize = sizeof(statusCode);
+    HttpQueryInfoW(request.handle,
+                   HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+                   &statusCode,
+                   &statusSize,
+                   nullptr);
+    if (!uploadAccepted((int)statusCode)) {
+        char body[256]{};
+        DWORD read = 0;
+        InternetReadFile(request.handle, body, sizeof(body) - 1, &read);
+        const auto detail = juce::String::fromUTF8(body, (int)read).trim();
+        noteUploadFailure(failure,
+                          "Storage refused the upload (HTTP " + juce::String((int)statusCode) + ")" +
+                              (detail.isNotEmpty() ? ": " + detail : juce::String()));
+        return statusFromCode((int)statusCode, false);
+    }
+    return Status::Success;
+}
+#endif
+
+Status uploadSigned(const juce::String& signedUrl, const void* data, size_t size, juce::String* failure) {
+    if (signedUrl.isEmpty() || data == nullptr || size == 0) {
+        noteUploadFailure(failure, "The capture upload was not prepared.");
+        return Status::BadRequest;
+    }
+
+#if JUCE_WINDOWS
+    return uploadSignedWindows(signedUrl, data, size, failure);
+#else
     juce::MemoryBlock block(data, size);
-    juce::URL requestUrl(signedUrl);
-    requestUrl = requestUrl.withPOSTData(block);
+    auto requestUrl = juce::URL::createWithoutParsing(signedUrl).withPOSTData(block);
     int statusCode = 0;
-    const auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
+    const auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                              .withConnectionTimeoutMs(180000)
                              .withExtraHeaders("Content-Type: application/octet-stream\r\nx-upsert: true\r\n")
                              .withHttpRequestCmd("PUT")
                              .withStatusCode(&statusCode);
     if (requestUrl.createInputStream(options) == nullptr && statusCode == 0) {
+        noteUploadFailure(failure, "Could not reach the capture storage.");
         return Status::TransportError;
     }
-    return statusFromCode(statusCode, false);
+    if (!uploadAccepted(statusCode)) {
+        noteUploadFailure(failure, "Storage refused the upload (HTTP " + juce::String(statusCode) + ").");
+        return statusFromCode(statusCode, false);
+    }
+    return Status::Success;
+#endif
 }
 
 bool Client::isSixDigitCode(const juce::String& code) {
