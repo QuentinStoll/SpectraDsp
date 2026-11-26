@@ -62,6 +62,9 @@ inline juce::String badgeFor(const LibraryItem& item) {
     if (item.kind == "ir") {
         return "IR";
     }
+    if (item.kind == "pedal") {
+        return "PEDAL";
+    }
     return item.hasIntegratedIr || item.hasSeparateIr ? "AMP + IR" : "AMP";
 }
 
@@ -158,7 +161,9 @@ class Client {
                                   const juce::String& title,
                                   const std::array<std::uint8_t, 32>& key,
                                   const juce::MemoryBlock& sealed) const;
-    AmpJobResult createAmpJob(const juce::String& accessToken, const juce::String& title) const;
+    AmpJobResult createAmpJob(const juce::String& accessToken,
+                              const juce::String& title,
+                              const juce::String& kind = "amp") const;
     AmpTrainResult startAmpTrain(const juce::String& accessToken, const juce::String& captureId) const;
     AmpStatusResult ampStatus(const juce::String& accessToken, const juce::String& captureId) const;
     AmpStatusResult ampKey(const juce::String& accessToken, const juce::String& captureId) const;

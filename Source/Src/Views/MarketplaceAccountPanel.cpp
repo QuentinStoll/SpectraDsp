@@ -489,11 +489,11 @@ void MarketplaceAccountPanel::downloadPack(int index) {
     const auto session = _session;
     const auto listedProfile = Marketplace::conditionProfileIndex(_items[static_cast<size_t>(index)].conditionProfile);
     const auto listedAmount = _items[static_cast<size_t>(index)].conditionAmount;
-    if (kind == "amp") {
+    if (kind == "amp" || kind == "pedal") {
         _libraryMessage = "Opening " + title + "...";
         setBusy(true);
         juce::Component::SafePointer<MarketplaceAccountPanel> safeThis(this);
-        _jobs.addJob([safeThis, packId, session, title, listedProfile, listedAmount]() {
+        _jobs.addJob([safeThis, packId, session, title, kind, listedProfile, listedAmount]() {
             juce::MemoryBlock cipher;
             juce::MemoryBlock key;
             juce::MemoryBlock irCipher;
@@ -507,27 +507,28 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 const Marketplace::LibraryItem* fresh = nullptr;
                 if (library.status == Marketplace::Status::Success) {
                     for (const auto& item : library.items) {
-                        if (item.id == packId && item.kind == "amp") {
+                        if (item.id == packId && item.kind == kind) {
                             fresh = &item;
                             break;
                         }
                     }
                 }
+                const auto noun = kind == "pedal" ? juce::String("pedal") : juce::String("amp");
                 if (fresh == nullptr || fresh->fileUrl.isEmpty()) {
-                    error = library.status == Marketplace::Status::Success ? "This amp is not ready yet." : library.message;
+                    error = library.status == Marketplace::Status::Success ? "This " + noun + " is not ready yet." : library.message;
                 } else {
                     const auto downloaded = safeThis->_client.download(fresh->fileUrl, working.accessToken);
                     const auto keyResult = safeThis->_client.ampKey(working.accessToken, packId);
                     juce::MemoryOutputStream decodedKey;
                     if (downloaded.status != Marketplace::Status::Success || keyResult.status != Marketplace::Status::Success ||
                         !juce::Base64::convertFromBase64(decodedKey, keyResult.message) || decodedKey.getDataSize() != 32) {
-                        error = downloaded.message.isNotEmpty() ? downloaded.message : "Could not open this amp.";
+                        error = downloaded.message.isNotEmpty() ? downloaded.message : "Could not open this " + noun + ".";
                     } else {
                         cipher = downloaded.body;
                         key = decodedKey.getMemoryBlock();
                         conditionProfile = Marketplace::conditionProfileIndex(fresh->conditionProfile);
                         conditionAmount = fresh->conditionAmount;
-                        separateIr = fresh->hasSeparateIr && !fresh->hasIntegratedIr;
+                        separateIr = kind == "amp" && fresh->hasSeparateIr && !fresh->hasIntegratedIr;
                         if (separateIr) {
                             const auto impulse = safeThis->_client.download(fresh->irFileUrl, working.accessToken);
                             if (impulse.status == Marketplace::Status::Success) {
@@ -541,7 +542,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 }
             }
 
-            juce::MessageManager::callAsync([safeThis, packId, title, working, cipher, key, irCipher, error, conditionProfile, conditionAmount, separateIr]() mutable {
+            juce::MessageManager::callAsync([safeThis, packId, title, kind, working, cipher, key, irCipher, error, conditionProfile, conditionAmount, separateIr]() mutable {
                 if (safeThis == nullptr) {
                     return;
                 }
@@ -561,7 +562,7 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 }
                 juce::String playError;
                 const auto played = safeThis->onEncryptedProfile != nullptr &&
-                                    safeThis->onEncryptedProfile(working.accessToken, packId, title, "amp", cipher, key,
+                                    safeThis->onEncryptedProfile(working.accessToken, packId, title, kind, cipher, key,
                                                                  conditionProfile, conditionAmount, &playError);
                 auto irPlayed = true;
                 if (played && separateIr && irCipher.getSize() > 0) {
@@ -572,7 +573,8 @@ void MarketplaceAccountPanel::downloadPack(int index) {
                 cipher.fillWith(0);
                 key.fillWith(0);
                 irCipher.fillWith(0);
-                safeThis->_libraryMessage = played && irPlayed ? "Amp profile loaded." : playError;
+                const auto loadedMessage = kind == "pedal" ? juce::String("Pedal profile loaded.") : juce::String("Amp profile loaded.");
+                safeThis->_libraryMessage = played && irPlayed ? loadedMessage : playError;
                 safeThis->setBusy(false);
             });
         });

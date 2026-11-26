@@ -836,8 +836,9 @@ void EqPostFxPanel::resized() {
     _eqModule.setBounds(area);
 }
 
-PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
-    configurePanelTitle(_title, "Overdrive");
+PedalDrivePanel::PedalDrivePanel(ProfilerAudioProcessor& processor)
+    : _processor(processor) {
+    configurePanelTitle(_title, "Pedal");
     configureBypassLabel(_bypassLabel);
     _enabled.setLabelVisible(false);
 
@@ -846,36 +847,121 @@ PedalDrivePanel::PedalDrivePanel(juce::AudioProcessorValueTreeState& apvts) {
     _model.addItem("Boost", 3);
     addAndMakeVisible(_title);
     addAndMakeVisible(_bypassLabel);
+    addAndMakeVisible(_library);
     addAndMakeVisible(_model);
     addAndMakeVisible(_enabled);
     addAndMakeVisible(_driveKnob);
     addAndMakeVisible(_toneKnob);
     addAndMakeVisible(_levelKnob);
 
+    _processor.getProfileCatalog().addChangeListener(this);
+    _library.onCardClicked = [this](const juce::String& id) { loadProfile(id); };
+
     _enabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        apvts, "isPedalEnabled", _enabled);
+        processor._apvts, "isPedalEnabled", _enabled);
     _modelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        apvts, "pedalModel", _model);
+        processor._apvts, "pedalModel", _model);
     _driveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "pedalDrive", _driveKnob.getSlider());
+        processor._apvts, "pedalDrive", _driveKnob.getSlider());
     _toneAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "pedalTone", _toneKnob.getSlider());
+        processor._apvts, "pedalTone", _toneKnob.getSlider());
     _levelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "pedalLevel", _levelKnob.getSlider());
+        processor._apvts, "pedalLevel", _levelKnob.getSlider());
 
     _enabled.onClick = [this]() {
         refreshBypassState();
+        if (onAssetsChanged) {
+            onAssetsChanged();
+        }
     };
+    showProfiles();
     refreshBypassState();
 }
 
+PedalDrivePanel::~PedalDrivePanel() {
+    _processor.getProfileCatalog().removeChangeListener(this);
+}
+
+void PedalDrivePanel::showProfiles() {
+    std::vector<ProfileLibraryView::Card> cards;
+    const auto cloneLoaded = _processor.isPedalModelLoaded();
+    ProfileLibraryView::Card circuit;
+    circuit.id = circuitId;
+    circuit.title = "Circuit";
+    circuit.summary = "Screamer, distortion, or boost.";
+    circuit.badge = "CIRCUIT";
+    circuit.spectra = false;
+    circuit.selected = !cloneLoaded;
+    cards.push_back(std::move(circuit));
+
+    const auto activeId = _processor.getActivePedalProfileId();
+    for (const auto& entry : _processor.getProfileCatalog().entries(ProfileCatalog::Kind::Pedal)) {
+        ProfileLibraryView::Card card;
+        card.id = entry.id;
+        card.title = entry.title.isNotEmpty() ? entry.title : "Pedal profile";
+        card.author = entry.author;
+        card.summary = entry.summary;
+        card.badge = entry.badge.isNotEmpty() ? entry.badge : "PEDAL";
+        card.selected = cloneLoaded && entry.id == activeId;
+        cards.push_back(std::move(card));
+    }
+    _library.setCards(std::move(cards));
+}
+
+void PedalDrivePanel::loadProfile(const juce::String& id) {
+    if (id == circuitId) {
+        _processor.unloadPedal();
+        if (onStatusMessage) {
+            onStatusMessage("Pedal circuit", true);
+        }
+    } else {
+        juce::String error;
+        if (_processor.loadCatalogProfile(ProfileCatalog::Kind::Pedal, id, &error)) {
+            _processor.ensurePedalInChain();
+            if (onStatusMessage) {
+                onStatusMessage("Pedal profile loaded", true);
+            }
+        } else if (onProfileUnavailable) {
+            onProfileUnavailable(id);
+        } else if (onStatusMessage) {
+            onStatusMessage(error, false);
+        }
+    }
+    refreshBypassState();
+    if (onAssetsChanged) {
+        onAssetsChanged();
+    }
+}
+
+void PedalDrivePanel::changeListenerCallback(juce::ChangeBroadcaster* source) {
+    if (source == &_processor.getProfileCatalog()) {
+        refreshBypassState();
+    }
+}
+
 void PedalDrivePanel::refreshBypassState() {
+    showProfiles();
+    const auto cloneLoaded = _processor.isPedalModelLoaded();
     const auto enabled = _enabled.getToggleState();
+    _model.setVisible(!cloneLoaded);
+    _driveKnob.setVisible(!cloneLoaded);
+    _toneKnob.setVisible(!cloneLoaded);
+    _levelKnob.setVisible(!cloneLoaded);
     _model.setEnabled(enabled);
     _driveKnob.setEnabled(enabled);
     _toneKnob.setEnabled(enabled);
     _levelKnob.setEnabled(enabled);
-    _bypassLabel.setVisible(!enabled);
+    const auto* entry = _processor.getProfileCatalog().find(_processor.getActivePedalProfileId(), ProfileCatalog::Kind::Pedal);
+    if (!enabled) {
+        _bypassLabel.setText("BYPASSED", juce::dontSendNotification);
+    } else if (cloneLoaded && entry != nullptr) {
+        _bypassLabel.setText(entry->title, juce::dontSendNotification);
+    } else if (cloneLoaded) {
+        _bypassLabel.setText("PEDAL CLONE", juce::dontSendNotification);
+    } else {
+        _bypassLabel.setText("CIRCUIT", juce::dontSendNotification);
+    }
+    _bypassLabel.setVisible(true);
     resized();
 }
 
@@ -886,16 +972,25 @@ void PedalDrivePanel::resized() {
     auto header = area.removeFromTop(22);
     _enabled.setBounds(header.removeFromRight(48).withSizeKeepingCentre(48, 20));
     header.removeFromRight(8);
-    _bypassLabel.setBounds(header.removeFromRight(80));
+    _bypassLabel.setBounds(header.removeFromRight(160));
     header.removeFromRight(8);
     _title.setBounds(header);
-    area.removeFromTop(4);
-    _model.setBounds(area.removeFromTop(24).removeFromLeft(180));
     area.removeFromTop(6);
 
+    const auto cloneLoaded = _processor.isPedalModelLoaded();
+    if (cloneLoaded) {
+        _library.setBounds(area);
+        return;
+    }
+
+    auto controls = area.removeFromRight(juce::jmin(area.getWidth() / 2, kKnobWidth * 3 + kKnobGap * 2));
+    area.removeFromRight(8);
+    _library.setBounds(area);
+    _model.setBounds(controls.removeFromTop(24).removeFromLeft(180));
+    controls.removeFromTop(6);
     constexpr int knobWidth = kKnobWidth;
     constexpr int gap = kKnobGap;
-    auto row = juce::Rectangle<int>(knobWidth * 3 + gap * 2, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
+    auto row = controls.removeFromTop(juce::jmin(kKnobRowHeight, controls.getHeight()));
     _driveKnob.setBounds(row.removeFromLeft(knobWidth));
     row.removeFromLeft(gap);
     _toneKnob.setBounds(row.removeFromLeft(knobWidth));

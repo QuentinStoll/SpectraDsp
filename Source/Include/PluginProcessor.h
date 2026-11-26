@@ -80,6 +80,10 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     void unloadIRFile();
     bool loadAmpFile(const juce::File& file);
     bool loadAmpFromMemory(const void* data, size_t size);
+    bool loadPedalFromMemory(const void* data, size_t size);
+    void unloadPedal();
+    bool isPedalModelLoaded() const noexcept;
+    void ensurePedalInChain();
     bool loadIrFromMemory(const void* data, size_t size);
     bool loadProtectedAmp(const void* data, size_t size);
     bool loadSpectraModel(const void* cipher, size_t cipherSize, const uint8_t* key, size_t keySize);
@@ -135,8 +139,10 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
                             juce::String* errorMessage = nullptr);
     juce::String getActiveAmpProfileId() const;
     juce::String getActiveIrProfileId() const;
+    juce::String getActivePedalProfileId() const;
     void clearActiveAmpProfile();
     void clearActiveIrProfile();
+    void clearActivePedalProfile();
     float getRmsLevelInput() const noexcept;
     float getRmsLevelOutput() const noexcept;
     bool readTuner(Fx::TunerSnapshot& snapshot) const;
@@ -256,6 +262,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::array<AmpCondition, kChainCopies> _ampConditions{};
     std::array<std::vector<float>, kChainCopies> _ampInputScratch{};
     std::array<std::vector<float>, kChainCopies> _ampWetScratch{};
+    std::array<std::vector<float>, kChainCopies> _pedalInputScratch{};
+    std::array<std::vector<float>, kChainCopies> _pedalWetScratch{};
 
     enum class IrCaptureState {
         Idle = 0,
@@ -292,6 +300,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     ProfileCatalog _profileCatalog;
     juce::String _activeAmpProfileId;
     juce::String _activeIrProfileId;
+    juce::String _activePedalProfileId;
     SpectraEngine _spectra;
     IrCapture _irCapture;
     AmpCaptureSession _ampCapture;
@@ -412,6 +421,7 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::vector<std::unique_ptr<RTNeural::Model<float>>> _ampCopies;
     juce::MemoryBlock _ampModelBytes;
     SpectraAmp _spectraAmp;
+    SpectraAmp _spectraPedal;
     std::array<std::vector<float>, 2> _splitLeft{};
     std::array<std::vector<float>, 2> _splitRight{};
     std::array<std::vector<float>, 2> _alignLeft{};

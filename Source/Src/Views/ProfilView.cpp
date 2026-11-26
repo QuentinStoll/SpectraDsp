@@ -27,6 +27,11 @@ std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marke
             listings.push_back(listing);
             continue;
         }
+        if (item.kind == "pedal") {
+            listing.kind = ProfileCatalog::Kind::Pedal;
+            listings.push_back(listing);
+            continue;
+        }
 
         listing.kind = ProfileCatalog::Kind::Amp;
         listings.push_back(listing);
@@ -45,12 +50,12 @@ std::vector<ProfileCatalog::Listing> listingsFromAccount(const std::vector<Marke
 }
 
 bool isDownloaded(const ProfileCatalog& catalog, const Marketplace::LibraryItem& item) {
-    const auto kind = item.kind == "ir" ? ProfileCatalog::Kind::Ir : ProfileCatalog::Kind::Amp;
+    const auto kind = ProfileCatalog::kindFromName(item.kind);
     const auto* entry = catalog.find(item.id, kind);
     if (entry == nullptr || !entry->cipherOnDisk) {
         return false;
     }
-    if (item.kind != "amp") {
+    if (item.kind != "amp" && item.kind != "pedal") {
         return true;
     }
     juce::MemoryBlock key;
@@ -83,7 +88,15 @@ ProfilView::ProfilView(ProfilerAudioProcessor& p)
 
     _accountPanel.onStateChanged = [this]() { refreshMarketplace(); };
     _accountPanel.onLibraryChanged = [this](const std::vector<Marketplace::LibraryItem>& items) {
-        _audioProcessor.getProfileCatalog().syncAccount(listingsFromAccount(items));
+        auto listings = listingsFromAccount(items);
+        auto& catalog = _audioProcessor.getProfileCatalog();
+        for (auto& listing : listings) {
+            if (listing.kind == ProfileCatalog::Kind::Amp && catalog.find(listing.id, ProfileCatalog::Kind::Pedal) != nullptr) {
+                listing.kind = ProfileCatalog::Kind::Pedal;
+                listing.badge = "PEDAL";
+            }
+        }
+        catalog.syncAccount(listings);
     };
     _accountPanel.onEncryptedProfile = [this](const juce::String& accessToken, const juce::String& id, const juce::String& title,
                                               const juce::String& kind, const juce::MemoryBlock& cipher, const juce::MemoryBlock& key,
@@ -167,7 +180,12 @@ bool ProfilView::storeEncryptedProfile(const juce::String& accessToken,
     if (accessToken.isNotEmpty()) {
         _audioProcessor.unlockSpectraSession(accessToken);
     }
-    return _audioProcessor.importEncryptedProfile(kind == "ir" ? ProfileCatalog::Kind::Ir : ProfileCatalog::Kind::Amp,
+    auto catalogKind = ProfileCatalog::kindFromName(kind);
+    if (catalogKind == ProfileCatalog::Kind::Amp &&
+        _audioProcessor.getProfileCatalog().find(id, ProfileCatalog::Kind::Pedal) != nullptr) {
+        catalogKind = ProfileCatalog::Kind::Pedal;
+    }
+    return _audioProcessor.importEncryptedProfile(catalogKind,
                                                   id,
                                                   title,
                                                   cipher,

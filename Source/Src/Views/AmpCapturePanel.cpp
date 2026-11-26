@@ -25,14 +25,15 @@ juce::String decibels(float gain) {
     return juce::String(juce::Decibels::gainToDecibels(gain, -120.0f), 1) + " dBFS";
 }
 
-juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<int>& previous) {
+juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<int>& previous, const juce::String& device) {
     if (analysis.returnPeak < 1.0e-4f) {
         return "Input 1 stayed silent. Untick \"Mute audio input\" in Options > Audio/MIDI Settings, then check the "
-               "cable from the amp and the interface input gain.";
+               "cable from the " +
+               device + " and the interface input gain.";
     }
     if (!analysis.detected) {
-        return "No blip came back above the noise (return peak " + decibels(analysis.returnPeak) +
-               "). Check that the amp feeds input 1.";
+        return "No blip came back above the noise (return peak " + decibels(analysis.returnPeak) + "). Check that the " +
+               device + " feeds input 1.";
     }
 
     const auto milliseconds = analysis.latency * 1000.0 / AmpCapture::kSampleRate;
@@ -50,7 +51,7 @@ juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<
     }
     lines.add("Return peak " + decibels(analysis.returnPeak) + ", noise " + decibels(analysis.noiseRms) + ".");
     if (analysis.clipped) {
-        lines.add("The return clips. Lower the amp output or the interface input gain.");
+        lines.add("The return clips. Lower the " + device + " output or the interface input gain.");
     } else if (analysis.returnPeak < 0.01f) {
         lines.add("The return is very quiet. Raise the interface input gain.");
     }
@@ -58,33 +59,36 @@ juce::String describe(const AmpCapture::Analysis& analysis, const std::optional<
         const auto passed = analysis.replicateEsr < AmpCapture::kReplicateEsrLimit;
         lines.add("Start vs end ESR " + juce::String(analysis.replicateEsr, 5) +
                   (passed ? " (OK, NAM wants under 0.01)."
-                          : " (too high: the amp or the capture changed between start and end)."));
+                          : " (too high: the " + device + " or the capture changed between start and end)."));
     }
     return lines.joinIntoString("\n");
 }
 
-juce::String cloudRejectReason(const AmpCapture::Analysis& analysis, const std::optional<int>& previous, bool full) {
+juce::String cloudRejectReason(const AmpCapture::Analysis& analysis,
+                                 const std::optional<int>& previous,
+                                 bool full,
+                                 const juce::String& device) {
     if (!analysis.detected) {
-        return "No stable return. Check the send, the amp and input 1.";
+        return "No stable return. Check the send, the " + device + " and input 1.";
     }
     if (std::abs(analysis.blipLatency[0] - analysis.blipLatency[1]) >= AmpCapture::kBlipDisagreement) {
         return "The two blips disagree. The return is unstable or too noisy.";
     }
     if (analysis.clipped) {
-        return "The return clips. Lower the amp output or the interface input gain.";
+        return "The return clips. Lower the " + device + " output or the interface input gain.";
     }
     const auto peakDb = juce::Decibels::gainToDecibels(analysis.returnPeak, -120.0f);
     if (peakDb < -12.0f) {
         return "The return is quieter than -12 dBFS. Raise the interface input gain.";
     }
     if (peakDb > -0.1f) {
-        return "The return is too hot. Lower the amp output or the interface input gain.";
+        return "The return is too hot. Lower the " + device + " output or the interface input gain.";
     }
     if (previous.has_value() && std::abs(analysis.latency - *previous) > 2) {
         return "Latency moved by more than 2 samples. Keep the routing still and try again.";
     }
     if (full && analysis.replicateChecked && analysis.replicateEsr >= AmpCapture::kReplicateEsrLimit) {
-        return "Start vs end ESR is too high. The amp changed during the capture.";
+        return "Start vs end ESR is too high. The " + device + " changed during the capture.";
     }
     return {};
 }
@@ -125,9 +129,15 @@ juce::String writeCapture(const juce::File& folder,
 }
 }  // namespace
 
-AmpCapturePanel::AmpCapturePanel(ProfilerAudioProcessor& processor)
-    : _processor(processor), _reampFile(defaultReampFile()) {
-    _title.setText("Clone amp", juce::dontSendNotification);
+AmpCapturePanel::AmpCapturePanel(ProfilerAudioProcessor& processor, Target target)
+    : _processor(processor),
+      _target(target),
+      _device(target == Target::Pedal ? "pedal" : "amp"),
+      _reampFile(defaultReampFile()) {
+    _title.setText(_target == Target::Pedal ? "Clone pedal" : "Clone amp", juce::dontSendNotification);
+    if (_target == Target::Pedal) {
+        _captureButton.setButtonText("Capture pedal");
+    }
     _title.setFont(ProfilerStyle::Fonts::bold(20.0f));
     _title.setColour(juce::Label::textColourId, ProfilerStyle::Colors::text);
     addAndMakeVisible(_title);
@@ -187,13 +197,13 @@ AmpCapturePanel::AmpCapturePanel(ProfilerAudioProcessor& processor)
 
     if (_processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
         _body.setText(
-            "One click checks the round trip twice, records the amp and sends it to training. "
-            "Sign in on the Library page first. The sealed profile appears there when it is ready.",
+            "One click checks the round trip twice, records the " + _device +
+                " and sends it to training. "
+                "Sign in on the Library page first. The sealed profile appears there when it is ready.",
             juce::dontSendNotification);
     } else {
         _body.setText(
-            "Amp capture plays the reamp signal and records the return. Use the standalone, which owns the "
-            "audio device.",
+            "Capture plays the reamp signal and records the return. Use the standalone, which owns the audio device.",
             juce::dontSendNotification);
     }
     refreshButtons();
@@ -267,12 +277,12 @@ void AmpCapturePanel::cloneAmp() {
         return;
     }
     if (_nameEditor.getText().trim().isEmpty()) {
-        setStatus("Name the amp before capturing it.");
+        setStatus("Name the " + _device + " before capturing it.");
         return;
     }
     Marketplace::Session session;
     if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
-        setStatus("Sign in on the Library page before cloning an amp.");
+        setStatus("Sign in on the Library page before cloning a " + _device + ".");
         return;
     }
 
@@ -289,7 +299,7 @@ void AmpCapturePanel::start(Mode mode) {
         return;
     }
     if (mode == Mode::Full && _nameEditor.getText().trim().isEmpty()) {
-        setStatus("Name the amp before capturing it.");
+        setStatus("Name the " + _device + " before capturing it.");
         return;
     }
 
@@ -302,7 +312,7 @@ void AmpCapturePanel::start(Mode mode) {
     if (mode == Mode::RoundTrip) {
         send.resize(AmpCapture::kRoundTripFrames);
     } else if (send.size() != static_cast<std::size_t>(AmpCapture::kStandardFrames)) {
-        setStatus("Capture amp needs NAM's standard input.wav (3:10 at 48 kHz).");
+        setStatus("Capture needs NAM's standard input.wav (3:10 at 48 kHz).");
         return;
     }
     if (!_processor.beginAmpCapture(std::move(send), &error)) {
@@ -344,7 +354,7 @@ void AmpCapturePanel::timerCallback() {
     const auto totalSeconds = (_mode == Mode::Full ? AmpCapture::kStandardFrames : AmpCapture::kRoundTripFrames) /
                               AmpCapture::kSampleRate;
     const auto left = static_cast<int>(totalSeconds * (1.0 - progress));
-    setStatus((_mode == Mode::Full ? "Capturing the amp: " : "Testing the round trip: ") +
+    setStatus((_mode == Mode::Full ? "Capturing the " + _device + ": " : "Testing the round trip: ") +
               juce::String(juce::roundToInt(progress * 100.0f)) + "% (" + juce::String(left / 60) + ":" +
               juce::String(left % 60).paddedLeft('0', 2) + " left). Keep the room quiet.");
     refreshButtons();
@@ -366,13 +376,15 @@ void AmpCapturePanel::finish() {
                                          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ")
                     .trim();
     const auto folder = capturesFolder().getChildFile(
-        (stem.isEmpty() ? juce::String("Amp") : stem) + " " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S"));
+        (stem.isEmpty() ? (_target == Target::Pedal ? juce::String("Pedal") : juce::String("Amp")) : stem) + " " +
+        juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S"));
 
     const auto automatic = _auto;
+    const auto device = _device;
     juce::Component::SafePointer<AmpCapturePanel> safeThis(this);
-    _jobs.addJob([safeThis, sent, recorded, mode, previous, reampFile, folder, automatic]() {
+    _jobs.addJob([safeThis, sent, recorded, mode, previous, reampFile, folder, automatic, device]() {
         const auto analysis = AmpCapture::analyse(*sent, *recorded);
-        auto text = describe(analysis, previous);
+        auto text = describe(analysis, previous, device);
         juce::String saved;
         if (mode == Mode::Full && analysis.detected && !automatic) {
             const auto error = writeCapture(folder, reampFile, *recorded, analysis);
@@ -400,7 +412,8 @@ void AmpCapturePanel::finish() {
             const auto reason = cloudRejectReason(analysis,
                                                   mode == Mode::RoundTrip && safeThis->_roundTrips == 0 ? std::optional<int>{}
                                                                                                         : previous,
-                                                  mode == Mode::Full);
+                                                  mode == Mode::Full,
+                                                  safeThis->_device);
             if (reason.isNotEmpty()) {
                 safeThis->_auto = false;
                 safeThis->showResult(text + "\n" + reason);
@@ -415,7 +428,7 @@ void AmpCapturePanel::finish() {
                     safeThis->start(Mode::RoundTrip);
                     return;
                 }
-                safeThis->setStatus(text + "\nLatency is stable. Capturing the amp.");
+                safeThis->setStatus(text + "\nLatency is stable. Capturing the " + safeThis->_device + ".");
                 safeThis->start(Mode::Full);
                 return;
             }
@@ -435,8 +448,10 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
     setStatus("Uploading the capture...");
 
     const auto reampFile = _reampFile;
+    const auto device = _device;
+    const auto kind = _target == Target::Pedal ? juce::String("pedal") : juce::String("amp");
     juce::Component::SafePointer<AmpCapturePanel> safeThis(this);
-    _jobs.addJob([safeThis, recorded, analysis, name, reampFile]() {
+    _jobs.addJob([safeThis, recorded, analysis, name, reampFile, device, kind]() {
         auto fail = [safeThis](juce::String message) {
             juce::MessageManager::callAsync([safeThis, message]() {
                 if (safeThis != nullptr) {
@@ -447,7 +462,7 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
 
         Marketplace::Session session;
         if (!Marketplace::loadSession(Marketplace::defaultSessionFile(), session) || session.accessToken.isEmpty()) {
-            fail("Sign in on the Library page before cloning an amp.");
+            fail("Sign in on the Library page before cloning a " + device + ".");
             return;
         }
 
@@ -456,7 +471,7 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
         if (refreshed.status == Marketplace::Status::Success) {
             Marketplace::saveSession(Marketplace::defaultSessionFile(), session);
         }
-        auto job = client.createAmpJob(session.accessToken, name);
+        auto job = client.createAmpJob(session.accessToken, name, kind);
         if (job.status != Marketplace::Status::Success) {
             fail(job.message);
             return;
@@ -491,7 +506,7 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
             return;
         }
 
-        juce::MessageManager::callAsync([safeThis, jobId = job.id, name]() {
+        juce::MessageManager::callAsync([safeThis, jobId = job.id, name, device]() {
             if (safeThis == nullptr) {
                 return;
             }
@@ -502,7 +517,8 @@ void AmpCapturePanel::uploadClone(std::shared_ptr<std::vector<float>> recorded,
             safeThis->_busy = false;
             safeThis->_mode = Mode::None;
             safeThis->refreshButtons();
-            safeThis->setStatus("Training on the GPU. You can leave this page. The amp appears in the library when it is ready.");
+            safeThis->setStatus("Training on the GPU. You can leave this page. The " + device +
+                                " appears in the library when it is ready.");
             safeThis->startTimerHz(1);
         });
     });
@@ -515,8 +531,10 @@ void AmpCapturePanel::pollCloud() {
     _pollBusy = true;
     const auto jobId = _cloudJobId;
     const auto title = _cloudTitle;
+    const auto device = _device;
+    const auto pedal = _target == Target::Pedal;
     juce::Component::SafePointer<AmpCapturePanel> safeThis(this);
-    _jobs.addJob([safeThis, jobId, title]() {
+    _jobs.addJob([safeThis, jobId, title, device, pedal]() {
         Marketplace::Session session;
         Marketplace::Client client;
         juce::String state;
@@ -540,21 +558,24 @@ void AmpCapturePanel::pollCloud() {
                         cipher = downloaded.body;
                         key = decoded;
                         ready = true;
-                        auto directory = spectraDirectory();
-                        directory.getChildFile(jobId + ".spectra").replaceWithData(cipher.getData(), cipher.getSize());
-                        directory.getChildFile(jobId + ".key").replaceWithData(key.getData(), key.getSize());
+                        if (!pedal) {
+                            auto directory = spectraDirectory();
+                            directory.getChildFile(jobId + ".spectra").replaceWithData(cipher.getData(), cipher.getSize());
+                            directory.getChildFile(jobId + ".key").replaceWithData(key.getData(), key.getSize());
+                        }
                     } else {
                         state = "error";
-                        message = "The amp key was invalid.";
+                        message = "The " + device + " key was invalid.";
                     }
                 } else {
                     state = "error";
-                    message = downloaded.message.isNotEmpty() ? downloaded.message : "Could not download the sealed amp.";
+                    message = downloaded.message.isNotEmpty() ? downloaded.message
+                                                              : "Could not download the sealed " + device + ".";
                 }
             }
         }
 
-        juce::MessageManager::callAsync([safeThis, jobId, title, state, message, cipher, key, ready, session]() {
+        juce::MessageManager::callAsync([safeThis, jobId, title, state, message, cipher, key, ready, session, pedal]() {
             if (safeThis == nullptr) {
                 return;
             }
@@ -562,9 +583,27 @@ void AmpCapturePanel::pollCloud() {
             if (ready) {
                 safeThis->_polling = false;
                 safeThis->stopTimer();
-                if (safeThis->_processor.unlockSpectraSession(session.accessToken) &&
-                    safeThis->_processor.loadSpectraModel(cipher.getData(), cipher.getSize(),
-                                                          static_cast<const uint8_t*>(key.getData()), key.getSize())) {
+                if (pedal) {
+                    juce::String error;
+                    const auto loaded = safeThis->_processor.unlockSpectraSession(session.accessToken) &&
+                                        safeThis->_processor.importEncryptedProfile(ProfileCatalog::Kind::Pedal,
+                                                                                    jobId,
+                                                                                    title,
+                                                                                    cipher,
+                                                                                    key,
+                                                                                    0,
+                                                                                    0.0f,
+                                                                                    false,
+                                                                                    &error);
+                    if (loaded) {
+                        safeThis->_processor.ensurePedalInChain();
+                        safeThis->setStatus(title + " is ready and loaded.");
+                    } else {
+                        safeThis->setStatus(error.isNotEmpty() ? error : title + " is in the library. Open it from the pedal block.");
+                    }
+                } else if (safeThis->_processor.unlockSpectraSession(session.accessToken) &&
+                           safeThis->_processor.loadSpectraModel(cipher.getData(), cipher.getSize(),
+                                                                 static_cast<const uint8_t*>(key.getData()), key.getSize())) {
                     safeThis->_processor.setAmpCondition(AmpCondition::kOff, 0.0f);
                     safeThis->setStatus(title + " is ready and loaded.");
                 } else {

@@ -10,8 +10,12 @@ class ProfileCatalog : public juce::ChangeBroadcaster {
    public:
     enum class Kind {
         Amp,
-        Ir
+        Ir,
+        Pedal
     };
+
+    static juce::String nameOf(Kind kind);
+    static Kind kindFromName(const juce::String& name);
 
     struct Entry {
         juce::String id;

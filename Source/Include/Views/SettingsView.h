@@ -26,15 +26,18 @@ class SettingsView : public juce::Component {
     enum class Page {
         General,
         CloneIr,
-        CloneAmp
+        CloneAmp,
+        ClonePedal
     };
 
     juce::TextButton _generalTab{"General"};
     juce::TextButton _captureTab{"Clone IR"};
     juce::TextButton _ampTab{"Clone amp"};
+    juce::TextButton _pedalTab{"Clone pedal"};
     Page _page = Page::General;
     IrCapturePanel _capturePanel;
     AmpCapturePanel _ampPanel;
+    AmpCapturePanel _pedalPanel;
 
     juce::Label _titleLabel;
     juce::Label _backgroundLabel;

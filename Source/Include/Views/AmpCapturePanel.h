@@ -14,7 +14,12 @@ class ProfilerAudioProcessor;
 class AmpCapturePanel : public juce::Component,
                         private juce::Timer {
    public:
-    explicit AmpCapturePanel(ProfilerAudioProcessor& processor);
+    enum class Target {
+        Amp,
+        Pedal
+    };
+
+    explicit AmpCapturePanel(ProfilerAudioProcessor& processor, Target target = Target::Amp);
     ~AmpCapturePanel() override;
 
     void paint(juce::Graphics& g) override;
@@ -28,6 +33,8 @@ class AmpCapturePanel : public juce::Component,
     };
 
     ProfilerAudioProcessor& _processor;
+    Target _target = Target::Amp;
+    juce::String _device{"amp"};
     juce::ThreadPool _jobs{1};
     std::unique_ptr<juce::FileChooser> _chooser;
     juce::File _reampFile;

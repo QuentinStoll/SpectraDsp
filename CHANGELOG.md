@@ -6,6 +6,7 @@ Notable changes for every published release are recorded below, newest first. Re
 
 ### Added
 
+- Clone pedal uses the amplifier capture and cloud training, then loads the WaveNet in the pedal slot in front of the amp. The built-in Screamer, Distortion, and Boost circuits remain when no clone is loaded.
 - Per-OS Spectra installers (Windows Inno Setup, macOS pkg, Linux `.run`) with checkboxes for standalone and VST3 (plus Audio Unit on macOS). A manual CI dispatch attaches them to the GitHub Release; spectradsp.com downloads the latest assets.
 - Marketplace client and plugin copy now use `https://spectradsp.com`.
 - Right-clicking a chain block offers Clear all blocks, which removes every effect block and leaves the input and output in place.

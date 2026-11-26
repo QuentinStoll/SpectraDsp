@@ -51,7 +51,9 @@ void applyBackgroundColourPreset(int presetId) {
 }  // namespace
 
 SettingsView::SettingsView(ProfilerAudioProcessor& processor)
-    : _capturePanel(processor), _ampPanel(processor) {
+    : _capturePanel(processor),
+      _ampPanel(processor, AmpCapturePanel::Target::Amp),
+      _pedalPanel(processor, AmpCapturePanel::Target::Pedal) {
     _generalTab.onClick = [this]() {
         _page = Page::General;
         resized();
@@ -64,11 +66,17 @@ SettingsView::SettingsView(ProfilerAudioProcessor& processor)
         _page = Page::CloneAmp;
         resized();
     };
+    _pedalTab.onClick = [this]() {
+        _page = Page::ClonePedal;
+        resized();
+    };
     addAndMakeVisible(_generalTab);
     addAndMakeVisible(_captureTab);
     addAndMakeVisible(_ampTab);
+    addAndMakeVisible(_pedalTab);
     addChildComponent(_capturePanel);
     addChildComponent(_ampPanel);
+    addChildComponent(_pedalPanel);
 
     _titleLabel.setText("Clone", juce::dontSendNotification);
     _titleLabel.setJustificationType(juce::Justification::centred);
@@ -152,6 +160,8 @@ void SettingsView::resized() {
     _captureTab.setBounds(tabs.removeFromLeft(120));
     tabs.removeFromLeft(8);
     _ampTab.setBounds(tabs.removeFromLeft(120));
+    tabs.removeFromLeft(8);
+    _pedalTab.setBounds(tabs.removeFromLeft(130));
     area.removeFromTop(12);
 
     const auto showGeneral = _page == Page::General;
@@ -165,7 +175,8 @@ void SettingsView::resized() {
     _versionLabel.setVisible(showGeneral);
     _updateButton.setVisible(showGeneral);
     for (auto [panel, page] : {std::pair<juce::Component*, Page>{&_capturePanel, Page::CloneIr},
-                               std::pair<juce::Component*, Page>{&_ampPanel, Page::CloneAmp}}) {
+                               std::pair<juce::Component*, Page>{&_ampPanel, Page::CloneAmp},
+                               std::pair<juce::Component*, Page>{&_pedalPanel, Page::ClonePedal}}) {
         panel->setVisible(_page == page);
         panel->setBounds(area);
         if (_page == page) {
