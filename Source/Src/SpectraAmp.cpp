@@ -357,7 +357,8 @@ bool SpectraAmp::renderEngine(Engine& engine, int instance, const float* input, 
                     }
                 });
             }
-            applyLevelMatch(slot, levelMatch, out, count);        } catch (const std::exception&) {
+            applyLevelMatch(slot, levelMatch, out, count);
+        } catch (const std::exception&) {
             return false;
         }
         offset += count;
