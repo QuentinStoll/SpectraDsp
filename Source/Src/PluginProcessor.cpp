@@ -233,6 +233,23 @@ float ProfilerAudioProcessor::getMasterGainLinear(float masterPercent) noexcept 
     return juce::Decibels::decibelsToGain(juce::jmap(percent, 50.0f, 100.0f, 0.0f, 12.0f));
 }
 
+namespace {
+// Transparent below -1 dBFS. Above it, a tanh knee eases the peaks toward 0 dBFS with a continuous
+// slope, so the output never reaches the hard clip of the sound card.
+void softLimitOutput(float* samples, int count) noexcept {
+    constexpr float kKnee = 0.891f;   // -1 dBFS
+    constexpr float kCeiling = 0.999f;
+    constexpr float kRoom = kCeiling - kKnee;
+    for (int i = 0; i < count; ++i) {
+        const float magnitude = std::abs(samples[i]);
+        if (magnitude > kKnee) {
+            const float limited = kKnee + kRoom * std::tanh((magnitude - kKnee) / kRoom);
+            samples[i] = std::copysign(limited, samples[i]);
+        }
+    }
+}
+}  // namespace
+
 //==============================================================================
 ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
                                                juce::File playViewSettingsFile,
@@ -268,6 +285,8 @@ ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
     _masterParam = _apvts.getRawParameterValue("master");
     _gainParam = _apvts.getRawParameterValue("gain");
     _noiseParam = _apvts.getRawParameterValue("noise");
+    _noiseDecayParam = _apvts.getRawParameterValue("noiseDecay");
+    _noiseDepthParam = _apvts.getRawParameterValue("noiseDepth");
     _inputParam = _apvts.getRawParameterValue("input");
     _outputParam = _apvts.getRawParameterValue("output");
 
@@ -280,6 +299,10 @@ ProfilerAudioProcessor::ProfilerAudioProcessor(juce::File profileDirectory,
     _isEqEnabledParam = _apvts.getRawParameterValue("isEqEnabled");
     _isGateEnabledParam = _apvts.getRawParameterValue("isGateEnabled");
     _isAmpEnabledParam = _apvts.getRawParameterValue("isAmpEnabled");
+    _ampLevelMatchParam = _apvts.getRawParameterValue("ampLevelMatch");
+    _outputLimiterParam = _apvts.getRawParameterValue("outputLimiter");
+    // A pedal clone sits in front of the amp: its level sets the drive, so it is never matched.
+    _spectraPedal.setLevelMatch(false);
     _isCabEnabledParam = _apvts.getRawParameterValue("isCabEnabled");
     _cabLowCutParam = _apvts.getRawParameterValue("cabLowCut");
     _isPedalEnabledParam = _apvts.getRawParameterValue("isPedalEnabled");
@@ -395,9 +418,12 @@ void ProfilerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     _outputTrim.setGainDecibels(getParameterValue(_outputParam, 0.0f));
 
     _chain.get<NoiseGate>().setThreshold(getParameterValue(_noiseParam, 10.0f) - 60.0f);
-    _chain.get<NoiseGate>().setAttack(5.0f);
-    _chain.get<NoiseGate>().setRelease(100.0f);
-    _chain.get<NoiseGate>().setRatio(10.0f);
+    // The gate sits before the amp model. A hard 10:1 expander with a 100 ms release cut the
+    // sustain tail of high-gain tones (the amp lifts that tail by tens of dB) and softened the
+    // pick attack. The defaults (3:1, 250 ms) only remove the noise floor between notes.
+    _chain.get<NoiseGate>().setAttack(kGateAttackMs);
+    _chain.get<NoiseGate>().setRelease(juce::jlimit(5.0f, 1000.0f, getParameterValue(_noiseDecayParam, kGateDefaultDecayMs)));
+    _chain.get<NoiseGate>().setRatio(juce::jmax(1.0f, getParameterValue(_noiseDepthParam, kGateDefaultDepth)));
     _chain.setBypassed<NoiseGate>(getParameterValue(_isGateEnabledParam, 1.0f) <= 0.5f || getParameterValue(_noiseParam, 0.0f) <= 0.0f);
 
     const bool eqEnabled = getParameterValue(_isEqEnabledParam, 1.0f) > 0.5f;
@@ -586,6 +612,8 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const auto noiseGateValue = getParameterValue(_noiseParam, 0.0f);
     const bool gateEnabled = getParameterValue(_isGateEnabledParam, 1.0f) > 0.5f;
     _chain.get<NoiseGate>().setThreshold(noiseGateValue - 60.0f);
+    _chain.get<NoiseGate>().setRelease(juce::jlimit(5.0f, 1000.0f, getParameterValue(_noiseDecayParam, kGateDefaultDecayMs)));
+    _chain.get<NoiseGate>().setRatio(juce::jmax(1.0f, getParameterValue(_noiseDepthParam, kGateDefaultDepth)));
     // A zero control value is a true bypass, rather than a -60 dB gate.
     _chain.setBypassed<NoiseGate>(!gateEnabled || noiseGateValue <= 0.0f);
 
@@ -687,6 +715,12 @@ void ProfilerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         juce::dsp::ProcessContextReplacing<float> outputContext(outputBlock);
         _masterVolume.process(outputContext);
         _outputTrim.process(outputContext);
+    }
+    // Soft knee above -1 dBFS: keeps high-gain peaks off the hard clip of the sound card / host.
+    if (getParameterValue(_outputLimiterParam, 1.0f) > 0.5f) {
+        for (int channel = 0; channel < numChannels; ++channel) {
+            softLimitOutput(buffer.getWritePointer(channel), numSamples);
+        }
     }
     updateReportedLatency();
 
@@ -1095,6 +1129,7 @@ void ProfilerAudioProcessor::processAmpStage(float* channel,
 
     const auto mixIndex = static_cast<size_t>(juce::jlimit(0, kChainCopies - 1, instance));
     auto& wetMix = _ampWetMix[mixIndex];
+    _spectraAmp.setLevelMatch(getParameterValue(_ampLevelMatchParam, 1.0f) > 0.5f);
     const bool ampEnabled = slotEnabled && getParameterValue(_isAmpEnabledParam, 1.0f) > 0.5f;
     wetMix.setTargetValue(ampEnabled ? 1.0f : 0.0f);
 
@@ -1942,6 +1977,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout ProfilerAudioProcessor::crea
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"noise", 1}, "Noise Gate", juce::NormalisableRange<float>(0.0f, 60.0f, 0.1f), 10.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"noiseDecay", 1}, "Gate Decay", juce::NormalisableRange<float>(20.0f, 500.0f, 1.0f), kGateDefaultDecayMs));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"noiseDepth", 1}, "Gate Depth", juce::NormalisableRange<float>(1.5f, 10.0f, 0.1f), kGateDefaultDepth));
 
     // Fix P0: Add missing Input and Output parameters
     layout.add(std::make_unique<juce::AudioParameterFloat>(
@@ -1981,6 +2020,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ProfilerAudioProcessor::crea
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"isEqEnabled", 1}, "EQ", true));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"isGateEnabled", 1}, "Gate Enabled", true));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"isAmpEnabled", 1}, "Amp Enabled", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"ampLevelMatch", 1}, "Amp Level Match", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"outputLimiter", 1}, "Output Limiter", true));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"isCabEnabled", 1}, "Cab Enabled", true));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"cabLowCut", 1}, "Cab Low Cut", juce::NormalisableRange<float>(20.0f, 250.0f, 1.0f), 80.0f));
@@ -2984,7 +3025,7 @@ bool ProfilerAudioProcessor::loadCatalogProfile(ProfileCatalog::Kind kind,
         }
     }
 
-    const auto loaded = opened && (kind == ProfileCatalog::Kind::Amp     ? loadAmpFromMemory(plain.getData(), plain.getSize())
+    const auto loaded = opened && (kind == ProfileCatalog::Kind::Amp       ? loadAmpFromMemory(plain.getData(), plain.getSize())
                                    : kind == ProfileCatalog::Kind::Pedal ? loadPedalFromMemory(plain.getData(), plain.getSize())
                                                                          : loadIrFromMemory(plain.getData(), plain.getSize()));
     plain.fillWith(0);
@@ -2993,7 +3034,7 @@ bool ProfilerAudioProcessor::loadCatalogProfile(ProfileCatalog::Kind kind,
 
     if (!loaded) {
         if (errorMessage != nullptr) {
-            *errorMessage = kind == ProfileCatalog::Kind::Amp     ? "Could not decrypt this amp profile."
+            *errorMessage = kind == ProfileCatalog::Kind::Amp      ? "Could not decrypt this amp profile."
                             : kind == ProfileCatalog::Kind::Pedal ? "Could not decrypt this pedal profile."
                                                                   : "Could not decrypt this IR profile.";
         }

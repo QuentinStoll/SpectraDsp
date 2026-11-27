@@ -26,6 +26,8 @@ class SpectraNeuralModel {
     bool hasOutputLevel();
     double inputLevelDbu();
     double outputLevelDbu();
+    bool hasLoudness();
+    double loudnessDb();
     void reset(double sampleRate, int maxBlock);
     void process(float* input, float* output, int frames);
 

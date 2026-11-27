@@ -32,6 +32,11 @@ class SpectraAmp {
     int latencySamples() const noexcept;
     bool isLoaded() const noexcept;
 
+    // Level match: scales the wet signal so that models of different loudness play at the same
+    // level, to NAM's -18 dB target. It only acts on a model that stores its loudness and has no
+    // output calibration. Safe to call from the audio thread.
+    void setLevelMatch(bool enabled) noexcept { _levelMatch.store(enabled, std::memory_order_relaxed); }
+
    private:
     struct Engine;
     struct Instance;
@@ -50,4 +55,5 @@ class SpectraAmp {
     std::atomic<std::uint32_t> _readers[2]{};
     std::atomic<int> _active{-1};
     std::atomic<int> _latency{0};
+    std::atomic<bool> _levelMatch{true};
 };

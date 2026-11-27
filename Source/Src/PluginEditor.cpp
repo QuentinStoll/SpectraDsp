@@ -13,6 +13,7 @@
 #include "Fx/FxCatalog.h"
 #include "ProfileManager.h"
 #include "ProfilerConstantValues.h"
+#include "StandaloneAudio.h"
 #include "Stylesheet.h"
 
 namespace {
@@ -443,6 +444,11 @@ ProfilerAudioProcessorEditor::ProfilerAudioProcessorEditor(ProfilerAudioProcesso
         checkForAppUpdate(true);
     };
     checkForAppUpdate(false);
+
+    if (_audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
+        // A saved WASAPI exclusive setup would lock the output device away from every other application.
+        juce::MessageManager::callAsync([]() { StandaloneAudio::moveOffExclusiveMode(); });
+    }
 
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<ProfilerAudioProcessorEditor>(this)]() {
         if (safeThis != nullptr) {

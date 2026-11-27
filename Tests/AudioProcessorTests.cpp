@@ -57,6 +57,10 @@ class AudioProcessorUnitTests : public juce::UnitTest {
             testNoiseGateZeroBypasses();
         });
 
+        runCase("audio processor noise gate depth and decay", [this] {
+            testNoiseGateDepthAndDecay();
+        });
+
         runCase("audio processor gain changes output level", [this] {
             testGainChangesOutputLevel();
         });
@@ -83,6 +87,14 @@ class AudioProcessorUnitTests : public juce::UnitTest {
 
         runCase("audio processor spectra neural amp", [this] {
             testSpectraNeuralAmp();
+        });
+
+        runCase("audio processor output limiter", [this] {
+            testOutputLimiter();
+        });
+
+        runCase("audio processor amp level match", [this] {
+            testAmpLevelMatch();
         });
 
         runCase("audio processor nam a2 realtime", [this] {
@@ -251,11 +263,13 @@ class AudioProcessorUnitTests : public juce::UnitTest {
     void testParameterDefaults() {
         ProfilerAudioProcessor processor;
 
-        expect(processor.getParameters().size() == 38 + Fx::parameterCount(),
+        expect(processor.getParameters().size() == 42 + Fx::parameterCount(),
                "Unexpected processor parameter count.");
         expectClose(getParameterValue(processor, "master"), 50.0f, "master default");
         expectClose(getParameterValue(processor, "gain"), 0.0f, "gain default");
         expectClose(getParameterValue(processor, "noise"), 10.0f, "noise default");
+        expectClose(getParameterValue(processor, "noiseDecay"), 250.0f, "noise decay default");
+        expectClose(getParameterValue(processor, "noiseDepth"), 3.0f, "noise depth default");
         expectClose(getParameterValue(processor, "input"), 0.0f, "input default");
         expectClose(getParameterValue(processor, "output"), 0.0f, "output default");
         expectClose(getParameterValue(processor, "bass"), 1.0f, "bass default");
@@ -490,6 +504,39 @@ class AudioProcessorUnitTests : public juce::UnitTest {
 
         expect(rms > 0.01f, "Noise gate at zero should bypass and pass signal.");
         processor.releaseResources();
+    }
+
+    void testNoiseGateDepthAndDecay() {
+        // A tone 13 dB under the gate threshold: a deep gate removes it, a shallow one only lowers it.
+        const auto measure = [this](float depth, float decayMs) {
+            ProfilerAudioProcessor processor;
+            setParameterValue(processor, "noise", 20.0f);
+            setParameterValue(processor, "noiseDepth", depth);
+            setParameterValue(processor, "noiseDecay", decayMs);
+            prepareProcessor(processor, 48000.0, 256);
+
+            juce::AudioBuffer<float> buffer(2, 256);
+            juce::MidiBuffer midi;
+            float rms = 0.0f;
+            for (int block = 0; block < 60; ++block) {
+                fillSineBuffer(buffer, 48000.0, 440.0f, 0.003f);
+                processor.processBlock(buffer, midi);
+                expect(allSamplesFinite(buffer), "Gate output should stay finite.");
+                rms = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
+            }
+            processor.releaseResources();
+            return rms;
+        };
+
+        const auto shallow = measure(2.0f, 250.0f);
+        const auto deep = measure(10.0f, 250.0f);
+        expect(shallow > 1.0e-4f, "A 2:1 gate should still pass the quiet tone, rms " + juce::String(shallow, 6));
+        expect(deep < shallow * 0.1f,
+               "A 10:1 gate should remove the quiet tone, deep " + juce::String(deep, 6) + " shallow " + juce::String(shallow, 6));
+
+        const auto fast = measure(3.0f, 20.0f);
+        const auto slow = measure(3.0f, 500.0f);
+        expect(std::isfinite(fast) && std::isfinite(slow), "Decay extremes should stay finite.");
     }
 
     void testGainChangesOutputLevel() {
@@ -1103,6 +1150,8 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         ProfilerAudioProcessor processor;
         silenceOtherStages(processor);
         expect(processor.loadAmpFile(modelFile), "The 400-epoch model should load.");
+        // This compares the model to the capture, so it needs the raw model level.
+        setParameterValue(processor, "ampLevelMatch", 0.0f);
         constexpr int blockSize = 512;
         prepareProcessor(processor, AmpCapture::kSampleRate, blockSize);
 
@@ -1316,6 +1365,77 @@ class AudioProcessorUnitTests : public juce::UnitTest {
         expect(cancelled < summed * 0.15f,
                "Inverting path B should cancel the matching amp. cancelled " + juce::String(cancelled, 4) + " summed " +
                    juce::String(summed, 4));
+    }
+
+    void testOutputLimiter() {
+        constexpr double rate = 48000.0;
+        constexpr int blockSize = 256;
+        const auto peakWith = [&](float gainDb, float amplitude, bool limiterOn) {
+            ProfilerAudioProcessor processor;
+            silenceOtherStages(processor);
+            setParameterValue(processor, "output", gainDb);
+            setParameterValue(processor, "outputLimiter", limiterOn ? 1.0f : 0.0f);
+            prepareProcessor(processor, rate, blockSize);
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            float peak = 0.0f;
+            for (int block = 0; block < 12; ++block) {
+                fillSineBuffer(buffer, rate, 1000.0f, amplitude);
+                processor.processBlock(buffer, midi);
+                expect(allSamplesFinite(buffer), "Limiter output should stay finite.");
+                peak = buffer.getMagnitude(0, blockSize);
+            }
+            processor.releaseResources();
+            return peak;
+        };
+
+        const auto hotOn = peakWith(12.0f, 0.9f, true);
+        const auto hotOff = peakWith(12.0f, 0.9f, false);
+        expect(hotOn < 1.0f, "The limiter should keep peaks under 0 dBFS, peak " + juce::String(hotOn, 4));
+        expect(hotOn > 0.9f, "The soft knee should still pass a loud signal, peak " + juce::String(hotOn, 4));
+        expect(hotOff > 1.5f, "With the limiter off, a hot signal should pass above 0 dBFS, peak " + juce::String(hotOff, 4));
+
+        const auto quietOn = peakWith(0.0f, 0.5f, true);
+        const auto quietOff = peakWith(0.0f, 0.5f, false);
+        expect(std::abs(quietOn - quietOff) < 1.0e-6f, "Below the knee the limiter must not change the signal.");
+    }
+
+    void testAmpLevelMatch() {
+        constexpr double rate = 48000.0;
+        constexpr int blockSize = 256;
+        const char* quiet =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000,"metadata":{"loudness":-30.0}})";
+        const char* calibrated =
+            R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},"weights":[1.0],"sample_rate":48000,"metadata":{"loudness":-30.0,"output_level_dbu":12.0}})";
+        const float twelveDb = std::pow(10.0f, 12.0f / 20.0f);
+
+        ProfilerAudioProcessor dry;
+        silenceOtherStages(dry);
+        prepareProcessor(dry, rate, blockSize);
+        const auto dryRms = renderSineRms(dry, rate, blockSize, 16);
+        dry.releaseResources();
+
+        ProfilerAudioProcessor matched;
+        silenceOtherStages(matched);
+        expect(loadAmpJson(matched, quiet), "A model with a stored loudness should load.");
+        prepareProcessor(matched, rate, blockSize);
+        const auto matchedRms = renderSineRms(matched, rate, blockSize, 24);
+        expect(std::abs(matchedRms - dryRms * twelveDb) < dryRms * twelveDb * 0.08f,
+               "A -30 dB model should be raised 12 dB to the -18 dB target. rms " + juce::String(matchedRms, 4));
+
+        setParameterValue(matched, "ampLevelMatch", 0.0f);
+        const auto rawRms = renderSineRms(matched, rate, blockSize, 24);
+        expect(std::abs(rawRms - dryRms) < dryRms * 0.08f, "Level match off should keep the raw model level.");
+        matched.releaseResources();
+
+        ProfilerAudioProcessor withCalibration;
+        silenceOtherStages(withCalibration);
+        expect(loadAmpJson(withCalibration, calibrated), "A calibrated model should load.");
+        prepareProcessor(withCalibration, rate, blockSize);
+        const auto calibratedRms = renderSineRms(withCalibration, rate, blockSize, 24);
+        expect(std::abs(calibratedRms - dryRms) < dryRms * 0.08f,
+               "An output calibration takes priority over the loudness match.");
+        withCalibration.releaseResources();
     }
 
     void testSpectraNeuralAmp() {
