@@ -79,12 +79,16 @@ class InputGatePanel : public juce::Component {
    private:
     juce::AudioProcessorValueTreeState& _apvts;
     juce::Label _title{"", "Input / Gate"};
-    juce::Label _summary{"", "Input trim and noise gate before the amp model."};
+    juce::Label _summary{"", "Input trim and noise gate (threshold, decay, depth) before the amp model."};
     juce::TextButton _bypass{"Bypass"};
     CustomKnob _inputTrimKnob{"Input Trim", -12.0f, 12.0f, 0.0f, "dB"};
-    CustomKnob _noiseGateKnob{"Noise Gate", 0.0f, 60.0f, 10.0f, "dB"};
+    CustomKnob _noiseGateKnob{"Threshold", 0.0f, 60.0f, 10.0f, "dB"};
+    CustomKnob _noiseDecayKnob{"Decay", 20.0f, 500.0f, 250.0f, "ms", 1.0f};
+    CustomKnob _noiseDepthKnob{"Depth", 1.5f, 10.0f, 3.0f, ":1"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _inputAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _noiseAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _decayAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _depthAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InputGatePanel)
 };
@@ -115,6 +119,8 @@ class AmpProfilerPanel : public juce::Component,
     void loadProfile(const juce::String& id);
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     CustomKnob _outputKnob{"Gain", -12.0f, 12.0f, 0.0f, "dB"};
+    juce::TextButton _levelMatch{"Level Match"};
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _levelMatchAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _ampEnabledAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _outputAttachment;
 
@@ -229,9 +235,11 @@ class MasterVolumePanel : public juce::Component,
     juce::Label _summary{"", "Output level after the signal chain."};
     CustomKnob _masterKnob{"Master", 0.0f, 100.0f, 50.0f, "%", 1.0f};
     CustomKnob _outputTrimKnob{"Output Trim", -12.0f, 12.0f, 0.0f, "dB"};
+    juce::TextButton _outputLimiter{"Limiter"};
     Gui::VerticalLevelMeter _outputMeter;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _masterAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> _outputAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> _limiterAttachment;
 
     void timerCallback() override;
 

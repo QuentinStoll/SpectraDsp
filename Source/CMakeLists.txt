@@ -102,6 +102,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     Src/AppUpdate.cpp
     Src/MarketplaceClient.cpp
     Src/SpectraEngine.cpp
+    Src/StandaloneAudio.cpp
     Src/SpectraAmp.cpp
     Src/AmpCondition.cpp
     Src/Views/CloneView.cpp

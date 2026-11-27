@@ -498,8 +498,24 @@ InputGatePanel::InputGatePanel(juce::AudioProcessorValueTreeState& apvts)
     addAndMakeVisible(_bypass);
     addAndMakeVisible(_inputTrimKnob);
     addAndMakeVisible(_noiseGateKnob);
+    addAndMakeVisible(_noiseDecayKnob);
+    addAndMakeVisible(_noiseDepthKnob);
     _inputAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "input", _inputTrimKnob.getSlider());
     _noiseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "noise", _noiseGateKnob.getSlider());
+    _decayAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "noiseDecay", _noiseDecayKnob.getSlider());
+    _depthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "noiseDepth", _noiseDepthKnob.getSlider());
+
+    // The stored value is the distance above -60 dBFS; show the threshold itself, as a Helix does.
+    auto& threshold = _noiseGateKnob.getSlider();
+    threshold.textFromValueFunction = [](double value) {
+        return value <= 0.0 ? juce::String("Off") : juce::String(value - 60.0, 1) + " dB";
+    };
+    threshold.valueFromTextFunction = [](const juce::String& text) {
+        const auto parsed = text.getDoubleValue();
+        return text.containsIgnoreCase("off") ? 0.0 : (parsed < 0.0 ? parsed + 60.0 : parsed);
+    };
+    _noiseDecayKnob.getSlider().setNumDecimalPlacesToDisplay(0);
+    threshold.updateText();
 
     _bypass.onClick = [this]() {
         if (auto* parameter = _apvts.getParameter("isGateEnabled")) {
@@ -518,6 +534,8 @@ void InputGatePanel::refreshBypassState() {
     _bypass.setToggleState(!enabled, juce::dontSendNotification);
     _inputTrimKnob.setEnabled(true);
     _noiseGateKnob.setEnabled(enabled);
+    _noiseDecayKnob.setEnabled(enabled);
+    _noiseDepthKnob.setEnabled(enabled);
 }
 
 void InputGatePanel::paint(juce::Graphics&) {}
@@ -532,10 +550,14 @@ void InputGatePanel::resized() {
 
     constexpr int knobWidth = kKnobWidth;
     constexpr int gap = kKnobGap;
-    auto row = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
+    auto row = juce::Rectangle<int>(knobWidth * 4 + gap * 3, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
     _inputTrimKnob.setBounds(row.removeFromLeft(knobWidth));
     row.removeFromLeft(gap);
-    _noiseGateKnob.setBounds(row);
+    _noiseGateKnob.setBounds(row.removeFromLeft(knobWidth));
+    row.removeFromLeft(gap);
+    _noiseDecayKnob.setBounds(row.removeFromLeft(knobWidth));
+    row.removeFromLeft(gap);
+    _noiseDepthKnob.setBounds(row);
 }
 
 AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
@@ -548,6 +570,11 @@ AmpProfilerPanel::AmpProfilerPanel(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_ampEnabled);
     addAndMakeVisible(_library);
     addAndMakeVisible(_outputKnob);
+    addAndMakeVisible(_levelMatch);
+    _levelMatch.setClickingTogglesState(true);
+    _levelMatch.setTooltip("Plays every amp at the same level (NAM's -18 dB normalization). Off keeps the raw model level.");
+    _levelMatchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        processor._apvts, "ampLevelMatch", _levelMatch);
     _processor.getProfileCatalog().addChangeListener(this);
     _library.onCardClicked = [this](const juce::String& id) { loadProfile(id); };
 
@@ -616,6 +643,7 @@ void AmpProfilerPanel::refreshAssets() {
     const auto enabled = _ampEnabled.getToggleState();
     _ampEnabled.setVisible(loaded);
     _outputKnob.setEnabled(loaded && enabled);
+    _levelMatch.setEnabled(loaded && enabled);
     const auto* entry = _processor.getProfileCatalog().find(_processor.getActiveAmpProfileId(), ProfileCatalog::Kind::Amp);
     if (loaded && entry != nullptr) {
         _bypassLabel.setText(enabled ? entry->title : "BYPASSED", juce::dontSendNotification);
@@ -641,6 +669,8 @@ void AmpProfilerPanel::resized() {
     auto side = area.removeFromRight(kSideKnobWidth);
     area.removeFromRight(8);
     _library.setBounds(area);
+    auto matchArea = side.removeFromBottom(juce::jmin(24, side.getHeight() / 4));
+    _levelMatch.setBounds(matchArea.withSizeKeepingCentre(juce::jmin(side.getWidth(), 100), matchArea.getHeight()));
     _outputKnob.setBounds(side.withSizeKeepingCentre(side.getWidth(), juce::jmin(kKnobRowHeight, side.getHeight())));
 }
 
@@ -1010,12 +1040,17 @@ MasterVolumePanel::MasterVolumePanel(ProfilerAudioProcessor& processor)
     addAndMakeVisible(_summary);
     addAndMakeVisible(_masterKnob);
     addAndMakeVisible(_outputTrimKnob);
+    addAndMakeVisible(_outputLimiter);
     addAndMakeVisible(_outputMeter);
+    _outputLimiter.setClickingTogglesState(true);
+    _outputLimiter.setTooltip("Soft-limits peaks above -1 dBFS so high-gain tones do not hard-clip the output.");
 
     _masterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "master", _masterKnob.getSlider());
     _outputAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor._apvts, "output", _outputTrimKnob.getSlider());
+    _limiterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        processor._apvts, "outputLimiter", _outputLimiter);
     startTimerHz(30);
 }
 
@@ -1037,10 +1072,13 @@ void MasterVolumePanel::resized() {
 
     constexpr int knobWidth = kKnobWidth;
     constexpr int gap = kKnobGap;
-    auto row = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(kKnobRowHeight, area.getHeight())).withCentre(area.getCentre());
+    auto content = juce::Rectangle<int>(knobWidth * 2 + gap, juce::jmin(kKnobRowHeight + 30, area.getHeight())).withCentre(area.getCentre());
+    auto row = content.removeFromTop(juce::jmin(kKnobRowHeight, content.getHeight() - 28));
     _masterKnob.setBounds(row.removeFromLeft(knobWidth));
     row.removeFromLeft(gap);
     _outputTrimKnob.setBounds(row);
+    content.removeFromTop(6);
+    _outputLimiter.setBounds(content.withSizeKeepingCentre(juce::jmin(content.getWidth(), 100), juce::jmin(22, content.getHeight())));
 }
 
 void MasterVolumePanel::timerCallback() {

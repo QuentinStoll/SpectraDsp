@@ -17,6 +17,19 @@ namespace {
 constexpr std::size_t kMaxModelBytes = 32u * 1024u * 1024u;
 // NAM's default "Input Calibration Level": a 0 dBFS peak sine is 12 dBu RMS.
 constexpr double kReferenceDbu = 12.0;
+// NAM's "Normalized" output mode: every model with a stored loudness plays at -18 dB.
+constexpr double kTargetLoudnessDb = -18.0;
+
+float loudnessGain(bool hasLoudness, double loudnessDb, bool calibrated) {
+    if (!hasLoudness || calibrated || !std::isfinite(loudnessDb)) {
+        return 1.0f;
+    }
+    const float gain = std::pow(10.0f, static_cast<float>((kTargetLoudnessDb - loudnessDb) / 20.0));
+    if (!std::isfinite(gain) || gain <= 0.0f) {
+        return 1.0f;
+    }
+    return std::clamp(gain, 0.1f, 10.0f);
+}
 
 bool needsExternalResample(double modelRate, double hostRate, bool arbitraryRate) {
     if (arbitraryRate || !(modelRate > 0.0) || !(hostRate > 0.0)) {
@@ -45,6 +58,8 @@ struct SpectraAmp::Instance {
     std::vector<float> modelScratch;
     float inputGain = 1.0f;
     float outputGain = 1.0f;
+    float matchGain = 1.0f;
+    float matchApplied = 1.0f;
     bool ready = false;
 };
 
@@ -237,6 +252,9 @@ void SpectraAmp::configure(Engine& engine) const {
         instance.ready = false;
         instance.inputGain = calibrationGain(instance.model->hasInputLevel(), instance.model->inputLevelDbu(), false);
         instance.outputGain = calibrationGain(instance.model->hasOutputLevel(), instance.model->outputLevelDbu(), true);
+        instance.matchGain = loudnessGain(instance.model->hasLoudness(), instance.model->loudnessDb(),
+                                          instance.model->hasOutputLevel());
+        instance.matchApplied = 1.0f;
         if (engine.resample) {
             instance.adapter.prepare(engine.hostRate, engine.modelRate, engine.maxHostBlock);
             engine.modelBlock = std::max(engine.modelBlock, instance.adapter.maxCallbackFrames());
@@ -294,6 +312,22 @@ bool SpectraAmp::renderEngine(Engine& engine, int instance, const float* input, 
         return false;
     }
 
+    const bool levelMatch = _levelMatch.load(std::memory_order_relaxed);
+    // Ramp to the target over the block, so toggling the match or loading a model does not click.
+    const auto applyLevelMatch = [](Instance& instance, bool enabled, float* samples, int frames) {
+        const float target = enabled ? instance.matchGain : 1.0f;
+        const float from = instance.matchApplied;
+        if (from == 1.0f && target == 1.0f) {
+            return;
+        }
+        const float step = (target - from) / static_cast<float>(std::max(1, frames));
+        float gain = from;
+        for (int frame = 0; frame < frames; ++frame) {
+            gain += step;
+            samples[frame] *= gain;
+        }
+        instance.matchApplied = target;
+    };
     int offset = 0;
     while (offset < numSamples) {
         const int count = std::min(numSamples - offset, engine.maxHostBlock);
@@ -323,6 +357,7 @@ bool SpectraAmp::renderEngine(Engine& engine, int instance, const float* input, 
                     }
                 });
             }
+            applyLevelMatch(slot, levelMatch, out, count);
         } catch (const std::exception&) {
             return false;
         }

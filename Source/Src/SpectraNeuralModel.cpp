@@ -97,6 +97,14 @@ double SpectraNeuralModel::outputLevelDbu() {
     return hasOutputLevel() ? _impl->model->GetOutputLevel() : 0.0;
 }
 
+bool SpectraNeuralModel::hasLoudness() {
+    return _impl != nullptr && _impl->model != nullptr && _impl->model->HasLoudness();
+}
+
+double SpectraNeuralModel::loudnessDb() {
+    return hasLoudness() ? _impl->model->GetLoudness() : 0.0;
+}
+
 void SpectraNeuralModel::reset(double sampleRate, int maxBlock) {
     if (_impl != nullptr && _impl->model != nullptr) {
         _impl->model->SetPrewarmOnReset(true);

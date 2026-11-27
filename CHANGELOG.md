@@ -10,9 +10,14 @@ Notable changes for every published release are recorded below, newest first. Re
 - Cloning renews the signed-in session before the take and before the upload, so an expired token no longer drops a finished recording.
 - Opening a finished capture from Library keeps the signed download token, so Windows no longer reports that the pack could not be downloaded.
 - Capture upload keeps the storage token on the request, so a finished amp or pedal recording is no longer rejected on Windows before training starts.
+- The standalone no longer keeps the Windows output device in WASAPI exclusive mode. A saved exclusive setup moves once to Windows shared mode on the same devices at 48 kHz, so YouTube and other applications can play while Spectra runs. Exclusive mode can still be chosen in Options > Audio/MIDI Settings.
+- The default noise gate is gentler: a 3:1 expander with a 1 ms attack and a 250 ms release, instead of 10:1 with 5 ms and 100 ms. It no longer cuts the sustain of high-gain tones or softens the pick attack.
 
 ### Added
 
+- The input gate has Threshold (shown in dB, Off at the minimum), Decay (20 to 500 ms), and Depth (1.5:1 to 10:1) controls, like a Helix input gate. The Gate block in the chain keeps its own full controls.
+- Level Match in the Amp panel plays every amplifier at the same level, using NAM's -18 dB loudness normalization. It is on by default, ignored for models with an output calibration, and never applied to pedal clones.
+- Soft output Limiter in the Master panel, on by default. Peaks above -1 dBFS ease toward 0 dBFS so high-gain tones do not hard-clip the sound card.
 - Clone pedal uses the amplifier capture and cloud training, then loads the WaveNet in the pedal slot in front of the amp. The built-in Screamer, Distortion, and Boost circuits remain when no clone is loaded.
 - Per-OS Spectra installers (Windows Inno Setup, macOS pkg, Linux `.run`) with checkboxes for standalone and VST3 (plus Audio Unit on macOS). A manual CI dispatch attaches them to the GitHub Release; spectradsp.com downloads the latest assets.
 - Marketplace client and plugin copy now use `https://spectradsp.com`.

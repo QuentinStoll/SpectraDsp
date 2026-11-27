@@ -208,10 +208,17 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     static constexpr float PEAK_Q{EqBands::peakQ};
     static constexpr double PARAMETER_RAMP_SECONDS{0.05};
     static constexpr double AMP_BYPASS_CROSSFADE_SECONDS{0.02};
+    // The gate is a downward expander before the amp. Attack stays fast to keep the pick attack;
+    // decay (release) and depth (ratio) are the "noiseDecay" and "noiseDepth" parameters.
+    static constexpr float kGateAttackMs{1.0f};
+    static constexpr float kGateDefaultDecayMs{250.0f};
+    static constexpr float kGateDefaultDepth{3.0f};
 
     std::atomic<float>* _masterParam{nullptr};
     std::atomic<float>* _gainParam{nullptr};
     std::atomic<float>* _noiseParam{nullptr};
+    std::atomic<float>* _noiseDecayParam{nullptr};
+    std::atomic<float>* _noiseDepthParam{nullptr};
     std::atomic<float>* _inputParam{nullptr};
     std::atomic<float>* _outputParam{nullptr};
 
@@ -222,6 +229,8 @@ class ProfilerAudioProcessor : public juce::AudioProcessor {
     std::atomic<float>* _isEqEnabledParam{nullptr};
     std::atomic<float>* _isGateEnabledParam{nullptr};
     std::atomic<float>* _isAmpEnabledParam{nullptr};
+    std::atomic<float>* _ampLevelMatchParam{nullptr};
+    std::atomic<float>* _outputLimiterParam{nullptr};
     std::atomic<float>* _isCabEnabledParam{nullptr};
     std::atomic<float>* _cabLowCutParam{nullptr};
     std::atomic<float>* _isPedalEnabledParam{nullptr};
